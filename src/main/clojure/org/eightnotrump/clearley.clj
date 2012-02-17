@@ -59,8 +59,8 @@
 (defprotocol EarleyItem
   (get-key [self])
   (predict [self])
-  (escan [self input]))
-; (merge [self other-item])) ; impl this later to support disambiguity
+  (escan [self input])
+  (emerge [self other-item])) ; impl this later to support disambiguity
 
 (defprotocol Completer
   (complete [self match]))
@@ -74,10 +74,10 @@
       (map (fn [prediction]
              (REarleyItem. prediction rulemap
                            [(reify Completer
-                             (complete [self2 match2]
-                               (REarleyItem. (advance cfgitem)
-                                             rulemap completers
-                                             (conj match match2)))
+                              (complete [self2 match2]
+                                (REarleyItem. (advance cfgitem)
+                                              rulemap completers
+                                              (conj match match2)))
                               (toString [self]
                                 (str "complete " cfgitem)))]
                            []))
@@ -85,8 +85,14 @@
   (escan [self input]
     (map #(REarleyItem. % rulemap completers (conj match input))
          (iscan cfgitem input)))
+<<<<<<< HEAD
   ; (merge [self other-item]
   ;       (throw (UnsupportedOperationException.)))
+=======
+  (emerge [self other-item]
+    (REarleyItem. cfgitem rulemap (concat (:completers other-item) completers)
+                  match)) ; support match merging later
+>>>>>>> 9a0d7ee... Parser works!
   (toString [self]
     (apply str cfgitem "|" completers)))
 
@@ -107,18 +113,26 @@
   Chart
   (add [self item]
     (let [ikey (get-key item)]
+<<<<<<< HEAD
       (if-let [previtem (get chartmap ikey)]
         self ; we'll support disambiguity later
+=======
+      (if-let [previndex (get chartmap ikey)]
+        (let [merged-item (emerge item (get chartvec previndex))]
+          (RChart. (assoc chartvec previndex merged-item) chartmap dot))
+>>>>>>> 9a0d7ee... Parser works!
         (RChart. (conj chartvec item)
-                 (assoc chartmap ikey item) dot))))
+                 (assoc chartmap ikey (count chartvec)) dot))))
   (cfirst [self]
     (if (not (= dot (count chartvec)))
       (get chartvec dot)))
   (crest [self]
     (RChart. chartvec chartmap (inc dot)))
   (toString [self]
-    (apply str (update-in (vec (map #(str % "\n") chartvec))
-                          [dot] #(str "* "%)))))
+    (if (= dot (count chartvec))
+      (apply str (map #(str % "\n") chartvec))
+      (apply str (update-in (vec (map #(str % "\n") chartvec))
+                            [dot] #(str "* " %))))))
 
 (defn new-chart [] (RChart. [] {} 0))
 (def mychart (new-chart))
@@ -126,7 +140,24 @@
 (defn parse-chart [pchart1 pchart2 input]
   (loop [chart1 pchart1 chart2 pchart2]
     (if-let [sitem (cfirst chart1)]
-      (do (dorun (map #(print (str % "\n-\n")) [chart1 chart2 input]))
+      (do ;(println (apply str (interleave [chart1 chart2] (repeat "\n-\n"))))
         (recur (crest (reduce add chart1 (predict sitem)))
                (reduce add chart2 (escan sitem input))))
       [chart1 chart2])))
+
+(defn str-charts [charts]
+  (apply str (interleave
+               (repeat "---\n")
+               charts)))
+
+(defn parse [inputstr rulemap head]
+  (loop [str1 inputstr charts [(add (new-chart) (earley-item head rulemap))]]
+    (if-let [thechar (first str1)]
+      (let [[chart1 chart2] (parse-chart (peek charts) (new-chart) thechar)
+            charts2 (conj (conj (pop charts) chart1) chart2)]
+        (if (cfirst chart2)
+          (recur (rest str1) charts2)
+          charts2)) ; early termination on failure
+      ; end step
+      (let [[finalchart _] (parse-chart (peek charts) new-chart (Object.))]
+        (conj (pop charts) finalchart)))))
