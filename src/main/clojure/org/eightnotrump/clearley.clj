@@ -1,22 +1,11 @@
 (ns org.eightnotrump.clearley
-  (:use (clojure pprint))
-  (:import (org.eightnotrump.clearley Ruletype)))
+  (:use (clojure pprint)))
 
 ; A production rule.
 (defrecord Rule [head clauses])
 
-; Example taken from Wikipedia Earley parsing page
-(def myruleset [(Rule. :head [:sum])
-                (Rule. :sum [:sum \+ :times])
-                (Rule. :sum [:times])
-                (Rule. :times [:times \* :num])
-                (Rule. :times [:num])
-                (Rule. :num [\1])
-                (Rule. :num [\2])
-                (Rule. :num [\3])
-                (Rule. :num [\4])])
-
-(def myinput "2*3+4")
+(defn rule [head & clauses]
+  (Rule. head (vec clauses)))
 
 (defn add-to-rulemap [rulemap rule]
   (let [head (get rule :head)
@@ -26,22 +15,20 @@
 (defn to-rulemap [ruleseq]
   (reduce add-to-rulemap {} ruleseq))
 
-(def myrulemap (to-rulemap myruleset))
-
-(defprotocol CfgItem
+(defprotocol Item
   (ipredict [self rulemap])
   (iscan [self input])
   (is-complete [self])
   (advance [self]))
 
 (defrecord RItem [head dot clauses]
-  CfgItem
+  Item
   (ipredict [self rulemap]
     (if (= dot (count clauses))
       []
       (let [head2 (get clauses dot)]
         (map #(RItem. head2 0 %)
-             (get rulemap head2 []))))) ; todo what if empty?
+             (get rulemap head2 [])))))
   (iscan [self input]
     (if (and (not (= dot (count clauses)))
              (= (get clauses dot) input))
@@ -60,7 +47,7 @@
   (get-key [self])
   (predict [self])
   (escan [self input])
-  (emerge [self other-item])) ; impl this later to support disambiguity
+  (emerge [self other-item]))
 
 (defprotocol Completer
   (complete [self match]))
@@ -70,7 +57,7 @@
   (get-key [self] cfgitem)
   (predict [self]
     (if (is-complete cfgitem)
-      (map #(complete % match) completers)
+      (remove nil? (map #(complete % match) completers))
       (map (fn [prediction]
              (REarleyItem. prediction rulemap
                            [(reify Completer
@@ -85,24 +72,24 @@
   (escan [self input]
     (map #(REarleyItem. % rulemap completers (conj match input))
          (iscan cfgitem input)))
-<<<<<<< HEAD
-  ; (merge [self other-item]
-  ;       (throw (UnsupportedOperationException.)))
-=======
   (emerge [self other-item]
     (REarleyItem. cfgitem rulemap (concat (:completers other-item) completers)
                   match)) ; support match merging later
->>>>>>> 9a0d7ee... Parser works!
   (toString [self]
     (apply str cfgitem "|" completers)))
 
-(defn initial-ritem [rulename rulemap]
+(deftype CompletedItem []
+  EarleyItem
+  (get-key [self] (Object.))
+  (predict [self] [])
+  (escan [self input] [])
+  (emerge [self other-item] self)
+  (toString [self] "accept"))
+
+(defn earley-item [rulename rulemap completers]
   (REarleyItem.
     (RItem. rulename 0 (first (get rulemap rulename [])))
-    rulemap [] []))
-
-(def myitem (initial-ritem :head myrulemap))
-(def myitem2 (initial-ritem :num myrulemap))
+    rulemap completers []))
 
 (defprotocol Chart
   (add [self item])
@@ -113,14 +100,9 @@
   Chart
   (add [self item]
     (let [ikey (get-key item)]
-<<<<<<< HEAD
-      (if-let [previtem (get chartmap ikey)]
-        self ; we'll support disambiguity later
-=======
       (if-let [previndex (get chartmap ikey)]
         (let [merged-item (emerge item (get chartvec previndex))]
           (RChart. (assoc chartvec previndex merged-item) chartmap dot))
->>>>>>> 9a0d7ee... Parser works!
         (RChart. (conj chartvec item)
                  (assoc chartmap ikey (count chartvec)) dot))))
   (cfirst [self]
@@ -135,7 +117,6 @@
                             [dot] #(str "* " %))))))
 
 (defn new-chart [] (RChart. [] {} 0))
-(def mychart (new-chart))
 
 (defn parse-chart [pchart1 pchart2 input]
   (loop [chart1 pchart1 chart2 pchart2]
@@ -150,8 +131,8 @@
                (repeat "---\n")
                charts)))
 
-(defn parse [inputstr rulemap head]
-  (loop [str1 inputstr charts [(add (new-chart) (earley-item head rulemap))]]
+(defn parsefn [inputstr rulemap head completers]
+  (loop [str1 inputstr charts [(add (new-chart) (earley-item head rulemap completers))]]
     (if-let [thechar (first str1)]
       (let [[chart1 chart2] (parse-chart (peek charts) (new-chart) thechar)
             charts2 (conj (conj (pop charts) chart1) chart2)]
@@ -161,3 +142,17 @@
       ; end step
       (let [[finalchart _] (parse-chart (peek charts) new-chart (Object.))]
         (conj (pop charts) finalchart)))))
+
+(defprotocol Parser
+  (parse [self input]))
+
+(defn earley-parser [rulemap head]
+  (reify Parser
+    (parse [self input] 
+      (let [return-match (atom [])
+            return-completer (reify Completer
+                               (complete [self match]
+                                 (swap! return-match #(conj % match))
+                                 (CompletedItem.)))]
+        (parsefn input rulemap head [return-completer])
+        @return-match))))
