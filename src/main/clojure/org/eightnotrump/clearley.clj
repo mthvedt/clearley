@@ -49,6 +49,14 @@
   (escan [self input])
   (emerge [self other-item]))
 
+(deftype CompletedItem []
+  EarleyItem
+  (get-key [self] (Object.))
+  (predict [self] [])
+  (escan [self input] [])
+  (emerge [self other-item] self)
+  (toString [self] "Accept"))
+
 (defprotocol Completer
   (complete [self match]))
 
@@ -57,39 +65,29 @@
   (get-key [self] cfgitem)
   (predict [self]
     (if (is-complete cfgitem)
-      (remove nil? (map #(complete % match) completers))
+      (map #(complete % match) @completers)
       (map (fn [prediction]
              (REarleyItem. prediction rulemap
-                           [(reify Completer
-                              (complete [self2 match2]
-                                (REarleyItem. (advance cfgitem)
-                                              rulemap completers
-                                              (conj match match2)))
-                              (toString [self]
-                                (str "complete " cfgitem)))]
+                           (atom [(reify Completer
+                                    (complete [self2 match2]
+                                      (REarleyItem. (advance cfgitem)
+                                                    rulemap completers
+                                                    (conj match match2)))
+                                    (toString [self]
+                                      (str "complete " cfgitem)))])
                            []))
            (ipredict cfgitem rulemap))))
   (escan [self input]
     (map #(REarleyItem. % rulemap completers (conj match input))
          (iscan cfgitem input)))
   (emerge [self other-item]
-    (REarleyItem. cfgitem rulemap (concat (:completers other-item) completers)
-                  match)) ; support match merging later
+    (swap! completers #(concat % (deref (:completers other-item)))))
   (toString [self]
-    (apply str cfgitem "|" completers)))
+    (apply str cfgitem "|" completers ":" (interleave @completers (repeat " ")))))
 
-(deftype CompletedItem []
-  EarleyItem
-  (get-key [self] (Object.))
-  (predict [self] [])
-  (escan [self input] [])
-  (emerge [self other-item] self)
-  (toString [self] "accept"))
-
-(defn earley-item [rulename rulemap completers]
-  (REarleyItem.
-    (RItem. rulename 0 (first (get rulemap rulename [])))
-    rulemap completers []))
+(defn earley-items [rulename rulemap completers]
+  (map #(REarleyItem. (RItem. rulename 0 %) rulemap (atom completers) [])
+       (get rulemap rulename [])))
 
 (defprotocol Chart
   (add [self item])
@@ -101,8 +99,7 @@
   (add [self item]
     (let [ikey (get-key item)]
       (if-let [previndex (get chartmap ikey)]
-        (let [merged-item (emerge item (get chartvec previndex))]
-          (RChart. (assoc chartvec previndex merged-item) chartmap dot))
+        (do (emerge (get chartvec previndex) item) self)
         (RChart. (conj chartvec item)
                  (assoc chartmap ikey (count chartvec)) dot))))
   (cfirst [self]
@@ -121,9 +118,8 @@
 (defn parse-chart [pchart1 pchart2 input]
   (loop [chart1 pchart1 chart2 pchart2]
     (if-let [sitem (cfirst chart1)]
-      (do ;(println (apply str (interleave [chart1 chart2] (repeat "\n-\n"))))
-        (recur (crest (reduce add chart1 (predict sitem)))
-               (reduce add chart2 (escan sitem input))))
+      (recur (crest (reduce add chart1 (predict sitem)))
+             (reduce add chart2 (escan sitem input)))
       [chart1 chart2])))
 
 (defn str-charts [charts]
@@ -132,7 +128,8 @@
                charts)))
 
 (defn parsefn [inputstr rulemap head completers]
-  (loop [str1 inputstr charts [(add (new-chart) (earley-item head rulemap completers))]]
+  (loop [str1 inputstr charts [(reduce add (new-chart)
+                                       (earley-items head rulemap completers))]]
     (if-let [thechar (first str1)]
       (let [[chart1 chart2] (parse-chart (peek charts) (new-chart) thechar)
             charts2 (conj (conj (pop charts) chart1) chart2)]
@@ -140,7 +137,7 @@
           (recur (rest str1) charts2)
           charts2)) ; early termination on failure
       ; end step
-      (let [[finalchart _] (parse-chart (peek charts) new-chart (Object.))]
+      (let [[finalchart _] (parse-chart (peek charts) (new-chart) (Object.))]
         (conj (pop charts) finalchart)))))
 
 (defprotocol Parser
@@ -152,7 +149,10 @@
       (let [return-match (atom [])
             return-completer (reify Completer
                                (complete [self match]
-                                 (swap! return-match #(conj % match))
-                                 (CompletedItem.)))]
+                                 ; this is ugly... squelches all matches but the last
+                                 ; means no meaningful disambiguation
+                                 (swap! return-match (fn [_] match))
+                                 (CompletedItem.))
+                               (toString [self] "accept"))]
         (parsefn input rulemap head [return-completer])
         @return-match))))

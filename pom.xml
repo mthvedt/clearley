@@ -4,7 +4,7 @@
 
   <groupId>eightnotrump</groupId>
   <artifactId>clearley</artifactId>
-  <version>0.1-SNAPSHOT</version>
+  <version>0.1.0-SNAPSHOT</version>
   <!-- todo how to deploy clojure to a jar? -->
   <packaging>clojure</packaging>
 
