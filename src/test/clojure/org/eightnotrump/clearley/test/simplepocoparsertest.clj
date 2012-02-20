@@ -12,9 +12,7 @@
                           (rule :num \3)
                           (rule :num \4)])
 
-(def base-parser-rulemap (to-rulemap base-parser-ruleset))
-
-(def base-parser (earley-parser base-parser-rulemap :sum))
+(def base-parser (earley-parser base-parser-ruleset :sum))
 
 ; (defn test-ns-hook [] nil) ; Tell clojure.test to ignore tests in this file
 
@@ -33,3 +31,9 @@
   (is-parse [[[[\2]]] \+ [[[\3]] \* [\4]]] "2+3*4")
   (is-parse [[[[[\1]]] \+ [[[\2]] \* [\3]]] \+ [[[\4]] \* [\1]]] "1+2*3+4*1"))
   ; todo: add test for incomplete parse.
+
+(def weird-ruleset [(rule :head :a :b)
+                    (rule :a :a :b \a)
+                    (rule :b :a :b \b)])
+
+(def weird-parser (earley-parser weird-ruleset :head))
