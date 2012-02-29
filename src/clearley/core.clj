@@ -1,4 +1,4 @@
-(ns org.eightnotrump.clearley
+(ns clearley.core
   "A generalized Earley parser, in Clojure. Designed to have an easy-to-use
   context free grammar notation. It can operate on any seq of input, not just
   text, and works without further fuss. In addition it can produce

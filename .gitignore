@@ -1,4 +1,6 @@
+lib/*
 target/*
+.lein*
 *.swp
 *.iml
 .idea/*

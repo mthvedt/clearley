@@ -1,7 +1,7 @@
-(ns org.eightnotrump.clearley.test.simplepocoparsertest
+(ns clearley.test.simplepocoparsertest
   "A simple unit test suite for a simple CFG parser that emits ASTs of POCOs
   (Plain Old Clojure Objects)."
-  (:use org.eightnotrump.clearley clojure.test))
+  (:use clearley.core clojure.test))
 
 (def base-parser-ruleset [(rule :sum :sum \+ :times)
                           (rule :sum :times)
