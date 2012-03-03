@@ -1,95 +1,105 @@
 (ns clearley.core
-  "A generalized Earley parser, in Clojure. Designed to have an easy-to-use
-  context free grammar notation. It can operate on any seq of input, not just
-  text, and works without further fuss. In addition it can produce
-  parse charts if you want to look under the hood."
-  (:use (clojure test)))
+  "An easy-to-use, generalized context-free grammar parser. It will
+  accept any seq of inputs, not just text, and parse any context-free grammar.
+  Emphasis is on ease of use and dynamic/exploratory programming."
+  (:use (clojure test) clearley.utils))
 
-; todo: publish this protocol
-(defprotocol ^:private Item
-  (head [item])
-  (body [item])
-  (ipredict [self grammar])
-  (iscan [self input])
-  (is-complete [self])
-  (advance [self]))
+(defprotocol Rule
+  (head [rule] "Returns this rule's head symbol.")
+  (clauses [rule] "Returns an indexed seq of this rule's symbols."))
 
-(defn- separate-str [theseq separator]
-  (apply str (drop 1 (interleave (repeat separator) theseq))))
+(defrecord RuleImpl [ahead aclauses]
+  Rule
+  (head [_] ahead)
+  (clauses [_] aclauses)
+  (toString [_] (str ahead " -> " (separate-str aclauses " "))))
 
-(defrecord ^:private CFGItem [head dot clauses]
-  Item
-  (head [self] head)
-  (body [self] clauses)
-  (ipredict [self grammar]
-    (if (= dot (count clauses))
-      []
-      (let [head2 (get clauses dot)]
-        (get grammar head2 []))))
-  (iscan [self input]
-    (if (and (not (= dot (count clauses)))
-             (= (get clauses dot) input))
-      [(CFGItem. head (inc dot) clauses)]
-      []))
-  (is-complete [self]
-    (= dot (count clauses)))
-  (advance [self]
-    (CFGItem. head (inc dot) clauses))
-  (toString [self]
-    (str head " -> "
-         (if (= dot 0)
-           (separate-str clauses " ")
-           (separate-str (concat (take dot clauses) ["*"] (drop dot clauses)) " ")))))
+(defn- action-rule ; todo figure this out
+  "Creates a rule associated with a parse action that can be called
+  after matching."
+  [[head & clauses] action]
+  (RuleImpl. head (vec clauses)))
 
+; todo symbol is a bad choice of words... letters perhaps?
 (defn rule
   "Creates a context-free grammar rule that matches the first given symbol
   (the head symbol) to a sequence of subsymbols (the clauses).
   Any object may be a symbol."
   [head & clauses]
-  (CFGItem. head 0 (vec clauses)))
+  (action-rule (apply vector head clauses) (fn [& args] args)))
 
-(defn- add-to-grammar [grammar rule]
-  (assoc grammar (head rule) (conj (get grammar (head rule) []) rule)))
+; A grammar maps rule heads to rules
+(defn grammar [rules]
+  (group-by head rules))
 
-(defprotocol ^:private EarleyItem
+(defprotocol Match
+  (match-rule [match] "Returns the rule corresponding to the given match.
+                      If a token, returns that token.")
+  (submatches [match] "Returns the submatches of the given match."))
+  ; (take-action [match] "Executes any parse action corresponding to the match."))
+
+(defn token-match [token]
+  (reify Match
+    (match-rule [match] token)
+    (submatches [match] [])))
+    ; (take-action [match] token)))
+
+(defprotocol EarleyItem
   (get-key [self])
   (predict [self])
   (escan [self input])
-  (emerge [self other-item]))
+  (is-complete [self])
+  (emerge [self other-item])
+  (ematch [self]))
 
-(defprotocol ^:private Completer
+(defprotocol Completer
   (complete [self match]))
 
-(defrecord ^:private REarleyItem [cfgitem grammar completers match]
+(defrecord REarleyItem [rule dot grammar completers match]
   EarleyItem
-  (get-key [self] cfgitem)
+  (get-key [self] [rule dot])
   (predict [self]
-    (if (is-complete cfgitem)
-      (map #(complete % match) @completers)
+    (if (= dot (count (clauses rule)))
+      (map #(complete % (ematch self)) @completers)
       (map (fn [prediction]
-             (REarleyItem. prediction grammar
+             (REarleyItem. prediction 0 grammar
                            (atom [(reify Completer
                                     (complete [self2 match2]
-                                      (REarleyItem. (advance cfgitem)
+                                      (REarleyItem. rule (inc dot)
                                                     grammar completers
                                                     (conj match match2)))
                                     (toString [self]
-                                      (str "complete " cfgitem)))])
+                                      (str "complete " rule)))]) ; todo better tostr
                            []))
-           (ipredict cfgitem grammar))))
+             (get grammar (get (clauses rule) dot) []))))
   (escan [self input]
-    (map #(REarleyItem. % grammar completers (conj match input))
-         (iscan cfgitem input)))
+    (if (and (not (= dot (count (clauses rule))))
+             (= (get (clauses rule) dot) input))
+      [(REarleyItem. rule (inc dot) grammar completers
+                     (conj match (token-match input)))]
+      []))
+  (is-complete [_]
+    (= dot (count (clauses rule))))
   (emerge [self other-item]
-    (swap! completers #(concat % (deref (:completers other-item)))))
-  (toString [self]
-    (apply str cfgitem "|" completers ":" (interleave @completers (repeat " ")))))
+    (swap! completers #(concat % (deref (:completers other-item))))
+    nil)
+  (ematch [self]
+    (reify Match
+      (match-rule [_] rule)
+      (submatches [_] match)))
+      ; (take-action [_] (apply (:action cfgitem) match))))
+  (toString [_]
+    (str (head rule) " -> "
+         (separate-str (concat (take dot (clauses rule)) ["*"]
+                               (drop dot (clauses rule)) ["|"]
+                               @completers)
+                       " "))))
 
 (defn- earley-items [rulename grammar]
-  (map #(REarleyItem. % grammar (atom []) [])
+  (map #(REarleyItem. % 0 grammar (atom []) [])
        (get grammar rulename [])))
 
-(defprotocol ^:private Chart
+(defprotocol Chart
   (add [self item])
   (cfirst [self])
   (crest [self])
@@ -130,9 +140,9 @@
       [chart1 chart2])))
 
 (defn- scan-for-completions [chart thehead]
-  (map :match (filter (fn [ritem]
-                        (let [cfgitem (:cfgitem ritem)]
-                          (and (= (head cfgitem) thehead) (is-complete cfgitem))))
+  (map ematch (filter (fn [ritem]
+                        (let [rule (:rule ritem)]
+                          (and (= (head rule) thehead) (is-complete ritem))))
                       (chart-seq chart))))
 
 (defn- parsefn [inputstr grammar goal]
@@ -149,18 +159,36 @@
         (conj (pop charts) finalchart)))))
 
 (defprotocol Parser
-  (parse [parser input] "Parse the given input with the given parser.")
+  (parse [parser input] "Parse the given input with the given parser,
+                        yielding a syntax tree where the leaves are the input.")
+  (match [parser input] "Parse the given input with the given parser,
+                        yielding match objects.")
   (charts [parser input] "Parse the given input with the given parser,
                          yielding the parse charts."))
+
+(defn match-rules
+  "Parse the given input with the given parser, returning a tree of the rules matched
+  in the form of a lazy seq (rule & subtrees)."
+  [parser input]
+  ((fn f [match] (cons (match-rule match) (map f (submatches match))))
+     (match parser input)))
 
 (defn earley-parser
   "Constructs an Earley parser, provided with a seq of rules and a predefined
   goal symbol. The parser will attempt to match the given input to the goal symbol,
   given the rules provided."
   [rules goal]
-  (let [grammar (reduce add-to-grammar {} rules)]
+  (let [grammar (grammar rules)]
     (reify Parser
-      (parse [parser input]
+      (match [parser input]
         (first (scan-for-completions (peek (charts parser input)) goal)))
+      (parse [parser input]
+        (if-let [match (match parser input)]
+          ((fn f [x]
+             (let [xs (submatches x)]
+               (if (empty? xs)
+                 (match-rule x)
+                 (vec (map f xs)))))
+             match)))
       (charts [parser input]
         (parsefn input grammar goal)))))
