@@ -17,7 +17,7 @@
 
 (def simple-parser-grammar (grammar simple-parser-rules))
 
-(def simple-parser (earley-parser simple-parser-rules :sum))
+(def simple-parser (earley-parser :sum simple-parser-rules))
 
 (deftest grammars
   (is (= [sum1 sum2] (vec (get simple-parser-grammar :sum)))))
@@ -69,19 +69,34 @@
   (is (not (tree-eq [\1 []] [\1])))
   (is (not (tree-eq [] nil))))
 
+(defmacro is-match [expected testval]
+  `(is (tree-eq ~expected (match-rules local-parser ~testval))))
+
 (deftest simple-match-test
-  (is (tree-eq [sum2 [(rule :times :num) [num1 [\1]]]]
-               (match-rules simple-parser "1")))
-  (is (tree-eq [sum2 [(rule :times :num) [(rule :num \5 \5) [\5] [\5]]]]
-               (match-rules simple-parser "55")))
-  (is (tree-eq [sum1 [sum1 [sum2 [(rule :times :num) [num1 [\1]]]] [\+]
-                      [(rule :times :times \* :num)
-                       [(rule :times :num) [(rule :num \2) [\2]]]
-                       [\*] [(rule :num \3) [\3]]]]
-                [\+]
-                [(rule :times :times \* :num) [(rule :times :num) [(rule :num \4) [\4]]]
-                 [\*] [(rule :num \5 \5) [\5] [\5]]]]
-               (match-rules simple-parser "1+2*3+4*55"))))
+  (with-parser simple-parser
+    (is-match [sum2 [(rule :times :num) [num1 [\1]]]] "1")
+    (is-match [sum2 [(rule :times :num) [(rule :num \5 \5) [\5] [\5]]]] "55")
+    (is-match [sum1 [sum1 [sum2 [(rule :times :num) [num1 [\1]]]] [\+]
+                     [(rule :times :times \* :num)
+                      [(rule :times :num) [(rule :num \2) [\2]]]
+                      [\*] [(rule :num \3) [\3]]]]
+               [\+]
+               [(rule :times :times \* :num) [(rule :times :num) [(rule :num \4) [\4]]]
+                [\*] [(rule :num \5 \5) [\5] [\5]]]]
+              "1+2*3+4*55")))
+
+(defn letter-to-num [thechar]
+  (if (java.lang.Character/isLetter thechar)
+    (char (- (int thechar) 48))
+    thechar))
+
+(def letter-to-num-parser (earley-parser :sum letter-to-num simple-parser-rules))
+
+(deftest simple-tokenizer-test
+  (with-parser letter-to-num-parser
+    (is-parse [[[\a]]] "a")
+    (is-parse [[[[[\a]]] \+ [[[\2]] \* [\c]]] \+ [[[\d]] \* [\1]]] "a+2*c+d*1")
+    (is-match [sum2 [(rule :times :num) [num1 [\a]]]] "a")))
 
 ; (def weird-ruleset [(rule :head :a :b)
 ;                     (rule :a :a :b \a)

@@ -47,7 +47,7 @@
 (defprotocol EarleyItem
   (get-key [self])
   (predict [self])
-  (escan [self input])
+  (escan [self input-token input])
   (is-complete [self])
   (emerge [self other-item])
   (ematch [self]))
@@ -72,9 +72,9 @@
                                       (str "complete " rule)))]) ; todo better tostr
                            []))
              (get grammar (get (clauses rule) dot) []))))
-  (escan [self input]
+  (escan [self input-token input]
     (if (and (not (= dot (count (clauses rule))))
-             (= (get (clauses rule) dot) input))
+             (= (get (clauses rule) dot) input-token))
       [(REarleyItem. rule (inc dot) grammar completers
                      (conj match (token-match input)))]
       []))
@@ -132,11 +132,11 @@
                (repeat "---\n")
                charts)))
 
-(defn- parse-chart [pchart1 pchart2 input]
+(defn- parse-chart [pchart1 pchart2 input-token input]
   (loop [chart1 pchart1 chart2 pchart2]
     (if-let [sitem (cfirst chart1)]
       (recur (crest (reduce add chart1 (predict sitem)))
-             (reduce add chart2 (escan sitem input)))
+             (reduce add chart2 (escan sitem input-token input)))
       [chart1 chart2])))
 
 (defn- scan-for-completions [chart thehead]
@@ -145,17 +145,19 @@
                           (and (= (head rule) thehead) (is-complete ritem))))
                       (chart-seq chart))))
 
-(defn- parsefn [inputstr grammar goal]
+(defn- parsefn [inputstr grammar tokenizer goal]
   (loop [str1 inputstr charts [(reduce add (new-chart)
                                        (earley-items goal grammar))]]
     (if-let [thechar (first str1)]
-      (let [[chart1 chart2] (parse-chart (peek charts) (new-chart) thechar)
+      (let [thetoken (tokenizer thechar)
+            [chart1 chart2] (parse-chart (peek charts) (new-chart) thetoken thechar)
             charts2 (conj (conj (pop charts) chart1) chart2)]
         (if (cfirst chart2)
           (recur (rest str1) charts2)
           charts2)) ; early termination on failure
       ; end step
-      (let [[finalchart _] (parse-chart (peek charts) (new-chart) (Object.))]
+      ; todo: not this hack, separate finish-chart fn?
+      (let [[finalchart _] (parse-chart (peek charts) (new-chart) (Object.) (Object.))]
         (conj (pop charts) finalchart)))))
 
 (defprotocol Parser
@@ -176,8 +178,11 @@
 (defn earley-parser
   "Constructs an Earley parser, provided with a seq of rules and a predefined
   goal symbol. The parser will attempt to match the given input to the goal symbol,
-  given the rules provided."
-  [rules goal]
+  given the rules provided. The tokenizer should be a fn that maps input objects
+  to the input tokens used in your grammar."
+  ([goal rules]
+   (earley-parser goal identity rules))
+  ([goal tokenizer rules]
   (let [grammar (grammar rules)]
     (reify Parser
       (match [parser input]
@@ -191,4 +196,16 @@
                  (vec (map f xs)))))
              match)))
       (charts [parser input]
-        (parsefn input grammar goal)))))
+        (parsefn input grammar tokenizer goal))))))
+
+#_(defn transform-parser [f parser]
+  "Creates a new parser that composes the given parser with the given mapfn.
+  The mapfn should accept one arg--an input stream--and return an input stream
+  for the parser to consume.
+  Useful for, for example, applying a tokenization pass."
+  (reify Parser
+    (match [parser input] (match parser (f input)))
+    (parse [parser input] (parse parser (f input)))
+    (charts [parser input] (charts parser (f input)))))
+
+; TODO def rule.
