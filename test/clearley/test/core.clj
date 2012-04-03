@@ -98,6 +98,25 @@
     (is-parse [[[[[\a]]] \+ [[[\2]] \* [\c]]] \+ [[[\d]] \* [\1]]] "a+2*c+d*1")
     (is-match [sum2 [(rule :times :num) [num1 [\a]]]] "a")))
 
+(def calculator-rules
+  [(rulefn :sum [:sum \+ :times] (fn [a _ b] (+ a b)))
+   (rulefn :sum [:times] identity)
+   (rulefn :times [:times \* :num] (fn [a _ b] (* a b)))
+   (rulefn :times [:num] identity)
+   (rulefn :num [\2] (fn [_] 2))
+   (rulefn :num [\3] (fn [_] 3))])
+
+(def calculator-parser (earley-parser :sum calculator-rules))
+
+(defmacro is-action [expected testval]
+  `(is= ~expected (take-action (match local-parser ~testval))))
+
+(deftest calculator-test
+  (with-parser calculator-parser
+    (is-action 5 "2+3")
+    (is-action 6 "2*3")
+    (is-action 19 "2*3+2*2+3*3")))
+
 ; (def weird-ruleset [(rule :head :a :b)
 ;                     (rule :a :a :b \a)
 ;                     (rule :b :a :b \b)])

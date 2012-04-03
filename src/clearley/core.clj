@@ -6,19 +6,24 @@
 
 (defprotocol Rule
   (head [rule] "Returns this rule's head symbol.")
-  (clauses [rule] "Returns an indexed seq of this rule's symbols."))
+  (clauses [rule] "Returns an indexed seq of this rule's symbols.")
+  (action [rule] "Returns this rule's parse action."))
+; TODO: really defprotocol?
 
-(defrecord RuleImpl [ahead aclauses]
+(defrecord RuleImpl [ahead aclauses aaction]
   Rule
   (head [_] ahead)
   (clauses [_] aclauses)
+  (action [_] aaction)
   (toString [_] (str ahead " -> " (separate-str aclauses " "))))
 
-(defn- action-rule ; todo figure this out
+(defn rulefn
   "Creates a rule associated with a parse action that can be called
   after matching."
-  [[head & clauses] action]
-  (RuleImpl. head (vec clauses)))
+  [head clauses action]
+  (RuleImpl. head (vec clauses) action))
+
+(defn- list-identity [& args] args)
 
 ; todo symbol is a bad choice of words... letters perhaps?
 (defn rule
@@ -26,7 +31,13 @@
   (the head symbol) to a sequence of subsymbols (the clauses).
   Any object may be a symbol."
   [head & clauses]
-  (action-rule (apply vector head clauses) (fn [& args] args)))
+  (rulefn head clauses list-identity))
+
+(extend-protocol Rule
+  Object
+  (head [rule] rule)
+  (clauses [rule] [])
+  (action [rule] (fn [] rule)))
 
 ; A grammar maps rule heads to rules
 (defn grammar [rules]
@@ -198,14 +209,12 @@
       (charts [parser input]
         (parsefn input grammar tokenizer goal))))))
 
-#_(defn transform-parser [f parser]
-  "Creates a new parser that composes the given parser with the given mapfn.
-  The mapfn should accept one arg--an input stream--and return an input stream
-  for the parser to consume.
-  Useful for, for example, applying a tokenization pass."
-  (reify Parser
-    (match [parser input] (match parser (f input)))
-    (parse [parser input] (parse parser (f input)))
-    (charts [parser input] (charts parser (f input)))))
-
-; TODO def rule.
+(defn take-action [match]
+  (let [subactions (map take-action (submatches match))]
+    (try
+      (apply (action (match-rule match)) subactions)
+      (catch clojure.lang.ArityException e
+        (throw (RuntimeException. (str "Wrong # of params taking action for rule "
+                                       (head (match-rule match)) ", "
+                                       "was given " (count subactions))
+                                  e))))))
