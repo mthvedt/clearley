@@ -2,6 +2,7 @@
   "An easy-to-use, generalized context-free grammar parser. It will
   accept any seq of inputs, not just text, and parse any context-free grammar.
   Emphasis is on ease of use and dynamic/exploratory programming."
+  (:require (clojure string))
   (:use (clojure test) clearley.utils))
 
 (defprotocol Rule
@@ -47,13 +48,13 @@
   (match-rule [match] "Returns the rule corresponding to the given match.
                       If a token, returns that token.")
   (submatches [match] "Returns the submatches of the given match."))
-  ; (take-action [match] "Executes any parse action corresponding to the match."))
+; (take-action [match] "Executes any parse action corresponding to the match."))
 
 (defn token-match [token]
   (reify Match
     (match-rule [match] token)
     (submatches [match] [])))
-    ; (take-action [match] token)))
+; (take-action [match] token)))
 
 (defprotocol EarleyItem
   (get-key [self])
@@ -82,7 +83,7 @@
                                     (toString [self]
                                       (str "complete " rule)))]) ; todo better tostr
                            []))
-             (get grammar (get (clauses rule) dot) []))))
+           (get grammar (get (clauses rule) dot) []))))
   (escan [self input-token input]
     (if (and (not (= dot (count (clauses rule))))
              (= (get (clauses rule) dot) input-token))
@@ -98,7 +99,7 @@
     (reify Match
       (match-rule [_] rule)
       (submatches [_] match)))
-      ; (take-action [_] (apply (:action cfgitem) match))))
+  ; (take-action [_] (apply (:action cfgitem) match))))
   (toString [_]
     (str (head rule) " -> "
          (separate-str (concat (take dot (clauses rule)) ["*"]
@@ -194,20 +195,20 @@
   ([goal rules]
    (earley-parser goal identity rules))
   ([goal tokenizer rules]
-  (let [grammar (grammar rules)]
-    (reify Parser
-      (match [parser input]
-        (first (scan-for-completions (peek (charts parser input)) goal)))
-      (parse [parser input]
-        (if-let [match (match parser input)]
-          ((fn f [x]
-             (let [xs (submatches x)]
-               (if (empty? xs)
-                 (match-rule x)
-                 (vec (map f xs)))))
-             match)))
-      (charts [parser input]
-        (parsefn input grammar tokenizer goal))))))
+   (let [grammar (grammar rules)]
+     (reify Parser
+       (match [parser input]
+         (first (scan-for-completions (peek (charts parser input)) goal)))
+       (parse [parser input]
+         (if-let [match (match parser input)]
+           ((fn f [x]
+              (let [xs (submatches x)]
+                (if (empty? xs)
+                  (match-rule x)
+                  (vec (map f xs)))))
+              match)))
+       (charts [parser input]
+         (parsefn input grammar tokenizer goal))))))
 
 (defn take-action [match]
   (let [subactions (map take-action (submatches match))]
@@ -218,3 +219,77 @@
                                        (head (match-rule match)) ", "
                                        "was given " (count subactions))
                                   e))))))
+
+; TODO: is there a better way to do this?
+(defn- dequalify [strable]
+  (let [dequalified (clojure.string/split (str strable) #"/")]
+    (symbol (nth dequalified (dec (count dequalified))))))
+
+(defn- names-to-syms [syms]
+  (map
+    (fn [sym] (cond (seq? sym) '_ ; TODO
+                    (keyword? sym) (dequalify sym)
+                    (symbol? sym) (dequalify sym)
+                    (= java.lang.String (type sym)) (symbol (str sym))
+                    true '_))
+    syms))
+
+(defn- build-defrule-rule-bodies [head impls]
+  ;(println head impls)
+  (vec (map (fn [impl]
+              ;(println impl)
+              (let [clauses (first impl)]
+                ;(println clauses)
+                (if (vector? clauses)
+                  (let [action-bodies (rest impl)
+                        fnsyms (names-to-syms clauses)]
+                    `(rulefn '~head [~@(map (fn [sym] `'~sym) clauses)]
+                             (fn [~@fnsyms] ~@action-bodies)))
+                  (throw (IllegalArgumentException.
+                           "rule clauses must be a vector")))))
+            impls)))
+
+; Macro helper fn. Head: a symbol. impl-or-impls: (bindings bodies+) or
+; ((bindings bodies+)+).
+(defn- build-defrule-bodies [head impl-or-impls]
+  ;(println head impl-or-impls)
+  (let [first-form (first impl-or-impls)]
+    (cond (vector? first-form) (build-defrule-rule-bodies head
+                                                          [(apply list first-form
+                                                                 (rest impl-or-impls))])
+          (seq? first-form) (build-defrule-rule-bodies head impl-or-impls)
+          true (throw (IllegalArgumentException. (str "Not a valid defrule; "
+                                                      "expected clause vector or "
+                                                      "clause-body pairs"))))))
+
+(defmacro defrule [head & impl-or-impls]
+  `(def ~head ~(build-defrule-bodies head impl-or-impls)))
+
+(defmacro extend-rule [head & impl-or-impls]
+  `(def ~head (vec (concat ~head ~(build-defrule-bodies head impl-or-impls)))))
+
+; TODO decide; grammars or ruleseqs?
+
+(defn- grammar-map-env [goal grammar thens theenv]
+  (loop [stack [goal]
+         rgrammar grammar]
+    (let [current-head (first stack)]
+      (cond (nil? current-head) rgrammar ; stack is empty--we are done
+            (contains? rgrammar current-head) (recur (rest stack) rgrammar)
+            (not (symbol? current-head)) (recur (rest stack) rgrammar)
+            true ; so, rule is not in grammar--look it up
+            (let [resolved (ns-resolve thens theenv current-head)]
+              (if (nil? resolved)
+                (throw (IllegalArgumentException.
+                         (str "Cannot resolve rule for head: " current-head)))
+                (recur (concat (mapcat clauses @resolved) stack)
+                       (assoc rgrammar current-head @resolved))))))))
+
+(defn build-grammar-in-env [goal grammar thens theenv]
+  (apply concat (vals (grammar-map-env goal grammar thens theenv))))
+
+(defmacro build-grammar [goal]
+  `(build-grammar-in-env ~goal {} *ns* ~&env))
+
+(defmacro build-parser [goal tokenizer]
+  `(earley-parser '~goal ~tokenizer (build-grammar '~goal)))

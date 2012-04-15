@@ -122,3 +122,40 @@
 ;                     (rule :b :a :b \b)])
 
 ; (def weird-parser (earley-parser weird-ruleset :head))
+
+; TODO: test lr vs ll
+
+(def simple-parser-rules [sum1
+                          sum2
+                          (rule :times :times \* :num)
+                          (rule :times :num)
+                          num1
+                          (rule :num \2)
+                          (rule :num \3)
+                          (rule :num \4)
+                          (rule :num \5 \5)])
+
+(defrule sum
+  ([sum \+ times] (+ sum times))
+  ([times] times))
+(defrule times
+  ([times \* digit] (* times digit))
+  ([digit] digit))
+(defrule digit [\3] 3)
+
+(def parser2 (build-parser sum identity))
+
+(deftest build-parser-test
+  (with-parser parser2
+    (is-action 3 "3")
+    (is-action 9 "3*3")
+    (is-action 6 "3+3")
+    (is-action 15 "3+3*3+3")))
+
+(extend-rule digit [\4] 4)
+(def parser2 (build-parser sum identity))
+
+(deftest extend-rule-test
+  (with-parser parser2
+    (is-action 7 "3+4")
+    (is-action 12 "3*4")))
