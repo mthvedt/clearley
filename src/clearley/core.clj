@@ -5,6 +5,13 @@
   (:require (clojure string))
   (:use (clojure test) clearley.utils))
 
+(defprotocol EStrable
+  (estr [obj] "Returns a shorthand str of this item."))
+
+(defn eprint
+  "Prints a shorthand str of the object to out."
+  ([obj] (print (estr obj))))
+
 (defprotocol Rule
   (head [rule] "Returns this rule's head symbol.")
   (clauses [rule] "Returns an indexed seq of this rule's symbols.")
@@ -16,7 +23,8 @@
   (head [_] ahead)
   (clauses [_] aclauses)
   (action [_] aaction)
-  (toString [_] (str ahead " -> " (separate-str aclauses " "))))
+  EStrable
+  (estr [_] (str ahead " -> " (separate-str aclauses " "))))
 
 (defn rulefn
   "Creates a rule associated with a parse action that can be called
@@ -81,7 +89,8 @@
                                                     grammar completers
                                                     (conj match match2)))
                                     (toString [self]
-                                      (str "complete " rule)))]) ; todo better tostr
+                                      ; TODO work on tostr of completions
+                                      (str "complete " (estr rule))))])
                            []))
            (get grammar (get (clauses rule) dot) []))))
   (escan [self input-token input]
@@ -100,7 +109,8 @@
       (match-rule [_] rule)
       (submatches [_] match)))
   ; (take-action [_] (apply (:action cfgitem) match))))
-  (toString [_]
+  EStrable
+  (estr [_]
     (str (head rule) " -> "
          (separate-str (concat (take dot (clauses rule)) ["*"]
                                (drop dot (clauses rule)) ["|"]
@@ -119,10 +129,17 @@
 
 (defrecord RChart [chartvec chartmap dot]
   Chart
+  ; TODO: recurse completions when re-adding already processed item
   (add [self item]
     (let [ikey (get-key item)]
       (if-let [previndex (get chartmap ikey)]
-        (do (emerge (get chartvec previndex) item) self)
+        (do (emerge (get chartvec previndex) item)
+          (if (and (>= dot previndex) (is-complete item))
+            ; we already processed this item
+            ; but we may need to process extra completions
+            ; TODO: this is awkward... chart is a hybrid of smart and dumb data object
+            (reduce add self (predict item))
+            self))
         (RChart. (conj chartvec item)
                  (assoc chartmap ikey (count chartvec)) dot))))
   (cfirst [self]
@@ -131,10 +148,11 @@
   (crest [self]
     (RChart. chartvec chartmap (inc dot)))
   (chart-seq [self] chartvec)
-  (toString [self]
+  EStrable
+  (estr [self]
     (if (= dot (count chartvec))
-      (apply str (map #(str % "\n") chartvec))
-      (apply str (update-in (vec (map #(str % "\n") chartvec))
+      (apply str (map #(str (estr %) "\n") chartvec))
+      (apply str (update-in (vec (map #(str (estr %) "\n") chartvec))
                             [dot] #(str "* " %))))))
 
 (defn- new-chart [] (RChart. [] {} 0))
@@ -208,7 +226,12 @@
                   (vec (map f xs)))))
               match)))
        (charts [parser input]
+         ; TODO: return entire chart, or just chart seq?
          (parsefn input grammar tokenizer goal))))))
+
+(defn eprint-charts [charts]
+  (dorun (for [chart charts]
+           (println (estr chart)))))
 
 (defn take-action [match]
   (let [subactions (map take-action (submatches match))]
@@ -221,10 +244,12 @@
                                   e))))))
 
 ; TODO: is there a better way to do this?
+; Macro helper fn. Dequalifies a stringable qualified sym or keyword
 (defn- dequalify [strable]
   (let [dequalified (clojure.string/split (str strable) #"/")]
     (symbol (nth dequalified (dec (count dequalified))))))
 
+; Macro helper fn for defrule. Maps rule heads to appropriate unqual'd syms
 (defn- names-to-syms [syms]
   (map
     (fn [sym] (cond (seq? sym) '_ ; TODO
@@ -234,12 +259,11 @@
                     true '_))
     syms))
 
+; Macro helper fn. Builds the `(rulefn ...) bodies for defrule.
+; Head: a symbol. impls: seq of (bindings bodies+) forms.
 (defn- build-defrule-rule-bodies [head impls]
-  ;(println head impls)
   (vec (map (fn [impl]
-              ;(println impl)
               (let [clauses (first impl)]
-                ;(println clauses)
                 (if (vector? clauses)
                   (let [action-bodies (rest impl)
                         fnsyms (names-to-syms clauses)]
@@ -249,10 +273,9 @@
                            "rule clauses must be a vector")))))
             impls)))
 
-; Macro helper fn. Head: a symbol. impl-or-impls: (bindings bodies+) or
-; ((bindings bodies+)+).
+; Macro helper fn. Builds the body for defrule and related macros.
+; Head: a symbol. impl-or-impls: (bindings bodies+) or ((bindings bodies+)+).
 (defn- build-defrule-bodies [head impl-or-impls]
-  ;(println head impl-or-impls)
   (let [first-form (first impl-or-impls)]
     (cond (vector? first-form) (build-defrule-rule-bodies head
                                                           [(apply list first-form
@@ -291,5 +314,8 @@
 (defmacro build-grammar [goal]
   `(build-grammar-in-env ~goal {} *ns* ~&env))
 
-(defmacro build-parser [goal tokenizer]
-  `(earley-parser '~goal ~tokenizer (build-grammar '~goal)))
+(defmacro build-parser
+  ([goal]
+   `(build-parser ~goal identity))
+  ([goal tokenizer]
+   `(earley-parser '~goal ~tokenizer (build-grammar '~goal))))
