@@ -16,7 +16,6 @@
   (head [rule] "Returns this rule's head symbol.")
   (clauses [rule] "Returns an indexed seq of this rule's symbols.")
   (action [rule] "Returns this rule's parse action."))
-; TODO: really defprotocol?
 
 (defrecord RuleImpl [ahead aclauses aaction]
   Rule
@@ -56,13 +55,22 @@
   (match-rule [match] "Returns the rule corresponding to the given match.
                       If a token, returns that token.")
   (submatches [match] "Returns the submatches of the given match."))
-; (take-action [match] "Executes any parse action corresponding to the match."))
 
 (defn token-match [token]
   (reify Match
     (match-rule [match] token)
     (submatches [match] [])))
 ; (take-action [match] token)))
+
+(defprotocol Predictable
+  (predict-symbol [thesymbol grammar]))
+
+(extend-protocol Predictable
+  RuleImpl
+  (predict-symbol [thesymbol grammar] [thesymbol])
+  Object
+  (predict-symbol [thesymbol grammar]
+    (get grammar thesymbol [])))
 
 (defprotocol EarleyItem
   (get-key [self])
@@ -250,14 +258,26 @@
     (symbol (nth dequalified (dec (count dequalified))))))
 
 ; Macro helper fn for defrule. Maps rule heads to appropriate unqual'd syms
-(defn- names-to-syms [syms]
-  (map
-    (fn [sym] (cond (seq? sym) '_ ; TODO
-                    (keyword? sym) (dequalify sym)
-                    (symbol? sym) (dequalify sym)
-                    (= java.lang.String (type sym)) (symbol (str sym))
-                    true '_))
+(defn- clauses-to-syms [syms]
+  (map (fn [sym]
+         (cond (seq? sym) (if-let [thename (first sym)]
+                            thename
+                            (throw (IllegalArgumentException.
+                                     (str "Not a valid subrule: " sym))))
+               (keyword? sym) (dequalify sym)
+               (symbol? sym) (dequalify sym)
+               (= java.lang.String (type sym)) (symbol (str sym))
+               true '_))
     syms))
+
+; Maps rule clauses to the appropriate rule head
+; then wraps it in a quote then a quasiquote
+(defn- clauses-to-rulenames [clauses]
+  (map (fn [sym] `'~sym)
+       (map (fn [clause]
+              (cond (seq? clause) (second clause)
+                    true clause))
+            clauses)))
 
 ; Macro helper fn. Builds the `(rulefn ...) bodies for defrule.
 ; Head: a symbol. impls: seq of (bindings bodies+) forms.
@@ -266,8 +286,9 @@
               (let [clauses (first impl)]
                 (if (vector? clauses)
                   (let [action-bodies (rest impl)
-                        fnsyms (names-to-syms clauses)]
-                    `(rulefn '~head [~@(map (fn [sym] `'~sym) clauses)]
+                        ruleheads (clauses-to-rulenames clauses)
+                        fnsyms (clauses-to-syms clauses)]
+                    `(rulefn '~head [~@ruleheads]
                              (fn [~@fnsyms] ~@action-bodies)))
                   (throw (IllegalArgumentException.
                            "rule clauses must be a vector")))))
