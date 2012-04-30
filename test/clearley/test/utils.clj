@@ -1,5 +1,5 @@
 (ns clearley.test.utils
-  (:use clearley.core clojure.test))
+  (:use clearley.core lazytest.deftest))
 
 (defmacro is= [& forms]
   `(is (= ~@forms)))

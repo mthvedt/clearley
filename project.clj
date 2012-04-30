@@ -1,4 +1,7 @@
 (defproject clearley "0.1.0-SNAPSHOT"
   :description "FIXME: write description"
   :dependencies [[org.clojure/clojure "1.3.0"]
-                 [org.clojure/math.numeric-tower "0.0.1" :scope "test"]])
+                 [org.clojure/math.numeric-tower "0.0.1" :scope "test"]
+                 [com.stuartsierra/lazytest "2.0.0-SNAPSHOT" :scope "test"]]
+  :repositories {"stuartsierra-releases" "http://stuartsierra.com/maven2"
+                 "stuartsierra-snapshots" "http://stuartsierra.com/m2snapshots"})

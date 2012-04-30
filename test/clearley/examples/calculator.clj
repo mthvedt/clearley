@@ -1,7 +1,7 @@
 (ns clearley.examples.calculator
   (use clearley.core
        clearley.test.utils
-       clojure.test
+       lazytest.deftest
        clojure.math.numeric-tower))
 
 (defrule sum

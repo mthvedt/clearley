@@ -1,5 +1,5 @@
 (ns clearley.test.core
-  (:use clearley.core clearley.test.utils clojure.test))
+  (:use clearley.core clearley.test.utils lazytest.deftest))
 
 (def sum1 (rule :sum :sum \+ :times))
 (def sum2 (rule :sum :times))
