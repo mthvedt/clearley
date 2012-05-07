@@ -79,12 +79,6 @@
     (is-action 6 "2*3")
     (is-action 19 "2*3+2*2+3*3")))
 
-; (def weird-ruleset [(rule :head :a :b)
-;                     (rule :a :a :b \a)
-;                     (rule :b :a :b \b)])
-
-; (def weird-parser (earley-parser weird-ruleset :head))
-
 ; TODO: test lr vs ll
 
 (defrule sum
@@ -118,3 +112,12 @@
 (deftest rule-aliasing-test
   (with-parser parser4
     (is-action 0 "3-3")))
+
+(def digits567 [(token \5 5) (token \6 6) (token \7 7)])
+(extend-rule digit [digits567] digits567)
+(def parser5 (build-parser sum))
+; TODO: test defrule for rule seqs, symbol -> rule seqs
+
+(deftest rule-literal-test
+  (with-parser parser5
+    (is-action 2 "7-5")))

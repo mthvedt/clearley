@@ -27,7 +27,9 @@
   ; TODO: error when it's numexpr not number?
   ([number digit] (+ (* 10 number) digit))
   ([digit] digit))
-(defrule digit
+; todo: 'or-token' or something instead
+(defrule digit [(a-digit (map (comp token char) (range (int \0) (int \9))))] a-digit)
+#_(defrule digit
   ([\0] 0)
   ([\1] 1)
   ([\2] 2)

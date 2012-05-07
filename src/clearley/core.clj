@@ -12,11 +12,14 @@
   "Prints a shorthand str of the object to out."
   ([obj] (print (estr obj))))
 
+; TODO: not defprotocol
 (defprotocol Rule
   (head [rule] "Returns this rule's head symbol.")
   (clauses [rule] "Returns an indexed seq of this rule's symbols.")
   (action [rule] "Returns this rule's parse action."))
 
+; todo: support custom scanners?
+; will neccesitate a better rule protocol
 (defrecord RuleImpl [ahead aclauses aaction]
   Rule
   (head [_] ahead)
@@ -33,7 +36,7 @@
 
 (defn- list-identity [& args] args)
 
-; todo symbol is a bad choice of words... letters perhaps?
+; TODO: rewrite docs
 (defn rule
   "Creates a context-free grammar rule that matches the first given symbol
   (the head symbol) to a sequence of subsymbols (the clauses).
@@ -41,15 +44,20 @@
   [head & clauses]
   (rulefn head clauses list-identity))
 
+(defn token
+  "A rule that returns whatever it matches."
+  ([a-token] (rulefn nil [a-token] (fn [_] a-token)))
+  ([a-token value] (rulefn nil [a-token] (fn [_] value))))
+
 (extend-protocol Rule
   Object
   (head [rule] rule)
   (clauses [rule] [])
   (action [rule] (fn [] rule)))
 
-; A grammar maps rule heads to rules
+; A grammar maps rule heads to rules. nil never maps to anything.
 (defn grammar [rules]
-  (group-by head rules))
+  (dissoc (group-by head rules) nil))
 
 (defprotocol Match
   (match-rule [match] "Returns the rule corresponding to the given match.
@@ -60,17 +68,12 @@
   (reify Match
     (match-rule [match] token)
     (submatches [match] [])))
-; (take-action [match] token)))
 
-(defprotocol Predictable
-  (predict-symbol [thesymbol grammar]))
-
-(extend-protocol Predictable
-  RuleImpl
-  (predict-symbol [thesymbol grammar] [thesymbol])
-  Object
-  (predict-symbol [thesymbol grammar]
-    (get grammar thesymbol [])))
+; Gets a seq of subrules from a clause
+(defn- predict-clause [clause grammar]
+  (if (seq? clause)
+    clause ; TODO: only return clause if it's a seq of rules
+    (get grammar clause [])))
 
 (defprotocol EarleyItem
   (get-key [self])
@@ -100,7 +103,7 @@
                                       ; TODO work on tostr of completions
                                       (str "complete " (estr rule))))])
                            []))
-           (get grammar (get (clauses rule) dot) []))))
+           (predict-clause (get (clauses rule) dot) grammar))))
   (escan [self input-token input]
     (if (and (not (= dot (count (clauses rule))))
              (= (get (clauses rule) dot) input-token))
@@ -116,13 +119,12 @@
     (reify Match
       (match-rule [_] rule)
       (submatches [_] match)))
-  ; (take-action [_] (apply (:action cfgitem) match))))
   EStrable
   (estr [_]
     (str (head rule) " -> "
          (separate-str (concat (take dot (clauses rule)) ["*"]
                                (drop dot (clauses rule)) ["|"]
-                               @completers)
+                               [(separate-str @completers ", ")])
                        " "))))
 
 (defn- earley-items [rulename grammar]
@@ -137,7 +139,6 @@
 
 (defrecord RChart [chartvec chartmap dot]
   Chart
-  ; TODO: recurse completions when re-adding already processed item
   (add [self item]
     (let [ikey (get-key item)]
       (if-let [previndex (get chartmap ikey)]
@@ -194,7 +195,7 @@
           (recur (rest str1) charts2)
           charts2)) ; early termination on failure
       ; end step
-      ; todo: not this hack, separate finish-chart fn?
+      ; TODO not this hack, separate finish-chart fn?
       (let [[finalchart _] (parse-chart (peek charts) (new-chart) (Object.) (Object.))]
         (conj (pop charts) finalchart)))))
 
@@ -242,14 +243,16 @@
            (println (estr chart)))))
 
 (defn take-action [match]
-  (let [subactions (map take-action (submatches match))]
-    (try
-      (apply (action (match-rule match)) subactions)
-      (catch clojure.lang.ArityException e
-        (throw (RuntimeException. (str "Wrong # of params taking action for rule "
-                                       (head (match-rule match)) ", "
-                                       "was given " (count subactions))
-                                  e))))))
+  (if (nil? match)
+    (throw (RuntimeException. "Failure to parse"))
+    (let [subactions (map take-action (submatches match))]
+      (try
+        (apply (action (match-rule match)) subactions)
+        (catch clojure.lang.ArityException e
+          (throw (RuntimeException. (str "Wrong # of params taking action for rule "
+                                         (head (match-rule match)) ", "
+                                         "was given " (count subactions))
+                                    e)))))))
 
 ; TODO: is there a better way to do this?
 ; Macro helper fn. Dequalifies a stringable qualified sym or keyword
@@ -258,7 +261,7 @@
     (symbol (nth dequalified (dec (count dequalified))))))
 
 ; Macro helper fn for defrule. Maps rule heads to appropriate unqual'd syms
-(defn- clauses-to-syms [syms]
+(defn- clauses-to-args [syms]
   (map (fn [sym]
          (cond (seq? sym) (if-let [thename (first sym)]
                             thename
@@ -270,14 +273,15 @@
                true '_))
     syms))
 
-; Maps rule clauses to the appropriate rule head
-; then wraps it in a quote then a quasiquote
-(defn- clauses-to-rulenames [clauses]
-  (map (fn [sym] `'~sym)
-       (map (fn [clause]
-              (cond (seq? clause) (second clause)
-                    true clause))
-            clauses)))
+; Maps rule clauses to the appropriate rule or rule identifier
+; if it's a symbol, wraps it in a quote
+; TODO: forms get evaluated at rulefn time... so we really just
+; need the form... but what of symbols inside them?
+(defn reify-clauses [clauses]
+  (map (fn [sym] (cond (symbol? sym) `'~sym
+                       (seq? sym) (recur (second sym))
+                       true sym))
+       clauses))
 
 ; Macro helper fn. Builds the `(rulefn ...) bodies for defrule.
 ; Head: a symbol. impls: seq of (bindings bodies+) forms.
@@ -285,13 +289,9 @@
   (vec (map (fn [impl]
               (let [clauses (first impl)]
                 (if (vector? clauses)
-                  (let [action-bodies (rest impl)
-                        ruleheads (clauses-to-rulenames clauses)
-                        fnsyms (clauses-to-syms clauses)]
-                    `(rulefn '~head [~@ruleheads]
-                             (fn [~@fnsyms] ~@action-bodies)))
-                  (throw (IllegalArgumentException.
-                           "rule clauses must be a vector")))))
+                  `(rulefn '~head [~@(reify-clauses clauses)]
+                           (fn [~@(clauses-to-args clauses)] ~@(rest impl)))
+                  (TIAE "rule clauses must be a vector"))))
             impls)))
 
 ; Macro helper fn. Builds the body for defrule and related macros.
@@ -302,9 +302,8 @@
                                                           [(apply list first-form
                                                                  (rest impl-or-impls))])
           (seq? first-form) (build-defrule-rule-bodies head impl-or-impls)
-          true (throw (IllegalArgumentException. (str "Not a valid defrule; "
-                                                      "expected clause vector or "
-                                                      "clause-body pairs"))))))
+          true (TIAE "Not a valid defrule; "
+                    "expected clause vector or clause-body pairs"))))
 
 (defmacro defrule [head & impl-or-impls]
   `(def ~head ~(build-defrule-bodies head impl-or-impls)))
@@ -314,6 +313,9 @@
 
 ; TODO decide; grammars or ruleseqs?
 
+; resolves all clauses in a grammar seeded by the given goal,
+; populating rule :heads (overriding possibly)
+; TODO: better semantics for rule heads
 (defn- grammar-map-env [goal grammar thens theenv]
   (loop [stack [goal]
          rgrammar grammar]
@@ -324,10 +326,10 @@
             true ; so, rule is not in grammar--look it up
             (let [resolved (ns-resolve thens theenv current-head)]
               (if (nil? resolved)
-                (throw (IllegalArgumentException.
-                         (str "Cannot resolve rule for head: " current-head)))
+                (TIAE "Cannot resolve rule for head: " current-head)
                 (recur (concat (mapcat clauses @resolved) stack)
-                       (assoc rgrammar current-head @resolved))))))))
+                       (assoc rgrammar current-head
+                              (map #(assoc % :ahead current-head) @resolved)))))))))
 
 (defn build-grammar-in-env [goal grammar thens theenv]
   (apply concat (vals (grammar-map-env goal grammar thens theenv))))
