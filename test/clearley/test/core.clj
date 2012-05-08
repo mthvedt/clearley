@@ -114,10 +114,14 @@
     (is-action 0 "3-3")))
 
 (def digits567 [(token \5 5) (token \6 6) (token \7 7)])
-(extend-rule digit [digits567] digits567)
+(extend-rule digit
+             ([digits567] digits567)
+             ([(a-digit [(token \8 8) (token \9 9)])] a-digit))
 (def parser5 (build-parser sum))
 ; TODO: test defrule for rule seqs, symbol -> rule seqs
 
 (deftest rule-literal-test
   (with-parser parser5
-    (is-action 2 "7-5")))
+    (is-action 2 "7-5")
+    (is-action 1 "9-8")
+    (is-action 4 "9-5")))

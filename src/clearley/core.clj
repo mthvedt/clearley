@@ -71,8 +71,9 @@
 
 ; Gets a seq of subrules from a clause
 (defn- predict-clause [clause grammar]
-  (if (seq? clause)
-    clause ; TODO: only return clause if it's a seq of rules
+  (if (vector? clause)
+    clause ; TODO: only return clause if it's a seq of rules..?
+    ; this whole parser is a mess
     (get grammar clause [])))
 
 (defprotocol EarleyItem
@@ -311,11 +312,13 @@
 (defmacro extend-rule [head & impl-or-impls]
   `(def ~head (vec (concat ~head ~(build-defrule-bodies head impl-or-impls)))))
 
-; TODO decide; grammars or ruleseqs?
-
 ; resolves all clauses in a grammar seeded by the given goal,
 ; populating rule :heads (overriding possibly)
 ; TODO: better semantics for rule heads
+; TODO: don't populate anonymous rules on the seq
+; TODO: anonymous rules aren't getting predicted
+
+; TODO: use a grammar map, not a seq of rules--rule heads are not domain data
 (defn- grammar-map-env [goal grammar thens theenv]
   (loop [stack [goal]
          rgrammar grammar]
