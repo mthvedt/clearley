@@ -28,18 +28,9 @@
   ([number digit] (+ (* 10 number) digit))
   ([digit] digit))
 ; todo: 'or-token' or something instead
-(defrule digit [(a-digit (map (comp token char) (range (int \0) (int \9))))] a-digit)
-#_(defrule digit
-  ([\0] 0)
-  ([\1] 1)
-  ([\2] 2)
-  ([\3] 3)
-  ([\4] 4)
-  ([\5] 5)
-  ([\6] 6)
-  ([\7] 7)
-  ([\8] 8)
-  ([\9] 9)) ; Good candidate for the | notation, not used in this example
+; TODO: the bug is this isn't being evaluated, it's taken as an unevalued sequence
+(defrule digit [(a-digit (map (comp token char) (range (int \0) (inc (int \9)))))]
+  (- (int a-digit) (int \0)))
 
 (def my-calculator (build-parser sum))
 

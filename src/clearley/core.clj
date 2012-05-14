@@ -3,7 +3,7 @@
   accept any seq of inputs, not just text, and parse any context-free grammar.
   Emphasis is on ease of use and dynamic/exploratory programming."
   (:require (clojure string))
-  (:use (clojure test) clearley.utils))
+  (:use clearley.utils))
 
 (defprotocol EStrable
   (estr [obj] "Returns a shorthand str of this item."))
@@ -71,7 +71,7 @@
 
 ; Gets a seq of subrules from a clause
 (defn- predict-clause [clause grammar]
-  (if (vector? clause)
+  (if (sequential? clause)
     clause ; TODO: only return clause if it's a seq of rules..?
     ; this whole parser is a mess
     (get grammar clause [])))
@@ -255,34 +255,38 @@
                                          "was given " (count subactions))
                                     e)))))))
 
+; Defrule begins here.
+; TODO: experiment with using a parser for defrule
+; instead of all these macro helpers... would make a convincing POC for earley parsing!
+
 ; TODO: is there a better way to do this?
 ; Macro helper fn. Dequalifies a stringable qualified sym or keyword
 (defn- dequalify [strable]
   (let [dequalified (clojure.string/split (str strable) #"/")]
     (symbol (nth dequalified (dec (count dequalified))))))
 
-; Macro helper fn for defrule. Maps rule heads to appropriate unqual'd syms
-(defn- clauses-to-args [syms]
-  (map (fn [sym]
-         (cond (seq? sym) (if-let [thename (first sym)]
-                            thename
-                            (throw (IllegalArgumentException.
-                                     (str "Not a valid subrule: " sym))))
-               (keyword? sym) (dequalify sym)
-               (symbol? sym) (dequalify sym)
-               (= java.lang.String (type sym)) (symbol (str sym))
-               true '_))
-    syms))
+; Macro helper fn for def rule. Returns a pair of
+; [appropriate-symbol-for-action-body, rule-or-rulename]
+(defn- process-nonseq-clause [clause]
+  (cond (seq? clause) (assert false)
+        (symbol? clause) [(dequalify clause) `'~clause]
+        (keyword? clause) [(dequalify clause) clause]
+        (= java.lang.String (type clause)) [(symbol (str clause)) clause]
+        true ['_ clause])) ; can't be an arg in a fn
 
-; Maps rule clauses to the appropriate rule or rule identifier
-; if it's a symbol, wraps it in a quote
-; TODO: forms get evaluated at rulefn time... so we really just
-; need the form... but what of symbols inside them?
-(defn reify-clauses [clauses]
-  (map (fn [sym] (cond (symbol? sym) `'~sym
-                       (seq? sym) (recur (second sym))
-                       true sym))
-       clauses))
+; Macro helper fn for def rule. Returns a pair of
+; [appropriate-symbol-for-action-body, rule-or-rulename-or-uneval'd-form]
+(defn- process-clause [clause]
+  (if (seq? clause)
+    (if-let [thename (first clause)]
+      (let [therule (second clause)]
+        [thename (if (seq? therule) ; A form to evaluate
+                   ; Return it; will be eval'd when defrule called
+                   therule
+                   ; See what process-nonseq-clause has to say
+                   (second (process-nonseq-clause therule)))])
+      (TIAE "Not a valid subrule: " clause))
+    (process-nonseq-clause clause)))
 
 ; Macro helper fn. Builds the `(rulefn ...) bodies for defrule.
 ; Head: a symbol. impls: seq of (bindings bodies+) forms.
@@ -290,8 +294,9 @@
   (vec (map (fn [impl]
               (let [clauses (first impl)]
                 (if (vector? clauses)
-                  `(rulefn '~head [~@(reify-clauses clauses)]
-                           (fn [~@(clauses-to-args clauses)] ~@(rest impl)))
+                  (let [processed-clauses (map process-clause clauses)]
+                    `(rulefn '~head [~@(map second processed-clauses)]
+                             (fn [~@(map first processed-clauses)] ~@(rest impl))))
                   (TIAE "rule clauses must be a vector"))))
             impls)))
 
@@ -301,10 +306,10 @@
   (let [first-form (first impl-or-impls)]
     (cond (vector? first-form) (build-defrule-rule-bodies head
                                                           [(apply list first-form
-                                                                 (rest impl-or-impls))])
+                                                                  (rest impl-or-impls))])
           (seq? first-form) (build-defrule-rule-bodies head impl-or-impls)
           true (TIAE "Not a valid defrule; "
-                    "expected clause vector or clause-body pairs"))))
+                     "expected clause vector or clause-body pairs"))))
 
 (defmacro defrule [head & impl-or-impls]
   `(def ~head ~(build-defrule-bodies head impl-or-impls)))
@@ -316,7 +321,6 @@
 ; populating rule :heads (overriding possibly)
 ; TODO: better semantics for rule heads
 ; TODO: don't populate anonymous rules on the seq
-; TODO: anonymous rules aren't getting predicted
 
 ; TODO: use a grammar map, not a seq of rules--rule heads are not domain data
 (defn- grammar-map-env [goal grammar thens theenv]

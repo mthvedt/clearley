@@ -118,7 +118,6 @@
              ([digits567] digits567)
              ([(a-digit [(token \8 8) (token \9 9)])] a-digit))
 (def parser5 (build-parser sum))
-; TODO: test defrule for rule seqs, symbol -> rule seqs
 
 (deftest rule-literal-test
   (with-parser parser5
