@@ -1,26 +1,28 @@
 (ns clearley.test.core
   (:use clearley.core clearley.test.utils lazytest.deftest))
 
-(def sum1 (rule :sum :sum \+ :times))
-(def sum2 (rule :sum :times))
-(def num1 (rule :num \1))
+(defn rulefn
+  "Creates a context-free grammar rule that matches the first given symbol
+  (the head symbol) to a sequence of subsymbols (the clauses).
+  Any object may be a symbol."
+  [head & clauses]
+  (rule head clauses))
+
+(def sum1 (rulefn :sum :sum \+ :times))
+(def sum2 (rulefn :sum :times))
+(def num1 (rulefn :num \1))
 
 (def simple-parser-rules [sum1
                           sum2
-                          (rule :times :times \* :num)
-                          (rule :times :num)
+                          (rulefn :times :times \* :num)
+                          (rulefn :times :num)
                           num1
-                          (rule :num \2)
-                          (rule :num \3)
-                          (rule :num \4)
-                          (rule :num \5 \5)])
-
-(def simple-parser-grammar (grammar simple-parser-rules))
+                          (rulefn :num \2)
+                          (rulefn :num \3)
+                          (rulefn :num \4)
+                          (rulefn :num \5 \5)])
 
 (def simple-parser (earley-parser :sum simple-parser-rules))
-
-(deftest grammars
-  (is (= [sum1 sum2] (vec (get simple-parser-grammar :sum)))))
 
 (deftest simple-parser-test
   (with-parser simple-parser
@@ -38,15 +40,15 @@
 
 (deftest simple-match-test
   (with-parser simple-parser
-    (is-match [sum2 [(rule :times :num) [num1 [\1]]]] "1")
-    (is-match [sum2 [(rule :times :num) [(rule :num \5 \5) [\5] [\5]]]] "55")
-    (is-match [sum1 [sum1 [sum2 [(rule :times :num) [num1 [\1]]]] [\+]
-                     [(rule :times :times \* :num)
-                      [(rule :times :num) [(rule :num \2) [\2]]]
-                      [\*] [(rule :num \3) [\3]]]]
+    (is-match [sum2 [(rulefn :times :num) [num1 [\1]]]] "1")
+    (is-match [sum2 [(rulefn :times :num) [(rulefn :num \5 \5) [\5] [\5]]]] "55")
+    (is-match [sum1 [sum1 [sum2 [(rulefn :times :num) [num1 [\1]]]] [\+]
+                     [(rulefn :times :times \* :num)
+                      [(rulefn :times :num) [(rulefn :num \2) [\2]]]
+                      [\*] [(rulefn :num \3) [\3]]]]
                [\+]
-               [(rule :times :times \* :num) [(rule :times :num) [(rule :num \4) [\4]]]
-                [\*] [(rule :num \5 \5) [\5] [\5]]]]
+               [(rulefn :times :times \* :num) [(rulefn :times :num) [(rulefn :num \4) [\4]]]
+                [\*] [(rulefn :num \5 \5) [\5] [\5]]]]
               "1+2*3+4*55")))
 
 (defn letter-to-num [thechar]
@@ -60,15 +62,15 @@
   (with-parser letter-to-num-parser
     (is-parse [[[\a]]] "a")
     (is-parse [[[[[\a]]] \+ [[[\2]] \* [\c]]] \+ [[[\d]] \* [\1]]] "a+2*c+d*1")
-    (is-match [sum2 [(rule :times :num) [num1 [\a]]]] "a")))
+    (is-match [sum2 [(rulefn :times :num) [num1 [\a]]]] "a")))
 
 (def calculator-rules
-  [(rulefn :sum [:sum \+ :times] (fn [a _ b] (+ a b)))
-   (rulefn :sum [:times] identity)
-   (rulefn :times [:times \* :num] (fn [a _ b] (* a b)))
-   (rulefn :times [:num] identity)
-   (rulefn :num [\2] (fn [_] 2))
-   (rulefn :num [\3] (fn [_] 3))])
+  [(rule :sum [:sum \+ :times] (fn [a _ b] (+ a b)))
+   (rule :sum [:times] identity)
+   (rule :times [:times \* :num] (fn [a _ b] (* a b)))
+   (rule :times [:num] identity)
+   (rule :num [\2] (fn [_] 2))
+   (rule :num [\3] (fn [_] 3))])
 
 (def calculator-parser (earley-parser :sum calculator-rules))
 
