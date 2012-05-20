@@ -35,7 +35,6 @@
     (is-parse [[[[\2]]] \+ [[[\3]] \* [\4]]] "2+3*4")
     (is-parse [[[[[\1]]] \+ [[[\2]] \* [\3]]] \+ [[[\4]] \* [\1]]] "1+2*3+4*1")
     (is-parse [[[\5 \5]]] "55")))
-; todo: add test for incomplete parse.
 
 (deftest simple-match-test
   (with-parser simple-parser
@@ -78,8 +77,6 @@
     (is-action 5 "2+3")
     (is-action 6 "2*3")
     (is-action 19 "2*3+2*2+3*3")))
-
-; TODO: test lr vs ll
 
 (defrule sum
   ([sum \+ times] (+ sum times))

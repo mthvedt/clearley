@@ -13,12 +13,14 @@
   ([obj] (print (estr obj))))
 
 ; TODO: not defprotocol
+; TODO: scanners in rule?
+; TODO: what are the purpose of tokenizers?
 (defprotocol Rule
   (head [rule] "Returns this rule's head symbol.")
   (clauses [rule] "Returns an indexed seq of this rule's symbols.")
   (action [rule] "Returns this rule's parse action."))
 
-; todo: support custom scanners?
+; TODO: support custom scanners?
 ; will neccesitate a better rule protocol
 (defrecord RuleImpl [ahead aclauses aaction]
   Rule
@@ -304,9 +306,9 @@
 ; Head: a symbol. impl-or-impls: (bindings bodies+) or ((bindings bodies+)+).
 (defn- build-defrule-bodies [head impl-or-impls]
   (let [first-form (first impl-or-impls)]
-    (cond (vector? first-form) (build-defrule-rule-bodies head
-                                                          [(apply list first-form
-                                                                  (rest impl-or-impls))])
+    (cond (vector? first-form)
+          (build-defrule-rule-bodies head [(apply list first-form
+                                                  (rest impl-or-impls))])
           (seq? first-form) (build-defrule-rule-bodies head impl-or-impls)
           true (TIAE "Not a valid defrule; "
                      "expected clause vector or clause-body pairs"))))
@@ -349,3 +351,5 @@
    `(build-parser ~goal identity))
   ([goal tokenizer]
    `(earley-parser '~goal ~tokenizer (build-grammar '~goal))))
+
+

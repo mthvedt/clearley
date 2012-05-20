@@ -28,7 +28,6 @@
   ([number digit] (+ (* 10 number) digit))
   ([digit] digit))
 ; todo: 'or-token' or something instead
-; TODO: the bug is this isn't being evaluated, it's taken as an unevalued sequence
 (defrule digit [(a-digit (map (comp token char) (range (int \0) (inc (int \9)))))]
   (- (int a-digit) (int \0)))
 
@@ -44,6 +43,12 @@
     (is-action -2 "-2")
     (is-action -2 "2-2-2")
     (is-action 2 "2-(2-2)")
+    (is-action 8 "2(2+2)")
+    (is-action 8 "(2+2)2")
+    (is-action 16 "(2+2)(2+2)")
+    ;(is-action 16 "2(2+2)2") ; TODO fix
+    ;(is-action 16 "2(2+2)(1+1-1)2")
+    (is-action 2 "(((((2)))))")
     (is-action 4 "2--2")
     (is-action 0 "2-----2")
     (is-action 12 "2*2^2+2*2")
