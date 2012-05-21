@@ -33,16 +33,16 @@
     (is (not (parses? "44")))
     (is (not (parses? "55*23")))
     (is (parses? "1+55*2*55+3+55*4"))
-    (is-parse [[[\1]]] "1")
-    (is-parse [[[[\2]]] \+ [[[\3]] \* [\4]]] "2+3*4")
-    (is-parse [[[[[\1]]] \+ [[[\2]] \* [\3]]] \+ [[[\4]] \* [\1]]] "1+2*3+4*1")
-    (is-parse [[[\5 \5]]] "55")))
+    (is-ast [[[\1]]] "1")
+    (is-ast [[[[\2]]] \+ [[[\3]] \* [\4]]] "2+3*4")
+    (is-ast [[[[[\1]]] \+ [[[\2]] \* [\3]]] \+ [[[\4]] \* [\1]]] "1+2*3+4*1")
+    (is-ast [[[\5 \5]]] "55")))
 
 (deftest simple-match-test
   (with-parser simple-parser
-    (is-match [sum2 [(rulefn :times :num) [num1 [\1]]]] "1")
-    (is-match [sum2 [(rulefn :times :num) [(rulefn :num \5 \5) [\5] [\5]]]] "55")
-    (is-match [sum1 [sum1 [sum2 [(rulefn :times :num) [num1 [\1]]]] [\+]
+    (is-parse [sum2 [(rulefn :times :num) [num1 [\1]]]] "1")
+    (is-parse [sum2 [(rulefn :times :num) [(rulefn :num \5 \5) [\5] [\5]]]] "55")
+    (is-parse [sum1 [sum1 [sum2 [(rulefn :times :num) [num1 [\1]]]] [\+]
                      [(rulefn :times :times \* :num)
                       [(rulefn :times :num) [(rulefn :num \2) [\2]]]
                       [\*] [(rulefn :num \3) [\3]]]]
@@ -60,9 +60,9 @@
 
 (deftest simple-tokenizer-test
   (with-parser letter-to-num-parser
-    (is-parse [[[\a]]] "a")
-    (is-parse [[[[[\a]]] \+ [[[\2]] \* [\c]]] \+ [[[\d]] \* [\1]]] "a+2*c+d*1")
-    (is-match [sum2 [(rulefn :times :num) [num1 [\a]]]] "a")))
+    (is-ast [[[\a]]] "a")
+    (is-ast [[[[[\a]]] \+ [[[\2]] \* [\c]]] \+ [[[\d]] \* [\1]]] "a+2*c+d*1")
+    (is-parse [sum2 [(rulefn :times :num) [num1 [\a]]]] "a")))
 
 (def calculator-rules
   [(rule :sum [:sum \+ :times] (fn [a _ b] (+ a b)))

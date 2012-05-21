@@ -9,8 +9,8 @@
 (defmacro with-parser [parser & forms]
   `(binding [local-parser ~parser] ~@forms))
 
-(defmacro is-parse [expected testval]
-  `(is= ~expected (parse local-parser ~testval)))
+(defmacro is-ast [expected testval]
+  `(is= ~expected (parse-tree local-parser ~testval)))
 
 (defn parses? [input]
   (not (nil? (parse local-parser input))))
@@ -33,9 +33,8 @@
   (is (not (tree-eq [\1 []] [\1])))
   (is (not (tree-eq [] nil))))
 
-(defmacro is-match [expected testval]
-  `(is (tree-eq ~expected (match-rules local-parser ~testval))))
+(defmacro is-parse [expected testval]
+  `(is (tree-eq ~expected (parse local-parser ~testval))))
 
 (defmacro is-action [expected testval]
-  `(is= ~expected (take-action (match local-parser ~testval))))
-
+  `(is= ~expected (take-action (parse local-parser ~testval))))

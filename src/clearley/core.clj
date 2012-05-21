@@ -18,7 +18,6 @@
   EStrable
   (estr [_] (str head " -> " (separate-str clauses " "))))
 
-; TODO: rename to rule
 (defn rule
   "Creates a rule associated with a parse action that can be called
   after matching. A rule is simply a map with a required vector of :clauses,
@@ -40,16 +39,7 @@
 (defn- grammar [rules]
   (dissoc (group-by :head rules) nil))
 
-; TODO: get rid of match protocol. matches should not be exposed--yet, only trees
-(defprotocol Match
-  (match-rule [match] "Returns the rule corresponding to the given match.
-                      If a token, returns that token.")
-  (submatches [match] "Returns the submatches of the given match."))
-
-(defn token-match [token]
-  (reify Match
-    (match-rule [match] token)
-    (submatches [match] [])))
+(defn token-match [token] [token])
 
 ; Gets a seq of subrules from a clause
 (defn- predict-clause [clause grammar]
@@ -98,10 +88,7 @@
   (emerge [self other-item]
     (swap! completers #(concat % (deref (:completers other-item))))
     nil)
-  (ematch [self]
-    (reify Match
-      (match-rule [_] rule)
-      (submatches [_] match)))
+  (ematch [self] (vec (cons rule match)))
   EStrable
   (estr [_]
     (str (:head rule) " -> "
@@ -185,18 +172,10 @@
 
 (defprotocol Parser
   (parse [parser input] "Parse the given input with the given parser,
-                        yielding a syntax tree where the leaves are the input.")
-  (match [parser input] "Parse the given input with the given parser,
-                        yielding match objects.")
+                        yielding a match tree (a tree of the form
+                        [rule leaves] where leaves is a seq).")
   (charts [parser input] "Parse the given input with the given parser,
                          yielding the parse charts."))
-
-(defn match-rules
-  "Parse the given input with the given parser, returning a tree of the rules matched
-  in the form of a lazy seq (rule & subtrees)."
-  [parser input]
-  ((fn f [match] (cons (match-rule match) (map f (submatches match))))
-     (match parser input)))
 
 (defn earley-parser
   "Constructs an Earley parser, provided with a seq of rules and a predefined
@@ -208,19 +187,24 @@
   ([goal tokenizer rules]
    (let [grammar (grammar rules)]
      (reify Parser
-       (match [parser input]
-         (first (scan-for-completions (peek (charts parser input)) goal)))
        (parse [parser input]
-         (if-let [match (match parser input)]
-           ((fn f [x]
-              (let [xs (submatches x)]
-                (if (empty? xs)
-                  (match-rule x)
-                  (vec (map f xs)))))
-              match)))
+         (first (scan-for-completions (peek (charts parser input)) goal)))
        (charts [parser input]
          ; TODO: return entire chart, or just chart seq?
+         ; obviously, just chart seq
          (parsefn input grammar tokenizer goal))))))
+
+(defn parse-tree
+  "Parses the given input with the given parser, yielding just the abstract
+  syntax tree with no rules (effectively, the same as stripping the first elements
+  (the rules) from a match tree)."
+  [parser input]
+  (if-let [match (parse parser input)]
+    ((fn f [match] ; This fun will recursively reduce the match tree
+       (if-let [submatches (seq (rest match))]
+         (vec (map f submatches))
+         (first match)))
+       match)))
 
 (defn eprint-charts [charts]
   (dorun (for [chart charts]
@@ -229,14 +213,14 @@
 (defn take-action [match]
   (if (nil? match)
     (throw (RuntimeException. "Failure to parse"))
-    (let [subactions (map take-action (submatches match))
-          action1 (:action (match-rule match))
+    (let [subactions (map take-action (rest match))
+          action1 (:action (first match))
           action (if (nil? action1) (fn [& args] args) action1)] ; default action
       (try
         (apply action subactions)
         (catch clojure.lang.ArityException e
           (throw (RuntimeException. (str "Wrong # of params taking action for rule "
-                                         (:head (match-rule match)) ", "
+                                         (:head (first match)) ", "
                                          "was given " (count subactions))
                                     e)))))))
 
@@ -281,7 +265,7 @@
                 (if (vector? clauses)
                   (let [processed-clauses (map process-clause clauses)]
                     `(rule '~head [~@(map second processed-clauses)]
-                             (fn [~@(map first processed-clauses)] ~@(rest impl))))
+                           (fn [~@(map first processed-clauses)] ~@(rest impl))))
                   (TIAE "rule clauses must be a vector"))))
             impls)))
 
@@ -332,5 +316,3 @@
    `(build-parser ~goal identity))
   ([goal tokenizer]
    `(earley-parser '~goal ~tokenizer (build-grammar '~goal))))
-
-
