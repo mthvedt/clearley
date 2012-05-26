@@ -49,47 +49,69 @@
     (get grammar clause [])))
 
 (defprotocol ^:private EarleyItem
-  (get-key [self])
   (predict [self])
   (escan [self input-token input])
   (is-complete [self])
-  (advance [self match])
-  (emerge [self other-item])
-  (ematch [self]))
+  (advance [self match]))
 
-(defrecord ^:private REarleyItem [rule dot grammar completers match]
+(defrecord ^:private REarleyItem [rule dot grammar]
   EarleyItem
-  (get-key [self] [rule dot])
   (predict [self]
-    (if (= dot (count (:clauses rule))) ; if yes, we are complete
-      (map #(advance % (ematch self)) @completers)
+    (if (not (is-complete self))
       (map (fn [prediction]
-             (REarleyItem. prediction 0 grammar (atom [self]) []))
+             (REarleyItem. prediction 0 grammar))
            (predict-clause (get (:clauses rule) dot) grammar))))
   (escan [self input-token input]
-    (if (and (not (= dot (count (:clauses rule))))
+    (if (and (not (is-complete self))
              (= (get (:clauses rule) dot) input-token))
-      [(REarleyItem. rule (inc dot) grammar completers
-                     (conj match (token-match input)))]
+      [(advance self nil)] ; We know that REarleyItem's advance doesn't care about match
       []))
   (is-complete [_]
     (= dot (count (:clauses rule))))
-  (advance [self match2]
-    (REarleyItem. rule (inc dot) grammar completers (conj match match2)))
+  (advance [self match]
+    (REarleyItem. rule (inc dot) grammar))
+  EStrable
+  (estr [_]
+    (separate-str (concat [(:head rule)]
+                          (take dot (:clauses rule)) ["*"]
+                          (drop dot (:clauses rule)))
+                  " ")))
+
+(defprotocol ^:private ChartItem
+  (get-key [self])
+  (cpredict [self])
+  (cscan [self input-token input])
+  (cis-complete [self])
+  (cadvance [self match])
+  (emerge [self other-item])
+  (ematch [self]))
+
+(defrecord ^:private RChartItem [earley-item completers match]
+  ChartItem
+  (get-key [self] earley-item)
+  (cpredict [self]
+    (if (is-complete earley-item)
+      (map #(cadvance % (ematch self)) @completers)
+      (map (fn [item]
+             (RChartItem. item (atom [self]) []))
+           (predict earley-item))))
+  (cscan [self input-token input]
+    (map (fn [item]
+           (RChartItem. item completers (conj match (token-match input))))
+         (escan earley-item input-token input)))
+  (cis-complete [_]
+    (is-complete earley-item))
+  (cadvance [self match2]
+    (RChartItem. (advance earley-item match2) completers (conj match match2)))
   (emerge [self other-item]
     (swap! completers #(concat % (deref (:completers other-item))))
     nil)
-  (ematch [self] (vec (cons rule match)))
+  (ematch [self] (vec (cons (:rule earley-item) match)))
   EStrable
-  (estr [_]
-    (str (:head rule) " -> "
-         (separate-str (concat (take dot (:clauses rule)) ["*"]
-                               (drop dot (:clauses rule)) ["|"]
-                               [(separate-str @completers ", ")])
-                       " "))))
+  (estr [_] (str (estr earley-item) " | " (separate-str @completers ", "))))
 
 (defn- earley-items [rulename grammar]
-  (map #(REarleyItem. % 0 grammar (atom []) [])
+  (map #(RChartItem. (REarleyItem. % 0 grammar) (atom []) [])
        (get grammar rulename [])))
 
 ; TODO: nuke this protocol
@@ -105,11 +127,11 @@
     (let [ikey (get-key item)]
       (if-let [previndex (get chartmap ikey)]
         (do (emerge (get chartvec previndex) item)
-          (if (and (>= dot previndex) (is-complete item))
+          (if (and (>= dot previndex) (cis-complete item))
             ; we already processed this item
             ; but we may need to process extra completions
             ; TODO: this is awkward... chart is a hybrid of smart and dumb data object
-            (reduce add self (predict item))
+            (reduce add self (cpredict item))
             self))
         (RChart. (conj chartvec item)
                  (assoc chartmap ikey (count chartvec)) dot))))
@@ -136,14 +158,14 @@
 (defn- parse-chart [pchart1 pchart2 input-token input]
   (loop [chart1 pchart1 chart2 pchart2]
     (if-let [sitem (cfirst chart1)]
-      (recur (crest (reduce add chart1 (predict sitem)))
-             (reduce add chart2 (escan sitem input-token input)))
+      (recur (crest (reduce add chart1 (cpredict sitem)))
+             (reduce add chart2 (cscan sitem input-token input)))
       [chart1 chart2])))
 
 (defn- scan-for-completions [chart thehead]
   (map ematch (filter (fn [ritem]
-                        (let [rule (:rule ritem)]
-                          (and (= (:head rule) thehead) (is-complete ritem))))
+                        (let [rule (:rule (:earley-item ritem))]
+                          (and (= (:head rule) thehead) (cis-complete ritem))))
                       (chart-seq chart))))
 
 (defn- parsefn [inputstr grammar tokenizer goal]
