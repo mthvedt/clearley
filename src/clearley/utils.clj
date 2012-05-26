@@ -12,3 +12,10 @@
 
 (defn separate-str [theseq separator]
   (apply str (drop 1 (interleave (repeat separator) theseq))))
+
+(def ^:dynamic *debug* true)
+
+(defmacro debug [statement & forms]
+  (if *debug*
+    `(do (println ~statement) ~@forms)
+    `(do ~@forms)))

@@ -53,29 +53,18 @@
   (predict [self])
   (escan [self input-token input])
   (is-complete [self])
+  (advance [self match])
   (emerge [self other-item])
   (ematch [self]))
-
-(defprotocol ^:private Completer
-  (complete [self match]))
 
 (defrecord ^:private REarleyItem [rule dot grammar completers match]
   EarleyItem
   (get-key [self] [rule dot])
   (predict [self]
-    (if (= dot (count (:clauses rule)))
-      (map #(complete % (ematch self)) @completers)
+    (if (= dot (count (:clauses rule))) ; if yes, we are complete
+      (map #(advance % (ematch self)) @completers)
       (map (fn [prediction]
-             (REarleyItem. prediction 0 grammar
-                           (atom [(reify Completer
-                                    (complete [self2 match2]
-                                      (REarleyItem. rule (inc dot)
-                                                    grammar completers
-                                                    (conj match match2)))
-                                    (toString [self]
-                                      ; TODO work on tostr of completions
-                                      (str "complete " (estr rule))))])
-                           []))
+             (REarleyItem. prediction 0 grammar (atom [self]) []))
            (predict-clause (get (:clauses rule) dot) grammar))))
   (escan [self input-token input]
     (if (and (not (= dot (count (:clauses rule))))
@@ -85,6 +74,8 @@
       []))
   (is-complete [_]
     (= dot (count (:clauses rule))))
+  (advance [self match2]
+    (REarleyItem. rule (inc dot) grammar completers (conj match match2)))
   (emerge [self other-item]
     (swap! completers #(concat % (deref (:completers other-item))))
     nil)
