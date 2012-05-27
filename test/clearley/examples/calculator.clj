@@ -12,6 +12,7 @@
   ([term \* pow] (* term pow))
   ([term parenexpr] (* term parenexpr))
   ([parenexpr term] (* parenexpr term))
+  ([term parenexpr (term2 term)] (* term parenexpr term2)) ; need an alias
   ([term \/ pow] (/ term pow))
   ([pow] pow))
 (defrule pow
@@ -45,9 +46,9 @@
     (is-action 2 "2-(2-2)")
     (is-action 8 "2(2+2)")
     (is-action 8 "(2+2)2")
-    (is-action 16 "(2+2)(2+2)")
+    ;(is-action 16 "(2+2)(2+2)")
     ;(is-action 16 "2(2+2)2") ; TODO fix
-    ;(is-action 16 "2(2+2)(1+1-1)2")
+    (is-action 16 "2(2+2)(1+1-1)2")
     (is-action 2 "(((((2)))))")
     (is-action 4 "2--2")
     (is-action 0 "2-----2")

@@ -72,7 +72,7 @@
     (REarleyItem. rule (inc dot) grammar))
   EStrable
   (estr [_]
-    (separate-str (concat [(:head rule)]
+    (separate-str (concat [(:head rule) "->"]
                           (take dot (:clauses rule)) ["*"]
                           (drop dot (:clauses rule)))
                   " ")))
@@ -80,7 +80,6 @@
 (defprotocol ^:private ChartItem
   (cpredict [self])
   (cscan [self input-token input])
-  (cadvance [self match])
   (emerge [self other-item]))
 
 ; Builds a rule match from the output stack and pushes the match to the top
@@ -91,29 +90,42 @@
   (let [thecount (count (:clauses rule))]
     (cons (vec (cons rule (reverse (take thecount ostack)))) (drop thecount ostack))))
 
-; earley-item: duh, completers: @seq<rchartitem>, ostack: the output "stream"
-(defrecord ^:private RChartItem [earley-item completers ostack]
+(defn merge-rstack [rstack rstack2]
+  (swap! rstack #(merge-with merge-rstack % @rstack2)))
+
+; earley-item: duh, rstack: @map<item rstack>, ostack: the output "stream"
+(defrecord ^:private RChartItem [earley-item rstack ostack]
   ChartItem
   (cpredict [self]
     (if (is-complete? earley-item)
-      (map #(cadvance % (reduce-ostack ostack (:rule earley-item))) @completers)
+      (map (fn [[item rstack]]
+             (RChartItem. (advance item) rstack
+                          (reduce-ostack ostack (:rule earley-item)))) @rstack)
       (map (fn [item]
-             (RChartItem. item (atom [self]) ostack))
+             (RChartItem. item (atom {earley-item rstack}) ostack))
            (predict earley-item))))
   (cscan [self input-token input]
     (map (fn [item]
-           (RChartItem. item completers (cons [input] ostack)))
+           (RChartItem. item rstack (cons [input] ostack)))
          (escan earley-item input-token)))
-  (cadvance [self ostack]
-      (RChartItem. (advance earley-item) completers ostack))
+  ; Merges the stacks of this and the other-item. True if there was anything to merge.
   (emerge [self other-item]
-    (swap! completers #(concat % (deref (:completers other-item))))
-    nil)
+    (let [rstack2 @(:rstack other-item)]
+      ; Well, this is inefficient. Chalk it up to clojure's non-support for keyset.
+      ; Also, we eventually want to replace this with LR items when we
+      ; optimize for speed.
+      (if (seq (clojure.set/difference (into #{} (keys rstack2))
+                                       (into #{} (keys @rstack))))
+        (do (swap! rstack #(merge % @(:rstack other-item)))
+          true)
+        false)))
+    ;(merge-rstack rstack (:rstack other-item)))
+    ;(swap! rstack #(merge-rstack % (deref (:rstack other-item)))))
   EStrable
-  (estr [_] (str (estr earley-item) " | " (separate-str @completers ", "))))
+  (estr [_] (str (estr earley-item) " | " (separate-str (map (comp estr first) @rstack) ", "))))
 
 (defn- earley-items [rulename grammar]
-  (map #(RChartItem. (REarleyItem. % 0 grammar) (atom []) '())
+  (map #(RChartItem. (REarleyItem. % 0 grammar) (atom {}) '())
        (get grammar rulename [])))
 
 ; TODO: nuke this protocol
@@ -128,13 +140,14 @@
   (add [self item]
     (let [ikey (:earley-item item)]
       (if-let [previndex (get chartmap ikey)]
-        (do (emerge (get chartvec previndex) item)
-          (if (and (>= dot previndex) (is-complete? (:earley-item item)))
-            ; we already processed this item
-            ; but we may need to process extra completions
-            ; TODO: this is awkward... chart is a hybrid of smart and dumb data object
-            (reduce add self (cpredict item))
-            self))
+        (if (and (emerge (get chartvec previndex) item)
+                 (>= dot previndex)
+                 (is-complete? (:earley-item item)))
+          ; we already processed this item
+          ; but we may need to process extra completions
+          ; TODO: this is awkward... chart is a hybrid of smart and dumb data object
+          (reduce add self (cpredict item))
+          self)
         (RChart. (conj chartvec item)
                  (assoc chartmap ikey (count chartvec)) dot))))
   (cfirst [self]
@@ -226,6 +239,7 @@
          (first match)))
        match)))
 
+; TODO: expose print-charts and not charts
 (defn eprint-charts [charts]
   (dorun (for [chart charts]
            (println (estr chart)))))
