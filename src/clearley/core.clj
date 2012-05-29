@@ -90,9 +90,6 @@
   (let [thecount (count (:clauses rule))]
     (cons (vec (cons rule (reverse (take thecount ostack)))) (drop thecount ostack))))
 
-(defn merge-rstack [rstack rstack2]
-  (swap! rstack #(merge-with merge-rstack % @rstack2)))
-
 ; earley-item: duh, rstack: @map<item rstack>, ostack: the output "stream"
 (defrecord ^:private RChartItem [earley-item rstack ostack]
   ChartItem
@@ -119,8 +116,6 @@
         (do (swap! rstack #(merge % @(:rstack other-item)))
           true)
         false)))
-    ;(merge-rstack rstack (:rstack other-item)))
-    ;(swap! rstack #(merge-rstack % (deref (:rstack other-item)))))
   EStrable
   (estr [_] (str (estr earley-item) " | " (separate-str (map (comp estr first) @rstack) ", "))))
 
@@ -133,6 +128,7 @@
   (add [self item])
   (cfirst [self])
   (crest [self])
+  (reset [self])
   (chart-seq [self]))
 
 (defrecord RChart [chartvec chartmap dot]
@@ -155,6 +151,7 @@
       (get chartvec dot)))
   (crest [self]
     (RChart. chartvec chartmap (inc dot)))
+  (reset [self] (RChart. chartvec chartmap 0))
   (chart-seq [self] chartvec)
   EStrable
   (estr [self]
@@ -163,20 +160,24 @@
       (apply str (update-in (vec (map #(str (estr %) "\n") chartvec))
                             [dot] #(str "* " %))))))
 
-(defn- new-chart [] (RChart. [] {} 0))
-
 (defn- str-charts [charts]
   (apply str (interleave
                (repeat "---\n")
                charts)))
 
-; parse a single chart, scanning into its successor
-(defn- parse-chart [pchart1 pchart2 input-token input]
-  (loop [chart1 pchart1 chart2 pchart2]
-    (if-let [sitem (cfirst chart1)]
-      (recur (crest (reduce add chart1 (cpredict sitem)))
-             (reduce add chart2 (cscan sitem input-token input)))
-      [chart1 chart2])))
+(def new-chart (RChart. [] {} 0))
+
+; scans the seed of a new chart
+(defn- scan-chart [chart input-token input]
+  (reduce add new-chart (mapcat #(cscan % input-token input)
+                                (chart-seq chart))))
+
+; process completions and predictions for a single chart
+(defn- parse-chart [chart]
+  (loop [c chart]
+    (if-let [item (cfirst c)]
+      (recur (crest (reduce add c (cpredict item))))
+     c)))
 
 ; TODO: this scan-for-completions and manually completing the ostack thing
 ; is a little ugly... we might be better served by having a "goal symbol" like an LR
@@ -189,19 +190,19 @@
                (chart-seq chart))))
 
 (defn- parsefn [inputstr grammar tokenizer goal]
-  (loop [str1 inputstr charts [(reduce add (new-chart)
-                                       (earley-items goal grammar))]]
+  (loop [str1 inputstr
+         chart (reduce add new-chart (earley-items goal grammar))
+         charts []]
     (if-let [thechar (first str1)]
       (let [thetoken (tokenizer thechar)
-            [chart1 chart2] (parse-chart (peek charts) (new-chart) thetoken thechar)
-            charts2 (conj (conj (pop charts) chart1) chart2)]
+            chart1 (parse-chart chart)
+            chart2 (scan-chart chart1 thetoken thechar)
+            charts2 (conj charts chart1)]
         (if (cfirst chart2)
-          (recur (rest str1) charts2)
-          charts2)) ; early termination on failure
+          (recur (rest str1) chart2 charts2)
+          (conj charts2 chart2))) ; early termination on failure, returning last chart
       ; end step
-      ; TODO not this hack, separate finish-chart fn?
-      (let [[finalchart _] (parse-chart (peek charts) (new-chart) (Object.) (Object.))]
-        (conj (pop charts) finalchart)))))
+      (conj charts (parse-chart chart)))))
 
 (defprotocol Parser
   (parse [parser input] "Parse the given input with the given parser,
