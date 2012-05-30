@@ -49,17 +49,17 @@
 
 ; TODO have Rule implement this?
 (defprotocol ^:private EarleyItem
-  (predict [self])
+  (predict [self index])
   (escan [self input-token])
   (is-complete? [self])
   (advance [self]))
 
-(defrecord ^:private REarleyItem [rule dot grammar]
+(defrecord ^:private REarleyItem [rule dot index grammar]
   EarleyItem
-  (predict [self]
+  (predict [self pos]
     (if (not (is-complete? self))
       (map (fn [prediction]
-             (REarleyItem. prediction 0 grammar))
+             (REarleyItem. prediction 0 pos grammar))
            (predict-clause (get (:clauses rule) dot) grammar))))
   (escan [self input-token]
     (if (and (not (is-complete? self))
@@ -69,16 +69,16 @@
   (is-complete? [_]
     (= dot (count (:clauses rule))))
   (advance [self]
-    (REarleyItem. rule (inc dot) grammar))
+    (REarleyItem. rule (inc dot) index grammar))
   EStrable
   (estr [_]
     (separate-str (concat [(:head rule) "->"]
                           (take dot (:clauses rule)) ["*"]
-                          (drop dot (:clauses rule)))
+                          (drop dot (:clauses rule)) [(str "@" index)])
                   " ")))
 
 (defprotocol ^:private ChartItem
-  (cpredict [self])
+  (cpredict [self pos])
   (cscan [self input-token input])
   (emerge [self other-item]))
 
@@ -93,34 +93,27 @@
 ; earley-item: duh, rstack: @map<item rstack>, ostack: the output "stream"
 (defrecord ^:private RChartItem [earley-item rstack ostack]
   ChartItem
-  (cpredict [self]
+  (cpredict [self pos]
     (if (is-complete? earley-item)
       (map (fn [[item rstack]]
              (RChartItem. (advance item) rstack
                           (reduce-ostack ostack (:rule earley-item)))) @rstack)
       (map (fn [item]
              (RChartItem. item (atom {earley-item rstack}) ostack))
-           (predict earley-item))))
+           (predict earley-item pos))))
   (cscan [self input-token input]
     (map (fn [item]
            (RChartItem. item rstack (cons [input] ostack)))
          (escan earley-item input-token)))
   ; Merges the stacks of this and the other-item. True if there was anything to merge.
   (emerge [self other-item]
-    (let [rstack2 @(:rstack other-item)]
-      ; Well, this is inefficient. Chalk it up to clojure's non-support for keyset.
-      ; Also, we eventually want to replace this with LR items when we
-      ; optimize for speed.
-      (if (seq (clojure.set/difference (into #{} (keys rstack2))
-                                       (into #{} (keys @rstack))))
-        (do (swap! rstack #(merge % @(:rstack other-item)))
-          true)
-        false)))
+    (swap! rstack #(merge % @(:rstack other-item))))
   EStrable
   (estr [_] (str (estr earley-item) " | " (separate-str (map (comp estr first) @rstack) ", "))))
 
+; creates initial earley items with dot and pos 0
 (defn- earley-items [rulename grammar]
-  (map #(RChartItem. (REarleyItem. % 0 grammar) (atom {}) '())
+  (map #(RChartItem. (REarleyItem. % 0 0 grammar) (atom {}) '())
        (get grammar rulename [])))
 
 ; TODO: nuke this protocol
@@ -136,13 +129,7 @@
   (add [self item]
     (let [ikey (:earley-item item)]
       (if-let [previndex (get chartmap ikey)]
-        (if (and (emerge (get chartvec previndex) item)
-                 (>= dot previndex)
-                 (is-complete? (:earley-item item)))
-          ; we already processed this item
-          ; but we may need to process extra completions
-          ; TODO: this is awkward... chart is a hybrid of smart and dumb data object
-          (reduce add self (cpredict item))
+        (do (emerge (get chartvec previndex) item)
           self)
         (RChart. (conj chartvec item)
                  (assoc chartmap ikey (count chartvec)) dot))))
@@ -173,10 +160,10 @@
                                 (chart-seq chart))))
 
 ; process completions and predictions for a single chart
-(defn- parse-chart [chart]
+(defn- parse-chart [chart pos]
   (loop [c chart]
     (if-let [item (cfirst c)]
-      (recur (crest (reduce add c (cpredict item))))
+      (recur (crest (reduce add c (cpredict item pos))))
      c)))
 
 ; TODO: this scan-for-completions and manually completing the ostack thing
@@ -190,19 +177,20 @@
                (chart-seq chart))))
 
 (defn- parsefn [inputstr grammar tokenizer goal]
-  (loop [str1 inputstr
+  (loop [pos 0
+         str1 inputstr
          chart (reduce add new-chart (earley-items goal grammar))
          charts []]
     (if-let [thechar (first str1)]
       (let [thetoken (tokenizer thechar)
-            chart1 (parse-chart chart)
+            chart1 (parse-chart chart pos)
             chart2 (scan-chart chart1 thetoken thechar)
             charts2 (conj charts chart1)]
         (if (cfirst chart2)
-          (recur (rest str1) chart2 charts2)
+          (recur (inc pos) (rest str1) chart2 charts2)
           (conj charts2 chart2))) ; early termination on failure, returning last chart
       ; end step
-      (conj charts (parse-chart chart)))))
+      (conj charts (parse-chart chart (inc pos))))))
 
 (defprotocol Parser
   (parse [parser input] "Parse the given input with the given parser,

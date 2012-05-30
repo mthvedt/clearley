@@ -47,10 +47,10 @@
     (is-action 8 "2(2+2)")
     (is-action 8 "(2+2)2")
     (is-action 16 "(2+2)(2+2)")
-    (is-action 16 "2(2+2)2") ; TODO fix
+    (is-action 16 "2(2+2)2")
     (is-action 16 "2(2+2)(1+1-1)2")
     (is-action 2 "(((((2)))))")
     (is-action 4 "2--2")
-    ;(is-action 0 "2-----2")
+    (is-action 0 "2-----2")
     (is-action 12 "2*2^2+2*2")
     (is-action 98 "2+(2-2--2)*2*-(2+2)+100+2^2*3")))
