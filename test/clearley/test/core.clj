@@ -32,6 +32,7 @@
     (is (parses? "1+55*3+2*55"))
     (is (not (parses? "44")))
     (is (not (parses? "55*23")))
+    (is (not (parses? "1+2a")))
     (is (parses? "1+55*2*55+3+55*4"))
     (is-ast [[[\1]]] "1")
     (is-ast [[[[\2]]] \+ [[[\3]] \* [\4]]] "2+3*4")
@@ -116,10 +117,14 @@
 (extend-rule digit
              ([digits567] digits567)
              ([(a-digit [(token \8 8) (token \9 9)])] a-digit))
-(def parser5 (build-parser sum))
+(def final-parser (build-parser sum))
 
 (deftest rule-literal-test
-  (with-parser parser5
+  (with-parser final-parser
     (is-action 2 "7-5")
     (is-action 1 "9-8")
     (is-action 4 "9-5")))
+
+(deftest print-charts-test
+  (with-out-str
+    (print-charts final-parser "1+2-3*4+5-6+7")))

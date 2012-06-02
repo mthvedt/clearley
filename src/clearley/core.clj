@@ -5,19 +5,13 @@
   (:require (clojure string))
   (:use clearley.utils))
 
-(defprotocol EStrable
-  (estr [obj] "Returns a shorthand str of this item."))
+(defprotocol ^:private PStrable
+  (pstr [obj] "pstr stands for \"pretty-string\".
+              Returns a shorthand str of this item."))
 
-(defn eprint
-  "Prints a shorthand str of the object to out."
-  ([obj] (print (estr obj))))
+(defrecord ^:private Rule [head clauses action])
 
-; TODO: what is the purpose of tokenizers?
-
-(defrecord ^:private Rule [head clauses action]
-  EStrable
-  (estr [_] (str head " -> " (separate-str clauses " "))))
-
+; TODO: if rules are generic maps, need a generic pretty print for rule
 (defn rule
   "Creates a rule associated with a parse action that can be called
   after matching. A rule is simply a map with a required vector of :clauses,
@@ -29,6 +23,9 @@
   ([head clauses] (rule head clauses nil))
   ([head clauses action] (Rule. head (vec clauses) action)))
 
+(defn pstr-rule [rule]
+  (str (:head rule) " -> " (separate-str (:clauses rule) " ")))
+
 ; TODO: better token fns
 (defn token
   "A rule that returns whatever it matches."
@@ -39,7 +36,7 @@
 (defn- grammar [rules]
   (dissoc (group-by :head rules) nil))
 
-(defn token-match [token] [token])
+(defn- token-match [token] [token])
 
 ; Gets a seq of subrules from a clause
 (defn- predict-clause [clause grammar]
@@ -47,7 +44,6 @@
     clause
     (get grammar clause [])))
 
-; TODO have Rule implement this?
 (defprotocol ^:private EarleyItem
   (predict [self index])
   (escan [self input-token])
@@ -70,8 +66,8 @@
     (= dot (count (:clauses rule))))
   (advance [self]
     (REarleyItem. rule (inc dot) index grammar))
-  EStrable
-  (estr [_]
+  PStrable
+  (pstr [_]
     (separate-str (concat [(:head rule) "->"]
                           (take dot (:clauses rule)) ["*"]
                           (drop dot (:clauses rule)) [(str "@" index)])
@@ -91,6 +87,7 @@
     (cons (vec (cons rule (reverse (take thecount ostack)))) (drop thecount ostack))))
 
 ; earley-item: duh, rstack: @map<item rstack>, ostack: the output "stream"
+; TODO: eliminate need to wrap rstacks in atoms
 (defrecord ^:private RChartItem [earley-item rstack ostack]
   ChartItem
   (cpredict [self pos]
@@ -108,13 +105,17 @@
   ; Merges the stacks of this and the other-item. True if there was anything to merge.
   (emerge [self other-item]
     (swap! rstack #(merge % @(:rstack other-item))))
-  EStrable
-  (estr [_] (str (estr earley-item) " | " (separate-str (map (comp estr first) @rstack) ", "))))
+  PStrable
+  (pstr [_] (str (pstr earley-item) " | " (separate-str (map (comp pstr first) @rstack) ", "))))
 
 ; creates initial earley items with dot and pos 0
 (defn- earley-items [rulename grammar]
   (map #(RChartItem. (REarleyItem. % 0 0 grammar) (atom {}) '())
        (get grammar rulename [])))
+
+; creates an initial earley item with dot and pos 0
+(defn- chart-item [rule grammar]
+  (RChartItem. (REarleyItem. rule 0 0 grammar) (atom {}) '()))
 
 ; TODO: nuke this protocol
 (defprotocol Chart
@@ -140,21 +141,16 @@
     (RChart. chartvec chartmap (inc dot)))
   (reset [self] (RChart. chartvec chartmap 0))
   (chart-seq [self] chartvec)
-  EStrable
-  (estr [self]
+  PStrable
+  (pstr [self]
     (if (= dot (count chartvec))
-      (apply str (map #(str (estr %) "\n") chartvec))
-      (apply str (update-in (vec (map #(str (estr %) "\n") chartvec))
+      (apply str (map #(str (pstr %) "\n") chartvec))
+      (apply str (update-in (vec (map #(str (pstr %) "\n") chartvec))
                             [dot] #(str "* " %))))))
-
-(defn- str-charts [charts]
-  (apply str (interleave
-               (repeat "---\n")
-               charts)))
 
 (def new-chart (RChart. [] {} 0))
 
-; scans the seed of a new chart
+; scans an input character, seeding a new chart
 (defn- scan-chart [chart input-token input]
   (reduce add new-chart (mapcat #(cscan % input-token input)
                                 (chart-seq chart))))
@@ -166,20 +162,16 @@
       (recur (crest (reduce add c (cpredict item pos))))
      c)))
 
-; TODO: this scan-for-completions and manually completing the ostack thing
-; is a little ugly... we might be better served by having a "goal symbol" like an LR
-; parser table
-(defn- scan-for-completions [chart thehead]
-  (map (fn [x] (first (reduce-ostack (:ostack x) (:rule (:earley-item x)))))
-       (filter (fn [ritem]
-                 (let [rule (:rule (:earley-item ritem))]
-                   (and (= (:head rule) thehead) (is-complete? (:earley-item ritem)))))
-               (chart-seq chart))))
+; Searches a chart for completed parse of the goal rule
+(defn scan-goal [chart]
+  (:ostack (first (filter #(= (:head (:rule (:earley-item %))) ::goal)
+                          (chart-seq chart)))))
 
-(defn- parsefn [inputstr grammar tokenizer goal]
+; TODO: clean this up
+(defn- parsefn [inputstr grammar tokenizer goal-rule]
   (loop [pos 0
          str1 inputstr
-         chart (reduce add new-chart (earley-items goal grammar))
+         chart (add new-chart (chart-item goal-rule grammar))
          charts []]
     (if-let [thechar (first str1)]
       (let [thetoken (tokenizer thechar)
@@ -196,8 +188,8 @@
   (parse [parser input] "Parse the given input with the given parser,
                         yielding a match tree (a tree of the form
                         [rule leaves] where leaves is a seq).")
-  (charts [parser input] "Parse the given input with the given parser,
-                         yielding the parse charts."))
+  ; charts is not yet usable by external users, so private
+  (^:private charts [parser input]))
 
 (defn earley-parser
   "Constructs an Earley parser, provided with a seq of rules and a predefined
@@ -207,17 +199,16 @@
   ([goal rules]
    (earley-parser goal identity rules))
   ([goal tokenizer rules]
-   (let [grammar (grammar rules)]
+   (let [goal-rule (rule ::goal [goal] identity)
+         grammar (grammar rules)]
      (reify Parser
        (parse [parser input]
-         (first (scan-for-completions (peek (charts parser input)) goal)))
+         (first (scan-goal (peek (charts parser input)))))
        (charts [parser input]
-         ; TODO: return entire chart, or just chart seq?
-         ; obviously, just chart seq
-         (parsefn input grammar tokenizer goal))))))
+         (parsefn input grammar tokenizer goal-rule))))))
 
 (defn parse-tree
-  "Parses the given input with the given parser, yielding just the abstract
+  "Parses the given input with the given parser, yielding an abstract
   syntax tree with no rules (effectively, the same as stripping the first elements
   (the rules) from a match tree)."
   [parser input]
@@ -228,12 +219,17 @@
          (first match)))
        match)))
 
-; TODO: expose print-charts and not charts
-(defn eprint-charts [charts]
-  (dorun (for [chart charts]
-           (println (estr chart)))))
+(defn print-charts
+  "For a givne parser and input, prints a string representation of its charts to
+  *out*."
+  [parser input]
+  (dorun (for [chart (charts parser input)]
+           (println (pstr chart)))))
 
-(defn take-action [match]
+(defn take-action
+  "For a given match from a parser, executes the parse actions corresponding
+  to the match."
+  [match]
   (if (nil? match)
     (throw (RuntimeException. "Failure to parse"))
     (let [subactions (map take-action (rest match))
@@ -251,7 +247,6 @@
 ; TODO: experiment with using a parser for defrule
 ; instead of all these macro helpers... would make a convincing POC for earley parsing!
 
-; TODO: is there a better way to do this?
 ; Macro helper fn. Dequalifies a stringable qualified sym or keyword
 (defn- dequalify [strable]
   (let [dequalified (clojure.string/split (str strable) #"/")]
@@ -303,16 +298,18 @@
           true (TIAE "Not a valid defrule; "
                      "expected clause vector or clause-body pairs"))))
 
-(defmacro defrule [head & impl-or-impls]
-  `(def ~head ~(build-defrule-bodies head impl-or-impls)))
+(defmacro defrule
+  ; TODO: doc
+  [name & impl-or-impls]
+  `(def ~name ~(build-defrule-bodies name impl-or-impls)))
 
-(defmacro extend-rule [head & impl-or-impls]
-  `(def ~head (vec (concat ~head ~(build-defrule-bodies head impl-or-impls)))))
+(defmacro extend-rule
+  "Like defrule, but extends an existing rule."
+  [name & impl-or-impls]
+  `(def ~name (vec (concat ~name ~(build-defrule-bodies name impl-or-impls)))))
 
 ; resolves all clauses in a grammar seeded by the given goal,
 ; populating rule :heads (overriding possibly)
-; TODO: better semantics for rule heads
-; TODO: don't populate anonymous rules on the seq
 (defn- grammar-map-env [goal grammar thens theenv]
   (loop [stack [goal]
          rgrammar grammar]
@@ -320,13 +317,12 @@
       (cond (nil? current-head) rgrammar ; stack is empty--we are done
             (contains? rgrammar current-head) (recur (rest stack) rgrammar)
             (not (symbol? current-head)) (recur (rest stack) rgrammar)
-            true ; so, rule is not in grammar--look it up
-            (let [resolved (ns-resolve thens theenv current-head)]
-              (if (nil? resolved)
-                (TIAE "Cannot resolve rule for head: " current-head)
+            true ; rule is a symbol--look it up
+            (if-let [resolved (ns-resolve thens theenv current-head)]
                 (recur (concat (mapcat :clauses @resolved) stack)
                        (assoc rgrammar current-head
-                              (map #(assoc % :head current-head) @resolved)))))))))
+                              (map #(assoc % :head current-head) @resolved)))
+                (TIAE "Cannot resolve rule for head: " current-head))))))
 
 (defn build-grammar-in-env [goal grammar thens theenv]
   (apply concat (vals (grammar-map-env goal grammar thens theenv))))
