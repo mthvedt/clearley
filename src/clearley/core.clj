@@ -1,24 +1,24 @@
 (ns clearley.core
-  "An easy-to-use, generalized context-free grammar parser. It will
+  "A generalized context-free grammar parser. It will
   accept any seq of inputs, not just text, and parse any context-free grammar.
-  Emphasis is on ease of use and dynamic/exploratory programming."
+  Emphasis is on ease of use, versatility, and dynamic/exploratory programming."
   (:require (clojure string))
   (:use clearley.utils))
+; TODO: test compositability/extensibility
 
 (defprotocol ^:private PStrable
-  (pstr [obj] "pstr stands for \"pretty-string\".
-              Returns a shorthand str of this item."))
+  (^:private pstr [obj] "pstr stands for \"pretty-string\".
+                        Returns a shorthand str of this item."))
 
 (defrecord ^:private Rule [head clauses action])
 
-; TODO: if rules are generic maps, need a generic pretty print for rule
 (defn rule
   "Creates a rule associated with a parse action that can be called
-  after matching. A rule is simply a map with a required vector of :clauses,
-  an :head (optional, since Rules can also be embedded in othe rules),
-  and an optional :action (the default action bundles the args into a list).
-  The :clauses can be rule heads or rules themselves."
-  ; TODO: check what a clause can be. Maybe move grammar-building up here.
+  after matching. A rule has a required vector of clauses,
+  an head (optional, since Rules can also be embedded in other rules),
+  and an optional action (the default action bundles the args into a list).
+  A clause can be a rule head referring to one or more rules,
+  or a seq of one or more rules (anonymous rules)."
   ([clauses] (rule nil clauses nil))
   ([head clauses] (rule head clauses nil))
   ([head clauses action] (Rule. head (vec clauses) action)))
@@ -28,9 +28,18 @@
 
 ; TODO: better token fns
 (defn token
-  "A rule that returns whatever it matches."
+  "A rule that matches a single object (the token) and returns whatever it matches."
   ([a-token] (rule nil [a-token] (fn [_] a-token)))
   ([a-token value] (rule nil [a-token] (fn [_] value))))
+
+(defn scanner
+  "Defines a rule that scans one token of input with the given scanner function.
+  The scanner function is used by the parser to match tokens. If this rule is invoked
+  on a token, and the scanner returns logcial true, the rule matches the token."
+  [scanner-fn action]
+  ; TODO: test scanners
+  ; TODO: a hack here: the below clause is highly unlikely to match anything
+  (assoc (Rule. nil [(str "Scanner<" scanner-fn ">")] action) :scanner scanner-fn))
 
 ; A grammar maps rule heads to rules. nil never maps to anything.
 (defn- grammar [rules]
@@ -44,6 +53,13 @@
     clause
     (get grammar clause [])))
 
+; TODO: polymorphism. EarleyItem can be much faster.
+; But the parser automaton should come first, since parser automata are big perf win
+; and whatever polymorphism EarleyItme has should be tailored to that.
+;
+; what do i want this to look like...
+; (scanner (fn token -> result))
+; (scanner scanner-fn action) is better
 (defprotocol ^:private EarleyItem
   (predict [self index])
   (escan [self input-token])
@@ -58,9 +74,14 @@
              (REarleyItem. prediction 0 pos grammar))
            (predict-clause (get (:clauses rule) dot) grammar))))
   (escan [self input-token]
-    (if (and (not (is-complete? self))
-             (= (get (:clauses rule) dot) input-token))
+    (cond
+      (:scanner rule)
+      (if ((:scanner rule) input-token)
+        [(advance self)]
+        [])
+      (and (not (is-complete? self)) (= (get (:clauses rule) dot) input-token))
       [(advance self)]
+      true
       []))
   (is-complete? [_]
     (= dot (count (:clauses rule))))
@@ -106,12 +127,8 @@
   (emerge [self other-item]
     (swap! rstack #(merge % @(:rstack other-item))))
   PStrable
-  (pstr [_] (str (pstr earley-item) " | " (separate-str (map (comp pstr first) @rstack) ", "))))
-
-; creates initial earley items with dot and pos 0
-(defn- earley-items [rulename grammar]
-  (map #(RChartItem. (REarleyItem. % 0 0 grammar) (atom {}) '())
-       (get grammar rulename [])))
+  (pstr [_] (str (pstr earley-item) " | "
+                 (separate-str (map (comp pstr first) @rstack) ", "))))
 
 ; creates an initial earley item with dot and pos 0
 (defn- chart-item [rule grammar]
@@ -162,27 +179,22 @@
       (recur (crest (reduce add c (cpredict item pos))))
      c)))
 
-; Searches a chart for completed parse of the goal rule
-(defn scan-goal [chart]
-  (:ostack (first (filter #(= (:head (:rule (:earley-item %))) ::goal)
-                          (chart-seq chart)))))
-
-; TODO: clean this up
-(defn- parsefn [inputstr grammar tokenizer goal-rule]
+(defn- parse-charts [inputstr grammar tokenizer goal-rule]
   (loop [pos 0
-         str1 inputstr
-         chart (add new-chart (chart-item goal-rule grammar))
+         thestr inputstr
+         current-chart (add new-chart (chart-item goal-rule grammar))
          charts []]
-    (if-let [thechar (first str1)]
+    (if-let [thechar (first thestr)]
       (let [thetoken (tokenizer thechar)
-            chart1 (parse-chart chart pos)
-            chart2 (scan-chart chart1 thetoken thechar)
-            charts2 (conj charts chart1)]
-        (if (cfirst chart2)
-          (recur (inc pos) (rest str1) chart2 charts2)
-          (conj charts2 chart2))) ; early termination on failure, returning last chart
+            parsed-chart (parse-chart current-chart pos)
+            next-chart (scan-chart parsed-chart thetoken thechar)
+            next-charts (conj charts parsed-chart)]
+        (if (cfirst next-chart)
+          (recur (inc pos) (rest thestr) next-chart next-charts)
+          ; early termination on failure, incl. failed chart
+          (conj next-charts next-chart)))
       ; end step
-      (conj charts (parse-chart chart (inc pos))))))
+      (conj charts (parse-chart current-chart (inc pos))))))
 
 (defprotocol Parser
   (parse [parser input] "Parse the given input with the given parser,
@@ -190,6 +202,11 @@
                         [rule leaves] where leaves is a seq).")
   ; charts is not yet usable by external users, so private
   (^:private charts [parser input]))
+
+; Searches a chart for completed parse of the goal rule, returning all matches
+(defn scan-goal [chart]
+  (mapcat :ostack (filter (comp (partial = ::goal) :head :rule :earley-item)
+                          (chart-seq chart))))
 
 (defn earley-parser
   "Constructs an Earley parser, provided with a seq of rules and a predefined
@@ -203,9 +220,10 @@
          grammar (grammar rules)]
      (reify Parser
        (parse [parser input]
+         ; For now, only retunr first match
          (first (scan-goal (peek (charts parser input)))))
        (charts [parser input]
-         (parsefn input grammar tokenizer goal-rule))))))
+         (parse-charts input grammar tokenizer goal-rule))))))
 
 (defn parse-tree
   "Parses the given input with the given parser, yielding an abstract
@@ -227,8 +245,7 @@
            (println (pstr chart)))))
 
 (defn take-action
-  "For a given match from a parser, executes the parse actions corresponding
-  to the match."
+  "Executes the parse actions for a parser match."
   [match]
   (if (nil? match)
     (throw (RuntimeException. "Failure to parse"))
@@ -299,14 +316,43 @@
                      "expected clause vector or clause-body pairs"))))
 
 (defmacro defrule
-  ; TODO: doc
-  [name & impl-or-impls]
-  `(def ~name ~(build-defrule-bodies name impl-or-impls)))
+  "Defs a parser rule or seq of parser rules.
+  
+  Usage:
+  (defrule rule-name [clauses] action?)
+  (defrule (rule-name [clauses] action?)+)
+
+  Valid clauses:
+  a rule
+  a symbol pointing to a seq of rules
+  [rule or rule symbol+]
+  (rule-alias-symbol rule-symbol)
+  (rule-alias-symbol [rule or rule symbol+])
+  
+  Defines one or more rules and binds them (possibly in a seq) to a given var.
+  The optional action form defines a parse action, where the symbols will be bound
+  to the results of the actions of the correspoinding subrules. For example:
+
+  (defrule sum [num \\+ (num2 num)] (+ num num2))
+  
+  The above rule matches two nums (one of which is aliased as num2)
+  and adds them together. If a parse action is not provided, a default
+  will be used which bundles its args into a list. The rule's head is
+  'sum and will be bound to *ns*/sum."
+  ; TODO: test all above cases
+  ; TODO: qualify syms
+  [head & impl-or-impls]
+  `(def ~head ~(build-defrule-bodies head impl-or-impls)))
 
 (defmacro extend-rule
   "Like defrule, but extends an existing rule."
-  [name & impl-or-impls]
-  `(def ~name (vec (concat ~name ~(build-defrule-bodies name impl-or-impls)))))
+  [head & impl-or-impls]
+  `(def ~head (vec (concat ~head ~(build-defrule-bodies head impl-or-impls)))))
+
+; TODO: better name than add-rules
+(defmacro add-rules
+  [head & rules]
+  `(def ~head (vec (concat ~head [~@rules]))))
 
 ; resolves all clauses in a grammar seeded by the given goal,
 ; populating rule :heads (overriding possibly)
@@ -324,14 +370,24 @@
                               (map #(assoc % :head current-head) @resolved)))
                 (TIAE "Cannot resolve rule for head: " current-head))))))
 
-(defn build-grammar-in-env [goal grammar thens theenv]
+(defn- build-grammar-in-env
+  [goal grammar thens theenv]
   (apply concat (vals (grammar-map-env goal grammar thens theenv))))
 
-(defmacro build-grammar [goal]
-  `(build-grammar-in-env ~goal {} *ns* ~&env))
-
 (defmacro build-parser
+  "Builds an earley parser with the given goal rule. build-parser will
+  crawl the tree of sub-rules, looking up any symbols in the current namespace
+  and figuring out what rules or seqs of rules they map to. If any symbol
+  could not be looked up, that is an error. After all the rules are looked up,
+  the parser is built."
   ([goal]
    `(build-parser ~goal identity))
   ([goal tokenizer]
-   `(earley-parser '~goal ~tokenizer (build-grammar '~goal))))
+   `(build-parser-in-env '~goal ~tokenizer *ns* ~&env)))
+
+(defn build-parser-in-env
+  "Fn version of build-parser if you want to provide your own *ns* and enviornment
+  map."
+  ; TODO: test, change build-parser
+  [goal tokenizer thens theenv]
+  (earley-parser goal tokenizer (build-grammar-in-env goal {} thens theenv)))

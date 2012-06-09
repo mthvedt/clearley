@@ -117,14 +117,25 @@
 (extend-rule digit
              ([digits567] digits567)
              ([(a-digit [(token \8 8) (token \9 9)])] a-digit))
-(def final-parser (build-parser sum))
+(def parser5 (build-parser sum))
 
 (deftest rule-literal-test
-  (with-parser final-parser
+  (with-parser parser5
     (is-action 2 "7-5")
     (is-action 1 "9-8")
     (is-action 4 "9-5")))
 
+; Chart str format isn't fixed... so we don't test it
+; just test that it is not nil
 (deftest print-charts-test
-  (with-out-str
-    (print-charts final-parser "1+2-3*4+5-6+7")))
+  (is (with-out-str
+        (print-charts parser5 "3*4+5-6+7"))))
+
+; TODO: single rule literal not in vector
+(add-rules digit (scanner #(= \0 %) (fn [_] 0)))
+(def parser6 (build-parser sum))
+
+(deftest scanner-test
+  (with-parser parser6
+    (is-action 3 "0+3")
+    (is-action 1 "3+0*5*4+0+3-5")))

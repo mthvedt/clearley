@@ -1,6 +1,12 @@
 # Clearley
 
-A flexible, programmable parser library in Clojure.
+A parser library in Clojure with an emphasis on dynamic programming, extensibility,
+ease of use, and handling all cases. Clearley wants to change parsing from
+something exotic to a tool anyone can use.
+
+## Clearley is
+
+## Clearley isn't
 
 ## Crash course
 
@@ -27,8 +33,8 @@ Each rule is associated with a parse action, which is a function. When a rule
 is parsed successfully, Clearley can call a parse action. The parse action takes
 as its arguments, in order, the results of the parse actions of the child rules.
 In the above calculator example, the parse actions are pretty simple;
-the construct `` tells Clearley whenever we encounter something of the form
-``, we call `(+ )`. Parse actions can be as simple or complex as you wish.
+the construct `todo` tells Clearley whenever we encounter something of the form
+`todo`, we call `(+ )`. Parse actions can be as simple or complex as you wish.
 This is deferred until after parse time, so you can also think of it as crawling
 the parse tree, executing parse actions recrusively from the top down.
 
@@ -48,6 +54,42 @@ Macros are a convenience layer for functions, not a substitute for them.
 Everything in Clearley can be done with functions, which are exposed to the user.
 These are described in the docs. However, beware: Clearley is still in dev
 and the functional API may change.
+
+## Wish list
+
+Potential ideas or features for Clearley:
+
+* Ambiguity support and disambiguation rules. Currently Clearley outputs a single
+parse and pretends it's canonical.
+
+* ClojureScript compatiblity.
+
+* Java API.
+
+* Error recovery when parsing.
+
+* Infinitely-generated context-free grammars. With this we can efficiently parse
+a superset of CFGs in O(3) time. The framework for this is already in place--
+one would allow rules' 'predict' steps to vary based on the parse state and
+matched output.
+
+* Boolean grammars.
+
+* A parsing automaton for better performance.
+Aycock & Horspool's paper, Practical Earley Parsing, describes
+how to accomplish efficient Earley parsing. It's also known that Earley parsing
+is not far removed from nondeterministic LR parsing. Aycock and Horspool
+also mention that good performance is available when lazily generating parsing
+automata, yielding the ability to create infinite-state machines for the
+infinitely-generated context-free grammars above. The branch earley-glr contains
+some first steps towards a parsing automaton.
+
+If someone writes a paper on infinite-state parsing automata, remember you heard
+it here first.
+
+## References
+
+TODO: add references.
 
 ## License
 
