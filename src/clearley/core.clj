@@ -5,6 +5,7 @@
   (:require (clojure string))
   (:use clearley.utils))
 ; TODO: test compositability/extensibility
+; TODO: expose grammar
 
 (defprotocol ^:private PStrable
   (^:private pstr [obj] "pstr stands for \"pretty-string\".
@@ -28,7 +29,8 @@
 
 ; TODO: better token fns
 (defn token
-  "A rule that matches a single object (the token) and returns whatever it matches."
+  "A rule that matches a single object (the token). Its action by default
+  returns the token but can also return some specified value."
   ([a-token] (rule nil [a-token] (fn [_] a-token)))
   ([a-token value] (rule nil [a-token] (fn [_] value))))
 
@@ -40,6 +42,19 @@
   ; TODO: test scanners
   ; TODO: a hack here: the below clause is highly unlikely to match anything
   (assoc (Rule. nil [(str "Scanner<" scanner-fn ">")] action) :scanner scanner-fn))
+
+(defn token-range
+  "Creates a rule that accepts all characters within a range. The given min and max
+  should be chars."
+  [min max action]
+  (if (not (and (char? min) (char? max)))
+    (TIAE "min and max should be chars"))
+  (let [intmin (int min)
+        intmax (int max)]
+    (scanner (fn [x]
+               (let [intx (int x)]
+                 (and (<= intx intmax) (>= intx intmin))))
+             action)))
 
 ; A grammar maps rule heads to rules. nil never maps to anything.
 (defn- grammar [rules]
@@ -56,10 +71,6 @@
 ; TODO: polymorphism. EarleyItem can be much faster.
 ; But the parser automaton should come first, since parser automata are big perf win
 ; and whatever polymorphism EarleyItme has should be tailored to that.
-;
-; what do i want this to look like...
-; (scanner (fn token -> result))
-; (scanner scanner-fn action) is better
 (defprotocol ^:private EarleyItem
   (predict [self index])
   (escan [self input-token])
@@ -250,8 +261,9 @@
   (if (nil? match)
     (throw (RuntimeException. "Failure to parse"))
     (let [subactions (map take-action (rest match))
-          action1 (:action (first match))
-          action (if (nil? action1) (fn [& args] args) action1)] ; default action
+          rule (first match)
+          ; Below is the default action--return args if not empty, otherwise return rule
+          action (get rule :action (fn [& args] (if (seq args) args rule)))]
       (try
         (apply action subactions)
         (catch clojure.lang.ArityException e

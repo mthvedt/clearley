@@ -139,3 +139,13 @@
   (with-parser parser6
     (is-action 3 "0+3")
     (is-action 1 "3+0*5*4+0+3-5")))
+
+; should override digit
+(def digit [(token-range \0 \9 (fn [c] (- (int c) (int \0))))])
+(def parser7 (build-parser sum))
+
+(deftest token-range-test
+  (with-parser parser7
+    (is-action 1 "1")
+    (is-action 3 "1+2")
+    (is-action 23 "0+1*2+3*4+9")))
