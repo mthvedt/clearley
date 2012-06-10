@@ -1,6 +1,5 @@
 lib/*
+classes/*
 target/*
+pom.xml
 .lein*
-*.swp
-*.iml
-.idea/*

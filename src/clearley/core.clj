@@ -4,8 +4,7 @@
   Emphasis is on ease of use, versatility, and dynamic/exploratory programming."
   (:require (clojure string))
   (:use clearley.utils))
-; TODO: test compositability/extensibility
-; TODO: expose grammar
+; TODO: empty rule?
 
 (defprotocol ^:private PStrable
   (^:private pstr [obj] "pstr stands for \"pretty-string\".
@@ -18,8 +17,8 @@
   after matching. A rule has a required vector of clauses,
   an head (optional, since Rules can also be embedded in other rules),
   and an optional action (the default action bundles the args into a list).
-  A clause can be a rule head referring to one or more rules,
-  or a seq of one or more rules (anonymous rules)."
+  A clause can be a rule, a symbol referring to one or more rules,
+  or a vector or seq of one or more rules (anonymous rules)."
   ([clauses] (rule nil clauses nil))
   ([head clauses] (rule head clauses nil))
   ([head clauses action] (Rule. head (vec clauses) action)))
@@ -27,9 +26,8 @@
 (defn pstr-rule [rule]
   (str (:head rule) " -> " (separate-str (:clauses rule) " ")))
 
-; TODO: better token fns
 (defn token
-  "A rule that matches a single object (the token). Its action by default
+  "Returns a rule that matches a single object (the token). Its action by default
   returns the token but can also return some specified value."
   ([a-token] (rule nil [a-token] (fn [_] a-token)))
   ([a-token value] (rule nil [a-token] (fn [_] value))))
@@ -39,7 +37,6 @@
   The scanner function is used by the parser to match tokens. If this rule is invoked
   on a token, and the scanner returns logcial true, the rule matches the token."
   [scanner-fn action]
-  ; TODO: test scanners
   ; TODO: a hack here: the below clause is highly unlikely to match anything
   (assoc (Rule. nil [(str "Scanner<" scanner-fn ">")] action) :scanner scanner-fn))
 
@@ -68,14 +65,11 @@
     clause
     (get grammar clause [])))
 
-; TODO: polymorphism. EarleyItem can be much faster.
-; But the parser automaton should come first, since parser automata are big perf win
-; and whatever polymorphism EarleyItme has should be tailored to that.
 (defprotocol ^:private EarleyItem
-  (predict [self index])
-  (escan [self input-token])
-  (is-complete? [self])
-  (advance [self]))
+  (^:private predict [self index])
+  (^:private escan [self input-token])
+  (^:private is-complete? [self])
+  (^:private advance [self]))
 
 (defrecord ^:private REarleyItem [rule dot index grammar]
   EarleyItem
@@ -106,9 +100,9 @@
                   " ")))
 
 (defprotocol ^:private ChartItem
-  (cpredict [self pos])
-  (cscan [self input-token input])
-  (emerge [self other-item]))
+  (^:private cpredict [self pos])
+  (^:private cscan [self input-token input])
+  (^:private emerge [self other-item]))
 
 ; Builds a rule match from the output stack and pushes the match to the top
 ; (think of a Forth operator reducing the top of a stack)
@@ -145,13 +139,14 @@
 (defn- chart-item [rule grammar]
   (RChartItem. (REarleyItem. rule 0 0 grammar) (atom {}) '()))
 
-; TODO: nuke this protocol
+; TODO: nuke this protocol, have data object chart
+; data object charts can also serve as prototypes of parsing NDFA states
 (defprotocol Chart
-  (add [self item])
-  (cfirst [self])
-  (crest [self])
-  (reset [self])
-  (chart-seq [self]))
+  (^:private add [self item])
+  (^:private cfirst [self])
+  (^:private crest [self])
+  (^:private reset [self])
+  (^:private chart-seq [self]))
 
 (defrecord RChart [chartvec chartmap dot]
   Chart
@@ -176,7 +171,7 @@
       (apply str (update-in (vec (map #(str (pstr %) "\n") chartvec))
                             [dot] #(str "* " %))))))
 
-(def new-chart (RChart. [] {} 0))
+(def ^:private new-chart (RChart. [] {} 0))
 
 ; scans an input character, seeding a new chart
 (defn- scan-chart [chart input-token input]
@@ -207,7 +202,8 @@
       ; end step
       (conj charts (parse-chart current-chart (inc pos))))))
 
-(defprotocol Parser
+; Don't need to expose parser protocol... only 'parse' fn
+(defprotocol ^:private Parser
   (parse [parser input] "Parse the given input with the given parser,
                         yielding a match tree (a tree of the form
                         [rule leaves] where leaves is a seq).")
@@ -222,8 +218,9 @@
 (defn earley-parser
   "Constructs an Earley parser, provided with a seq of rules and a predefined
   goal symbol. The parser will attempt to match the given input to the goal symbol,
-  given the rules provided. The tokenizer should be a fn that maps input objects
-  to the input tokens used in your grammar."
+  given the rules provided. The optional tokenizer can be used to map inputs
+  to the terminal rules of your grammar (the parse tree will contiain inputs
+  as its leaves, not the terminal symbols)."
   ([goal rules]
    (earley-parser goal identity rules))
   ([goal tokenizer rules]
@@ -249,8 +246,10 @@
        match)))
 
 (defn print-charts
-  "For a givne parser and input, prints a string representation of its charts to
-  *out*."
+  "For a givne parser and input, prints a multi-line representation of its charts to
+  *out*. The representation might change in the future. For more about
+  parse charts, see http://www.wikipedia.org/wiki/Earley_parser. Primarily
+  useful for debugging."
   [parser input]
   (dorun (for [chart (charts parser input)]
            (println (pstr chart)))))
@@ -377,9 +376,16 @@
             (not (symbol? current-head)) (recur (rest stack) rgrammar)
             true ; rule is a symbol--look it up
             (if-let [resolved (ns-resolve thens theenv current-head)]
-                (recur (concat (mapcat :clauses @resolved) stack)
-                       (assoc rgrammar current-head
-                              (map #(assoc % :head current-head) @resolved)))
+              (let [resolved @resolved]
+                (if (or (vector? resolved) (seq? resolved))
+                  ; assume it is a seq of rules
+                  (recur (concat (mapcat :clauses resolved) stack)
+                         (assoc rgrammar current-head
+                                (map #(assoc % :head current-head) resolved)))
+                  ; assume it is a rule
+                  (recur (cons resolved stack)
+                         (assoc rgrammar current-head
+                                [(assoc resolved :head current-head)]))))
                 (TIAE "Cannot resolve rule for head: " current-head))))))
 
 (defn- build-grammar-in-env

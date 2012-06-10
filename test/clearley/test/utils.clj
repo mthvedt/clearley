@@ -4,6 +4,9 @@
 (defmacro is= [& forms]
   `(is (= ~@forms)))
 
+(defmacro isnt [& forms]
+  `(is (not (= ~@forms))))
+
 (def ^:dynamic local-parser)
 
 (defmacro with-parser [parser & forms]
@@ -14,6 +17,9 @@
 
 (defn parses? [input]
   (not (nil? (parse local-parser input))))
+
+(defmacro is-parsing [input]
+  `(is (parses? ~input)))
 
 ; valued trees of the form (value & branches)
 ; neccesary for comparing heterogeneous seqables (here, vec vs lazy-seq)
@@ -27,7 +33,7 @@
          (reduce #(and % %2) true (map tree-eq (rest tree1) (rest tree2))))))
 
 (deftest tree-eq-test
-  ; only test for falsehoods here... avoid false positives in later testing
+  ; only need to test for falsehoods here... avoid false positives
   (is (not (tree-eq [\1] [\2])))
   (is (not (tree-eq [] [[]])))
   (is (not (tree-eq [\1 []] [\1])))
