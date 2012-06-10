@@ -6,6 +6,7 @@
   (:use clearley.utils))
 ; TODO: empty rule?
 
+; TODO: get rid of this protocol?
 (defprotocol ^:private PStrable
   (^:private pstr [obj] "pstr stands for \"pretty-string\".
                         Returns a shorthand str of this item."))
@@ -18,19 +19,37 @@
   an head (optional, since Rules can also be embedded in other rules),
   and an optional action (the default action bundles the args into a list).
   A clause can be a rule, a symbol referring to one or more rules,
+  an atom containing a rule,
   or a vector or seq of one or more rules (anonymous rules)."
+  ; TODO: clauses action, not head clauses
   ([clauses] (rule nil clauses nil))
   ([head clauses] (rule head clauses nil))
   ([head clauses action] (Rule. head (vec clauses) action)))
 
 (defn pstr-rule [rule]
-  (str (:head rule) " -> " (separate-str (:clauses rule) " ")))
+  (str (:head rule "<anonymous>") " -> " (separate-str (:clauses rule) " ")))
 
 (defn token
   "Returns a rule that matches a single object (the token). Its action by default
   returns the token but can also return some specified value."
   ([a-token] (rule nil [a-token] (fn [_] a-token)))
   ([a-token value] (rule nil [a-token] (fn [_] value))))
+
+; TODO test in core tests
+; TODO: clause instead? extensible rule clauses?
+(defn one-or-more
+  "Creates a rule that matches one or more of a subrule. Returns a vector
+  of the matches."
+  ([subrule]
+   (one-or-more (str (:head subrule) "+") subrule identity))
+  ([head subrule action]
+  (let [self-atom (atom nil)
+        one (rule nil [subrule] (fn [x] [x]))
+        or-more (rule nil [[self-atom] subrule] (fn [xs x] (conj xs x)))
+        r (rule head [[one or-more]] action)]
+    ; this little trick with atoms lets us have a self-referential rule
+    (swap! self-atom (fn [_] r))
+    r)))
 
 (defn scanner
   "Defines a rule that scans one token of input with the given scanner function.
@@ -43,7 +62,9 @@
 (defn token-range
   "Creates a rule that accepts all characters within a range. The given min and max
   should be chars."
-  [min max action]
+  ([min max]
+   (token-range min max identity))
+  ([min max action]
   (if (not (and (char? min) (char? max)))
     (TIAE "min and max should be chars"))
   (let [intmin (int min)
@@ -51,7 +72,7 @@
     (scanner (fn [x]
                (let [intx (int x)]
                  (and (<= intx intmax) (>= intx intmin))))
-             action)))
+             action))))
 
 ; A grammar maps rule heads to rules. nil never maps to anything.
 (defn- grammar [rules]
@@ -61,9 +82,11 @@
 
 ; Gets a seq of subrules from a clause
 (defn- predict-clause [clause grammar]
-  (if (sequential? clause)
-    clause
-    (get grammar clause [])))
+  (cond
+    (sequential? clause) clause
+    ; This is obscene... but Clojure doesn't appear to have an 'atom?' predicate
+    (instance? clojure.lang.IDeref clause) @clause
+    true (get grammar clause [])))
 
 (defprotocol ^:private EarleyItem
   (^:private predict [self index])
@@ -282,8 +305,8 @@
 
 ; Macro helper fn for def rule. Returns a pair of
 ; [appropriate-symbol-for-action-body, rule-or-rulename]
-(defn- process-nonseq-clause [clause]
-  (cond (seq? clause) (assert false)
+(defn- process-nonlist-clause [clause]
+  (cond (list? clause) (assert false)
         (symbol? clause) [(dequalify clause) `'~clause]
         (keyword? clause) [(dequalify clause) clause]
         (= java.lang.String (type clause)) [(symbol (str clause)) clause]
@@ -292,39 +315,39 @@
 ; Macro helper fn for def rule. Returns a pair of
 ; [appropriate-symbol-for-action-body, rule-or-rulename-or-uneval'd-form]
 (defn- process-clause [clause]
-  (if (seq? clause)
+  (if (list? clause)
     (if-let [thename (first clause)]
       (let [therule (second clause)]
-        [thename (if (seq? therule) ; A form to evaluate
+        [thename (if (list? therule) ; A form to evaluate
                    ; Return it; will be eval'd when defrule called
                    therule
-                   ; See what process-nonseq-clause has to say
-                   (second (process-nonseq-clause therule)))])
+                   ; See what process-nonlist-clause has to say
+                   (second (process-nonlist-clause therule)))])
       (TIAE "Not a valid subrule: " clause))
-    (process-nonseq-clause clause)))
+    (process-nonlist-clause clause)))
 
 ; Macro helper fn. Builds the `(rule ...) bodies for defrule.
 ; Head: a symbol. impls: seq of (bindings bodies+) forms.
 (defn- build-defrule-rule-bodies [head impls]
   (vec (map (fn [impl]
               (let [clauses (first impl)]
-                (if (vector? clauses)
+                (if (seq clauses)
                   (let [processed-clauses (map process-clause clauses)]
                     `(rule '~head [~@(map second processed-clauses)]
                            (fn [~@(map first processed-clauses)] ~@(rest impl))))
-                  (TIAE "rule clauses must be a vector"))))
+                  (TIAE "Rule clauses must be seqable"))))
             impls)))
 
 ; Macro helper fn. Builds the body for defrule and related macros.
-; Head: a symbol. impl-or-impls: (bindings bodies+) or ((bindings bodies+)+).
+; Head: a symbol. impl-or-impls: (clauses bodies+) or ((clauses bodies+)+).
 (defn- build-defrule-bodies [head impl-or-impls]
   (let [first-form (first impl-or-impls)]
-    (cond (vector? first-form)
+    (cond (or (vector? first-form) (string? first-form))
           (build-defrule-rule-bodies head [(apply list first-form
                                                   (rest impl-or-impls))])
           (seq? first-form) (build-defrule-rule-bodies head impl-or-impls)
           true (TIAE "Not a valid defrule; "
-                     "expected clause vector or clause-body pairs"))))
+                     "expected clause vector, string, or clause-body pairs"))))
 
 (defmacro defrule
   "Defs a parser rule or seq of parser rules.
@@ -365,11 +388,51 @@
   [head & rules]
   `(def ~head (vec (concat ~head [~@rules]))))
 
+; TODO: reformalize clauses.
+
+; Assumed to represent another clause
+(defn- clause-symbol? [clause]
+  (or (symbol? clause) (keyword? clause)))
+
+#_(defn- grammar-map-env [goal grammar thens theenv]
+  ; stack: the clauses to process.
+  ; grammar: the built map of clause-identifiers -> clause literals.
+  (loop [stack [goal]
+         rgrammar grammar]
+    (let [current-clause (first stack)]
+      (cond
+        ; Is it a symbol that can refer to a clause?
+        (symbol? clause)
+        nil ; TODO something
+        (keyword? clause)
+        nil ; TODO something
+        ; a vector or seq of rules? (not seqable because rule literals are records)
+        (or (vector? clause) (seq? clause))
+        nil ; TODO something
+        ))))
+
+(defn- gmv-mapcat-helper [head thefn theseq]
+  (try
+    (mapcat thefn theseq)
+    (catch Exception e
+      (throw (RuntimeException.
+               (str "Problem processing rule " head)
+               e)))))
+
+(defn- gmv-assoc-helper [head]
+  (fn [rule]
+    (try
+      (assoc rule :head head)
+      (catch Exception e
+        (throw (RuntimeException.
+                 (str "Problem processing rule " head)
+                 e))))))
+
 ; resolves all clauses in a grammar seeded by the given goal,
 ; populating rule :heads (overriding possibly)
 (defn- grammar-map-env [goal grammar thens theenv]
-  (loop [stack [goal]
-         rgrammar grammar]
+  (loop [stack [goal] ; stack: clauses to resolve
+         rgrammar grammar] ; grammar: maps keyword clauses to rules
     (let [current-head (first stack)]
       (cond (nil? current-head) rgrammar ; stack is empty--we are done
             (contains? rgrammar current-head) (recur (rest stack) rgrammar)
@@ -377,15 +440,16 @@
             true ; rule is a symbol--look it up
             (if-let [resolved (ns-resolve thens theenv current-head)]
               (let [resolved @resolved]
-                (if (or (vector? resolved) (seq? resolved))
-                  ; assume it is a seq of rules
-                  (recur (concat (mapcat :clauses resolved) stack)
-                         (assoc rgrammar current-head
-                                (map #(assoc % :head current-head) resolved)))
-                  ; assume it is a rule
-                  (recur (cons resolved stack)
-                         (assoc rgrammar current-head
-                                [(assoc resolved :head current-head)]))))
+                  (if (or (vector? resolved) (seq? resolved))
+                    ; assume it is a seq of rules
+                    (recur (concat (gmv-mapcat-helper current-head
+                                                      :clauses resolved) stack)
+                           (assoc rgrammar current-head
+                                  (map (gmv-assoc-helper current-head) resolved)))
+                    ; assume it is a rule
+                    (recur (cons resolved stack)
+                           (assoc rgrammar current-head
+                                  [((gmv-assoc-helper current-head) resolved)]))))
                 (TIAE "Cannot resolve rule for head: " current-head))))))
 
 (defn- build-grammar-in-env

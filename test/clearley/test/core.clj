@@ -18,7 +18,9 @@
                           (rulefn :num \2)
                           (rulefn :num \3)
                           (rulefn :num \4)
-                          (rulefn :num \5 \5)])
+                          (rulefn :num \5 \5)
+                          (rule :num "777")])
+; Logical progression is "666", but this is better luck
 
 (def simple-parser (earley-parser :sum simple-parser-rules))
 
@@ -28,9 +30,11 @@
     (is-parsing "1+2*3+4")
     (is-parsing "1*2+3*4")
     (is-parsing "1+55*3+2*55")
+    (is-parsing "777") ; test string (seq of chars) literals
     (is (not (parses? "44")))
     (is (not (parses? "55*23")))
     (is (not (parses? "1+2a")))
+    (is (not (parses? "7777")))
     (is-parsing "1+55*2*55+3+55*4")
     (is-ast [[[\1]]] "1")
     (is-ast [[[[\2]]] \+ [[[\3]] \* [\4]]] "2+3*4")
