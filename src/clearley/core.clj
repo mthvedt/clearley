@@ -3,7 +3,7 @@
   accept any seq of inputs, not just text, and parse any context-free grammar.
   Emphasis is on ease of use, versatility, and dynamic/exploratory programming."
   (:require (clojure string))
-  (:use clearley.utils))
+  (:use (clearley utils rules)))
 ; TODO: empty rule?
 
 ; TODO: get rid of this protocol?
@@ -11,7 +11,13 @@
   (^:private pstr [obj] "pstr stands for \"pretty-string\".
                         Returns a shorthand str of this item."))
 
-(defrecord ^:private Rule [head clauses action])
+(defrecord ^:private RuleImpl [head clauses action]
+  Rule
+  (head [_] head)
+  (clauses [_] clauses)
+  (action [_] action)
+  (rule-str [_]
+    (separate-str clauses " ")))
 
 (defn rule
   "Creates a rule associated with a parse action that can be called
@@ -24,10 +30,27 @@
   ; TODO: clauses action, not head clauses
   ([clauses] (rule nil clauses nil))
   ([head clauses] (rule head clauses nil))
-  ([head clauses action] (Rule. head (vec clauses) action)))
+  ([head clauses action]
+   (RuleImpl. head (vec clauses) action)))
+   ;(reify Rule
+    ; (head [_] head)
+     ;(clauses [_] clauses)
+     ;(action [_] action)
+     ;(rule-str [_]
+       ;(separate-str clauses " ")))))
 
-(defn pstr-rule [rule]
-  (str (:head rule "<anonymous>") " -> " (separate-str (:clauses rule) " ")))
+; TODO make this better
+(defn- str-clause [clause]
+  (if (instance? clojure.lang.Atom clause)
+    ; assume it contains a ruleimpl--only reason to use an atom
+    ; this is hackish, shoudl be replaced with something more robust
+    (str "@<" (head clause) ">")
+    (str clause)))
+
+(defn- pstr-rule [rule]
+  (str (if (head rule) (head rule) "<anonymous>")
+       " -> " (separate-str
+                (map str-clause (clauses rule)) " ")))
 
 (defn token
   "Returns a rule that matches a single object (the token). Its action by default
@@ -41,7 +64,7 @@
   "Creates a rule that matches one or more of a subrule. Returns a vector
   of the matches."
   ([subrule]
-   (one-or-more (str (:head subrule) "+") subrule identity))
+   (one-or-more (str (head subrule) "+") subrule identity))
   ([head subrule action]
   (let [self-atom (atom nil)
         one (rule nil [subrule] (fn [x] [x]))
@@ -55,9 +78,13 @@
   "Defines a rule that scans one token of input with the given scanner function.
   The scanner function is used by the parser to match tokens. If this rule is invoked
   on a token, and the scanner returns logcial true, the rule matches the token."
-  [scanner-fn action]
-  ; TODO: a hack here: the below clause is highly unlikely to match anything
-  (assoc (Rule. nil [(str "Scanner<" scanner-fn ">")] action) :scanner scanner-fn))
+  ([scanner-fn action]
+  (reify Rule
+    (head [_] head)
+    (clauses [_] [{::scanner scanner-fn}])
+    (action [_] action)
+    (rule-str [_]
+      (str scanner-fn)))))
 
 (defn token-range
   "Creates a rule that accepts all characters within a range. The given min and max
@@ -76,7 +103,7 @@
 
 ; A grammar maps rule heads to rules. nil never maps to anything.
 (defn- grammar [rules]
-  (dissoc (group-by :head rules) nil))
+  (dissoc (group-by head rules) nil))
 
 (defn- token-match [token] [token])
 
@@ -84,8 +111,7 @@
 (defn- predict-clause [clause grammar]
   (cond
     (sequential? clause) clause
-    ; This is obscene... but Clojure doesn't appear to have an 'atom?' predicate
-    (instance? clojure.lang.IDeref clause) @clause
+    (instance? clojure.lang.Atom clause) @clause ; Clojure provides no elegant atom test
     true (get grammar clause [])))
 
 (defprotocol ^:private EarleyItem
@@ -100,26 +126,26 @@
     (if (not (is-complete? self))
       (map (fn [prediction]
              (REarleyItem. prediction 0 pos grammar))
-           (predict-clause (get (:clauses rule) dot) grammar))))
+           (predict-clause (get (clauses rule) dot) grammar))))
   (escan [self input-token]
     (cond
-      (:scanner rule)
-      (if ((:scanner rule) input-token)
+      (::scanner (get (clauses rule) dot))
+      (if ((::scanner (get (clauses rule) dot)) input-token)
         [(advance self)]
         [])
-      (and (not (is-complete? self)) (= (get (:clauses rule) dot) input-token))
+      (and (not (is-complete? self)) (= (get (clauses rule) dot) input-token))
       [(advance self)]
       true
       []))
   (is-complete? [_]
-    (= dot (count (:clauses rule))))
+    (= dot (count (clauses rule))))
   (advance [self]
     (REarleyItem. rule (inc dot) index grammar))
   PStrable
   (pstr [_]
-    (separate-str (concat [(:head rule) "->"]
-                          (take dot (:clauses rule)) ["*"]
-                          (drop dot (:clauses rule)) [(str "@" index)])
+    (separate-str (concat [(head rule) "->"]
+                          (take dot (clauses rule)) ["*"]
+                          (drop dot (clauses rule)) [(str "@" index)])
                   " ")))
 
 (defprotocol ^:private ChartItem
@@ -132,7 +158,7 @@
 ; Right now, we build the stack as we parse instead of emitting an output stream...
 ; this may change in the future e.g. to support pull parsing
 (defn- reduce-ostack [ostack rule]
-  (let [thecount (count (:clauses rule))]
+  (let [thecount (count (clauses rule))]
     (cons (vec (cons rule (reverse (take thecount ostack)))) (drop thecount ostack))))
 
 ; earley-item: duh, rstack: @map<item rstack>, ostack: the output "stream"
@@ -231,11 +257,11 @@
                         yielding a match tree (a tree of the form
                         [rule leaves] where leaves is a seq).")
   ; charts is not yet usable by external users, so private
-  (^:private charts [parser input]))
+  (charts [parser input]))
 
 ; Searches a chart for completed parse of the goal rule, returning all matches
 (defn scan-goal [chart]
-  (mapcat :ostack (filter (comp (partial = ::goal) :head :rule :earley-item)
+  (mapcat :ostack (filter (comp (partial = ::goal) head :rule :earley-item)
                           (chart-seq chart))))
 
 (defn earley-parser
@@ -269,7 +295,7 @@
        match)))
 
 (defn print-charts
-  "For a givne parser and input, prints a multi-line representation of its charts to
+  "For a given parser and input, prints a multi-line representation of its charts to
   *out*. The representation might change in the future. For more about
   parse charts, see http://www.wikipedia.org/wiki/Earley_parser. Primarily
   useful for debugging."
@@ -285,12 +311,12 @@
     (let [subactions (map take-action (rest match))
           rule (first match)
           ; Below is the default action--return args if not empty, otherwise return rule
-          action (get rule :action (fn [& args] (if (seq args) args rule)))]
+          action (action rule)]
       (try
         (apply action subactions)
         (catch clojure.lang.ArityException e
           (throw (RuntimeException. (str "Wrong # of params taking action for rule "
-                                         (:head (first match)) ", "
+                                         (head (first match)) ", "
                                          "was given " (count subactions))
                                     e)))))))
 
@@ -422,14 +448,15 @@
 (defn- gmv-assoc-helper [head]
   (fn [rule]
     (try
-      (assoc rule :head head)
+      ;(assoc rule head head)
+      (rehead-rule head rule)
       (catch Exception e
         (throw (RuntimeException.
                  (str "Problem processing rule " head)
                  e))))))
 
 ; resolves all clauses in a grammar seeded by the given goal,
-; populating rule :heads (overriding possibly)
+; populating rule heads (overriding possibly)
 (defn- grammar-map-env [goal grammar thens theenv]
   (loop [stack [goal] ; stack: clauses to resolve
          rgrammar grammar] ; grammar: maps keyword clauses to rules
@@ -443,7 +470,7 @@
                   (if (or (vector? resolved) (seq? resolved))
                     ; assume it is a seq of rules
                     (recur (concat (gmv-mapcat-helper current-head
-                                                      :clauses resolved) stack)
+                                                      clauses resolved) stack)
                            (assoc rgrammar current-head
                                   (map (gmv-assoc-helper current-head) resolved)))
                     ; assume it is a rule

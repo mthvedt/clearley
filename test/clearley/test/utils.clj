@@ -12,6 +12,16 @@
 (defmacro with-parser [parser & forms]
   `(binding [local-parser ~parser] ~@forms))
 
+; I want to make this more compact by building the parser inline,
+; but deftest closes over the tests you pass it -> can't build a parser off
+; a local symbol...
+;
+; TODO: use macro for other tests
+(defmacro def-parser-test [test-name parser & forms]
+  `(deftest ~test-name
+     (with-parser ~parser
+       ~@forms)))
+
 (defmacro is-ast [expected testval]
   `(is= ~expected (parse-tree local-parser ~testval)))
 
@@ -20,6 +30,9 @@
 
 (defmacro is-parsing [input]
   `(is (parses? ~input)))
+
+(defmacro not-parsing [input]
+  `(is (not (parses? ~input))))
 
 ; valued trees of the form (value & branches)
 ; neccesary for comparing heterogeneous seqables (here, vec vs lazy-seq)

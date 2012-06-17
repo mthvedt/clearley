@@ -1,5 +1,6 @@
 (ns clearley.test.core
   (:use clearley.core clearley.test.utils lazytest.deftest))
+; TODO: update with latest utils updates
 
 ; Some basic tests
 (defn rulefn

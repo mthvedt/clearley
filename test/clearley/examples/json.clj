@@ -20,9 +20,8 @@
   (let [char-start-int (int char-start)]
     (fn [c] (+ num-start (- (int c) char-start-int)))))
 
-; TODO: what to do? should def and defrule be interchangable for the single rule case?
+; TODO: should def and defrule be interchangable for the single rule case?
 (def digit (token-range \0 \9 (char-to-num \0 0)))
-(def digit1-9 (token-range \1 \9 (char-to-num \1 1)))
 (def hex-char [digit
                (token-range \a \f (char-to-num \a 10))
                (token-range \A \F (char-to-num \A 10))])
@@ -51,6 +50,7 @@
 
 ; Fifth, the Number, the most complicated one...
 
+(def digit1-9 (token-range \1 \9 (char-to-num \1 1)))
 (def digits (one-or-more digit))
 (defn digits-to-number [digits]
   (reduce (fn [a b] (+ (* 10 a) b)) 0 digits))
@@ -141,9 +141,12 @@
 ; First, test values
 (def json-value-parser (build-parser value))
 
-(deftest json-value-test
-  (with-parser json-value-parser
-    (is-action 1 "1")))
+(def-parser-test json-value-test json-value-parser
+  (is-action 1 "1")
+  (is-action 0 "0")
+  (is-action 10 "10")
+  (is-action 12345 "12345")
+  (not-parsing 01))
 
 #_(deftest json-test
   (with-parser json-parser
