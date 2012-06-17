@@ -146,7 +146,7 @@
   (is-action 0 "0")
   (is-action 10 "10")
   (is-action 12345 "12345")
-  (not-parsing 01))
+  (not-parsing "01"))
 
 #_(deftest json-test
   (with-parser json-parser

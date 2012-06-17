@@ -19,6 +19,7 @@
   (rule-str [_]
     (separate-str clauses " ")))
 
+; TODO: rule macro, rulefn fn
 (defn rule
   "Creates a rule associated with a parse action that can be called
   after matching. A rule has a required vector of clauses,
@@ -39,18 +40,11 @@
      ;(rule-str [_]
        ;(separate-str clauses " ")))))
 
-; TODO make this better
-(defn- str-clause [clause]
-  (if (instance? clojure.lang.Atom clause)
-    ; assume it contains a ruleimpl--only reason to use an atom
-    ; this is hackish, shoudl be replaced with something more robust
-    (str "@<" (head clause) ">")
-    (str clause)))
-
-(defn- pstr-rule [rule]
+; TODO: is this for anything?
+(defn pstr-rule [rule]
   (str (if (head rule) (head rule) "<anonymous>")
        " -> " (separate-str
-                (map str-clause (clauses rule)) " ")))
+                (map rule-str (clauses rule)) " ")))
 
 (defn token
   "Returns a rule that matches a single object (the token). Its action by default
@@ -59,32 +53,25 @@
   ([a-token value] (rule nil [a-token] (fn [_] value))))
 
 ; TODO test in core tests
-; TODO: clause instead? extensible rule clauses?
 (defn one-or-more
   "Creates a rule that matches one or more of a subrule. Returns a vector
   of the matches."
   ([subrule]
    (one-or-more (str (head subrule) "+") subrule identity))
   ([head subrule action]
-  (let [self-atom (atom nil)
-        one (rule nil [subrule] (fn [x] [x]))
-        or-more (rule nil [[self-atom] subrule] (fn [xs x] (conj xs x)))
-        r (rule head [[one or-more]] action)]
-    ; this little trick with atoms lets us have a self-referential rule
-    (swap! self-atom (fn [_] r))
-    r)))
+   (reify Rule
+     (head [_] head)
+     (clauses [self] [[(rule nil [subrule] vector)
+                       (rule nil [self subrule] conj)]])
+     (action [_] action)
+     (rule-str [self] (pstr-rule self)))))
 
 (defn scanner
   "Defines a rule that scans one token of input with the given scanner function.
   The scanner function is used by the parser to match tokens. If this rule is invoked
   on a token, and the scanner returns logcial true, the rule matches the token."
   ([scanner-fn action]
-  (reify Rule
-    (head [_] head)
-    (clauses [_] [{::scanner scanner-fn}])
-    (action [_] action)
-    (rule-str [_]
-      (str scanner-fn)))))
+   (rule nil [{::scanner scanner-fn}] action)))
 
 (defn token-range
   "Creates a rule that accepts all characters within a range. The given min and max
@@ -111,7 +98,9 @@
 (defn- predict-clause [clause grammar]
   (cond
     (sequential? clause) clause
-    (instance? clojure.lang.Atom clause) @clause ; Clojure provides no elegant atom test
+    ; This is just hideous, we can't even use satisfies?...
+    ; Clearley needs a unified clause model, stat
+    (instance? clearley.rules.Rule clause) [clause]
     true (get grammar clause [])))
 
 (defprotocol ^:private EarleyItem
