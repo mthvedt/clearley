@@ -101,6 +101,7 @@
     ; This is just hideous, we can't even use satisfies?...
     ; Clearley needs a unified clause model, stat
     (instance? clearley.rules.Rule clause) [clause]
+    ;(instance? clearley.core.RuleImpl clause) [clause]
     true (get grammar clause [])))
 
 (defprotocol ^:private EarleyItem
@@ -305,7 +306,9 @@
         (apply action subactions)
         (catch clojure.lang.ArityException e
           (throw (RuntimeException. (str "Wrong # of params taking action for rule "
-                                         (head (first match)) ", "
+                                         (if (head (first match))
+                                           (head (first match))
+                                           (first match)) ", "
                                          "was given " (count subactions))
                                     e)))))))
 

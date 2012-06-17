@@ -10,8 +10,13 @@
 (defmacro TRE [& strs]
   `(thrownew RuntimeException ~@strs))
 
+(defn cutoff [thestr]
+  (if (< 100 (count thestr))
+    (str (subs thestr 0 100) "(...)")
+    thestr))
+
 (defn separate-str [theseq separator]
-  (apply str (drop 1 (interleave (repeat separator) theseq))))
+  (cutoff (apply str (drop 1 (interleave (repeat separator) theseq)))))
 
 (def ^:dynamic *debug* true)
 

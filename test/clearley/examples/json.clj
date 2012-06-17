@@ -1,7 +1,5 @@
 (ns clearley.examples.json
   (use clearley.core
-       lazytest.deftest
-       clearley.test.utils
        clojure.math.numeric-tower))
 
 ; JSON spec:
@@ -55,25 +53,29 @@
 (defn digits-to-number [digits]
   (reduce (fn [a b] (+ (* 10 a) b)) 0 digits))
 
-(defrule integer
-  ([\- number] (- number))
+(defrule natnum
   ([\0] 0)
   ([digit1-9] digit1-9)
   ([digit1-9 digits] (digits-to-number (cons digit1-9 digits))))
 
 (defrule fraction
-  ([integer] integer)
-  ([integer \. digits] (+ integer (/ (digits-to-number digits)
+  ([natnum] natnum)
+  ([natnum \. digits] (+ natnum (/ (digits-to-number digits)
                                      (expt 10 (count digits))))))
 
 (defrule mantissa
-  ([\+ digits] digits)
-  ([digits] digits)
-  ([\- digits] (- digits)))
+  ([\+ digits] (digits-to-number digits))
+  ([digits] (digits-to-number digits))
+  ([\- digits] (- (digits-to-number digits))))
+
+; TODO: return floats not exact numbers? double-check JSON spec.
+(defrule posnum
+  ([fraction] fraction)
+  ([fraction [\e \E] mantissa] (* fraction (expt 10 mantissa))))
 
 (defrule number
-  ([fraction] fraction)
-  ([fraction [\e \E] mantissa] (expt fraction mantissa)))
+  ([posnum] posnum)
+  ([\- posnum] (- posnum)))
 
 ; The sixth type is the array...
 
@@ -138,15 +140,41 @@
 
 ; Let's prove that it works
 
+(use 'clearley.test.utils 'lazytest.deftest)
+
 ; First, test values
 (def json-value-parser (build-parser value))
 
-(def-parser-test json-value-test json-value-parser
+(def-parser-test json-literal-test json-value-parser
+  (is-action true "true")
+  (is-action false "false")
+  (is-action nil "null")
+  (not-parsing "TRUE"))
+
+(def-parser-test json-number-test json-value-parser
   (is-action 1 "1")
   (is-action 0 "0")
   (is-action 10 "10")
   (is-action 12345 "12345")
-  (not-parsing "01"))
+  (is-action 0 "-0")
+  (is-action -1 "-1")
+  (is-action -12345 "-12345")
+  (not-parsing "--1")
+  (not-parsing "01")
+  (is-action (/ 11 10) "1.1") ; Exact num, not float
+  (is-action (/ 123456 1000) "123.456")
+  (is-action (- (/ 5 100)) "-0.05")
+  (is-action 1000 "1e3")
+  (is-action 1100 "1.1e3")
+  (is-action 1 "1e0")
+  (is-action -1100 "-1.1e+3")
+  (is-action 0 "0e2")
+  (is-action (/ 1 1000) "1e-3")
+  (is-action (- (/ 5 100)) "-0.5e-1")
+  (not-parsing "1.1e1.1"))
+
+(def-parser-test json-string-test json-value-parser
+  (is-action "a" "\"a\""))
 
 #_(deftest json-test
   (with-parser json-parser

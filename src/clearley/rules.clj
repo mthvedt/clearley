@@ -10,8 +10,8 @@
   Object
   (head [self] nil)
   (clauses [self] [self])
-  (action [self] (fn [] self))
-  (rule-str [self] self)) ; TODO: rule-str?
+  (action [self] (fn [& _] self))
+  (rule-str [self] (str self))) ; TODO: rule-str?
 
 ; TODO: eliminiate need for this--head should only be used when building grammars
 (defn rehead-rule [head rule]
