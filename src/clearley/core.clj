@@ -33,18 +33,6 @@
   ([head clauses] (rule head clauses nil))
   ([head clauses action]
    (RuleImpl. head (vec clauses) action)))
-   ;(reify Rule
-    ; (head [_] head)
-     ;(clauses [_] clauses)
-     ;(action [_] action)
-     ;(rule-str [_]
-       ;(separate-str clauses " ")))))
-
-; TODO: is this for anything?
-(defn pstr-rule [rule]
-  (str (if (head rule) (head rule) "<anonymous>")
-       " -> " (separate-str
-                (map rule-str (clauses rule)) " ")))
 
 (defn token
   "Returns a rule that matches a single object (the token). Its action by default
@@ -57,14 +45,14 @@
   "Creates a rule that matches one or more of a subrule. Returns a vector
   of the matches."
   ([subrule]
-   (one-or-more (str (head subrule) "+") subrule identity))
-  ([head subrule action]
+   (one-or-more (str (head subrule) "+") subrule))
+  ([head subrule]
    (reify Rule
      (head [_] head)
      (clauses [self] [[(rule nil [subrule] vector)
                        (rule nil [self subrule] conj)]])
-     (action [_] action)
-     (rule-str [self] (pstr-rule self)))))
+     (action [_] identity)
+     (rule-str [self] (str subrule)))))
 
 (defn scanner
   "Defines a rule that scans one token of input with the given scanner function.

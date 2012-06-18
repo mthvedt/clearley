@@ -35,16 +35,15 @@
   ; a unicode char, using a rule literal
   ([\\ \u (hex (rule 'unicode-hex [hex-char hex-char hex-char hex-char]
                      ; hex-char returns an int... we turn that into Unicode char
-                     (fn [& chars] (char (reduce (fn [a b] (+ (* 16 a) b)) chars)))))])
+                     (fn [& chars] (char (reduce (fn [a b] (+ (* 16 a) b)) chars)))))]
+   hex)
   ([string-char-scanner] string-char-scanner))
 
-(def string-body (one-or-more "char+" string-char
-                              (fn [chars] (java.lang.String.
-                                            (char-array chars)))))
+(def string-body (one-or-more string-char))
 
 (defrule string
   ([\" \"] "")
-  ([\" string-body \"] string-body))
+  ([\" string-body \"] (java.lang.String. (char-array string-body))))
 
 ; Fifth, the Number, the most complicated one...
 
@@ -84,17 +83,15 @@
 (def whitespace-char
   (map token [\u0020 \u0009 \u000A \u000D]))
 
-(defrule whitespace
-  ([whitespace-char] nil)
-  ([whitespace-char whitespace] nil))
+(def whitespace (one-or-more "whitespace" whitespace-char))
 
 ; Returns a seq of rules representing the given token
 ; surrounded by any amount of insignificant whitespace
 (defn whitespaced-rule [clause]
-  [(rule [clause])
-   (rule [whitespace clause])
-   (rule [clause whitespace])
-   (rule [clause whitespace clause])])
+  [(rule nil [clause] identity)
+   (rule nil [whitespace clause] (fn [_ x] x))
+   (rule nil [clause whitespace] (fn [x _] x))
+   (rule nil [whitespace clause whitespace] (fn [_ x _] x))])
 
 (def array-begin (whitespaced-rule \[))
 (def array-end (whitespaced-rule \]))
@@ -112,14 +109,15 @@
 (def object-end (whitespaced-rule \}))
 (def colon (whitespaced-rule \:))
 
-(defrule object-value [string colon value] (list [string value]))
+(defrule object-value [string colon value] [(keyword string) value])
 ; TODO: what about object collision?
 (defrule object-values
   ([object-value] object-value)
-  ([object-values comma object-value] (cons object-value object-values)))
+  ([object-values comma object-value] (concat object-value object-values)))
 
 (defrule object [object-begin object-values object-end]
-  (apply hash-map object-values))
+  (do (println object-values)
+  (apply hash-map object-values)))
 
 ; Put it all together...
 ; TODO: support the below syntax instead:
@@ -174,8 +172,37 @@
   (not-parsing "1.1e1.1"))
 
 (def-parser-test json-string-test json-value-parser
-  (is-action "a" "\"a\""))
+  (is-action "a" "\"a\"")
+  (is-action "abc" "\"abc\"")
+  (not-parsing "abc")
+  (is-action "a" "\"\\u0061\"")
+  (is-action "abc" "\"a\\u0062c\"")
+  (is-action "\\" "\"\\\\\"")
+  (is-action "\"escaped\\string\"" "\"\\\"escaped\\\\string\\\"\""))
 
-#_(deftest json-test
-  (with-parser json-parser
-    (is-parse 1 "1")))
+(def-parser-test json-array-test json-value-parser
+  (is-action [1] "[1]")
+  (is-action [1] " [ 1 ] ")
+  (is-action [1 true] "[1,true]")
+  (not-parsing "[1 true]")
+  (is-action [1 true] " [ 1,true ]")
+  (is-action [true "yo"] " [true, \"yo\"]")
+  (is-action [1 true "yo"] " [1, true,\"yo\" ] ")
+  (is-action [1 [2]] "[1,[2]]")
+  (is-action [[1] [2]] "[[1],[2]]")
+  (is-action [1 true "yo" [2 3]] "[1,true,\"yo\" ,[2,3]]"))
+; TODO: why doesn't this one work? HULK SMASH!
+  ;(is-action [1 true "yo" [2 3]] "  [1,true  ,\"yo\" , [ 2,3]] "))
+
+(def-parser-test json-test json-parser
+  (not-parsing "1")
+  (not-parsing "true")
+  (not-parsing "\"a\"")
+  (not-parsing "[1]")
+  (is-action {:a 1} "{\"a\" : 1}")
+  (not-parsing "{a : 1}")
+  (not-parsing "{\"a\" : 1 \"b\" : 2}")
+  (is-action {:a 1 :b 2} "{\"a\" : 1, \"b\" : 2}")
+  (is-action {:a 1 :b true :c "3"} "{\"a\" : 1, \"b\" : true, \"c\" : \"3\"}"))
+
+; TODO fix the brokenness when vectors are embedded
