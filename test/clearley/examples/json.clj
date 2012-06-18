@@ -39,8 +39,8 @@
   ([string-char-scanner] string-char-scanner))
 
 (def string-body (one-or-more "char+" string-char
-                              (fn [& chars] (java.lang.String
-                                              (char-array string-body)))))
+                              (fn [chars] (java.lang.String.
+                                            (char-array chars)))))
 
 (defrule string
   ([\" \"] "")

@@ -133,6 +133,7 @@
     (REarleyItem. rule (inc dot) index grammar))
   PStrable
   (pstr [_]
+    ; TODO: stop the below from stack overflowing on self-referential rules
     (separate-str (concat [(head rule) "->"]
                           (take dot (clauses rule)) ["*"]
                           (drop dot (clauses rule)) [(str "@" index)])
@@ -246,7 +247,7 @@
   (parse [parser input] "Parse the given input with the given parser,
                         yielding a match tree (a tree of the form
                         [rule leaves] where leaves is a seq).")
-  ; charts is not yet usable by external users, so private
+  ; charts is not yet usable by external users
   (charts [parser input]))
 
 ; Searches a chart for completed parse of the goal rule, returning all matches
@@ -412,23 +413,6 @@
 (defn- clause-symbol? [clause]
   (or (symbol? clause) (keyword? clause)))
 
-#_(defn- grammar-map-env [goal grammar thens theenv]
-  ; stack: the clauses to process.
-  ; grammar: the built map of clause-identifiers -> clause literals.
-  (loop [stack [goal]
-         rgrammar grammar]
-    (let [current-clause (first stack)]
-      (cond
-        ; Is it a symbol that can refer to a clause?
-        (symbol? clause)
-        nil ; TODO something
-        (keyword? clause)
-        nil ; TODO something
-        ; a vector or seq of rules? (not seqable because rule literals are records)
-        (or (vector? clause) (seq? clause))
-        nil ; TODO something
-        ))))
-
 (defn- gmv-mapcat-helper [head thefn theseq]
   (try
     (mapcat thefn theseq)
@@ -449,31 +433,41 @@
 
 ; resolves all clauses in a grammar seeded by the given goal,
 ; populating rule heads (overriding possibly)
-(defn- grammar-map-env [goal grammar thens theenv]
+(defn- resolve-all-clauses [goal thens theenv]
   (loop [stack [goal] ; stack: clauses to resolve
-         rgrammar grammar] ; grammar: maps keyword clauses to rules
-    (let [current-head (first stack)]
-      (cond (nil? current-head) rgrammar ; stack is empty--we are done
-            (contains? rgrammar current-head) (recur (rest stack) rgrammar)
-            (not (symbol? current-head)) (recur (rest stack) rgrammar)
-            true ; rule is a symbol--look it up
-            (if-let [resolved (ns-resolve thens theenv current-head)]
-              (let [resolved @resolved]
-                  (if (or (vector? resolved) (seq? resolved))
-                    ; assume it is a seq of rules
-                    (recur (concat (gmv-mapcat-helper current-head
-                                                      clauses resolved) stack)
-                           (assoc rgrammar current-head
-                                  (map (gmv-assoc-helper current-head) resolved)))
-                    ; assume it is a rule
-                    (recur (cons resolved stack)
-                           (assoc rgrammar current-head
-                                  [((gmv-assoc-helper current-head) resolved)]))))
-                (TIAE "Cannot resolve rule for head: " current-head))))))
+         breadcrumbs #{}
+         return {}] ; grammar: maps keyword clauses to rules
+    (if-let [current-head (first stack)]
+      (let [predictions (if (or (vector? current-head) (seq? current-head))
+                          current-head
+                          (clauses current-head))]
+        (cond
+          ; have we already seen this? skip it entirely
+          (contains? breadcrumbs current-head) (recur (rest stack) breadcrumbs return)
+          ; do we have to look it up? if not skip it but keep track of predictions
+          (not (symbol? current-head)) (recur (concat predictions (rest stack))
+                                              (conj breadcrumbs current-head) return)
+          true ; rule is a symbol--look it up
+          (if-let [resolved (ns-resolve thens theenv current-head)]
+            (let [resolved @resolved]
+              (if (or (vector? resolved) (seq? resolved))
+                ; assume it is a seq of rules
+                (recur (concat (gmv-mapcat-helper current-head
+                                                  clauses resolved) stack)
+                       (conj breadcrumbs current-head)
+                       (assoc return current-head
+                              (map (gmv-assoc-helper current-head) resolved)))
+                ; assume it is a rule
+                (recur (cons resolved stack)
+                       (conj breadcrumbs current-head)
+                       (assoc return current-head
+                              [((gmv-assoc-helper current-head) resolved)]))))
+            (TIAE "Cannot resolve rule for head: " current-head))))
+      return))) ; stack is empty--we are done
 
 (defn- build-grammar-in-env
   [goal grammar thens theenv]
-  (apply concat (vals (grammar-map-env goal grammar thens theenv))))
+  (apply concat (vals (resolve-all-clauses goal thens theenv))))
 
 (defmacro build-parser
   "Builds an earley parser with the given goal rule. build-parser will
