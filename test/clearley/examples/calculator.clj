@@ -1,7 +1,5 @@
 (ns clearley.examples.calculator
   (use clearley.core
-       clearley.test.utils
-       lazytest.deftest
        clojure.math.numeric-tower))
 
 (defrule sum
@@ -25,12 +23,14 @@
 (defrule parenexpr
   ([\( sum \)] sum))
 (defrule number
-  ; TODO: error when it's numexpr not number?
+  ; TODO: explore error when given numexpr
   ([number digit] (+ (* 10 number) digit))
   ([digit] digit))
 (def digit (token-range \0 \9 (fn [c] (- (int c) (int \0)))))
 
 (def my-calculator (build-parser sum))
+
+(use 'lazytest.deftest 'clearley.test.utils)
 
 (deftest simple-calculator-test
   (with-parser my-calculator

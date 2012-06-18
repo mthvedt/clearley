@@ -191,9 +191,9 @@
   (is-action [1 [2]] "[1,[2]]")
   (is-action [[1] [2]] "[[1],[2]]")
   (is-action [1 true "yo" [2 3]] "[1,true,\"yo\" ,[2,3]]"))
-; TODO: why doesn't this one work? HULK SMASH!
-  ;(is-action [1 true "yo" [2 3]] "  [1,true  ,\"yo\" , [ 2,3]] "))
+; (is-action [1 true "yo" [2 3]] "  [1,true  ,\"yo\" , [ 2,3]] "))
 
+; Only Objects are valid json parses.
 (def-parser-test json-test json-parser
   (not-parsing "1")
   (not-parsing "true")
@@ -205,4 +205,4 @@
   (is-action {:a 1 :b 2} "{\"a\" : 1, \"b\" : 2}")
   (is-action {:a 1 :b true :c "3"} "{\"a\" : 1, \"b\" : true, \"c\" : \"3\"}"))
 
-; TODO fix the brokenness when vectors are embedded
+; TODO fix the vector embedding reduction case

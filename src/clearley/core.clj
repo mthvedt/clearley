@@ -2,8 +2,9 @@
   "A generalized context-free grammar parser. It will
   accept any seq of inputs, not just text, and parse any context-free grammar.
   Emphasis is on ease of use, versatility, and dynamic/exploratory programming."
-  (:require (clojure string))
-  (:use (clearley utils rules)))
+  (require [clojure string]
+           [clojure.pprint :as pp])
+  (use [clearley utils rules]))
 ; TODO: empty rule?
 
 ; TODO: get rid of this protocol?
@@ -18,6 +19,14 @@
   (action [_] action)
   (rule-str [_]
     (separate-str clauses " ")))
+
+#_(defmethod clojure.core/print-method clearley.core.RuleImpl [rule writer]
+  (.write writer (rule-str rule)))
+
+(defmethod clojure.pprint/simple-dispatch clearley.rules.Rule [rule]
+  (clojure.pprint/write-out (rule-str rule)))
+
+(prefer-method clojure.pprint/simple-dispatch clearley.rules.Rule clojure.lang.IPersistentMap)
 
 ; TODO: rule macro, rulefn fn
 (defn rule
@@ -300,6 +309,11 @@
                                            (first match)) ", "
                                          "was given " (count subactions))
                                     e)))))))
+
+(defn execute
+  "Parses some input and executes the parse actions."
+  [parser input]
+  (take-action (parse parser input)))
 
 ; Defrule begins here.
 ; TODO: experiment with using a parser for defrule

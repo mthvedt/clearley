@@ -2,11 +2,11 @@
 
 Alpha:
 
-* Flesh out defrule unit tests.
-* Less verbose tokenization and character classes. Top-down tokenizers.
+* Edge case examination.
 
 Beta: 
 
+* Better error reporting for user parsers.
 * Grammar composition.
 * JSON example.
 * Clean up the software internals.

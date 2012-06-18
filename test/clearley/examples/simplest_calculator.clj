@@ -13,9 +13,8 @@
   ([\- number] (- number))
   ([number digit] (+ (* 10 number) digit))
   ([digit] digit))
-; todo: 'or-token' or something instead
-(defrule digit [(a-digit (map (comp token char) (range (int \0) (inc (int \9)))))]
-  (- (int a-digit) (int \0)))
+; The below converts a char digit to a Clojure number
+(def digit (token-range \0 \9 (fn [c] (- (int c) (int \0)))))
 
 (def my-calculator (build-parser sum))
 
