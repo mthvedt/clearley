@@ -30,3 +30,8 @@
 
 (defmacro idebug [& forms]
   `(debug ~forms))
+
+(defmacro with-rethrow [ex-class form ex-str-form]
+  `(try ~form
+     (catch ~ex-class e#
+       (throw (new ~ex-class ~form e#)))))

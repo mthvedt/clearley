@@ -1,7 +1,12 @@
 (ns clearley.core
-  "A generalized context-free grammar parser. It will
-  accept any seq of inputs, not just text, and parse any context-free grammar.
-  Emphasis is on ease of use, versatility, and dynamic/exploratory programming."
+  "Tools for general context-free grammar parsing and syntax tree processing.
+  The goal of Clearley is to make parsing as easy as any other programming task.
+  Emphasis is on completeness, modularity, and ease of use.
+  Can be used in a vanilla functional style or the provided macro language.
+  
+  Please be sure to see the docs for a high-level overview.
+  Clearley docs assume familiarity with the library's high level concepts,
+  for succintness."
   (require [clojure string]
            [clojure.pprint :as pp])
   (use [clearley utils rules]))
@@ -28,15 +33,14 @@
 
 (prefer-method clojure.pprint/simple-dispatch clearley.rules.Rule clojure.lang.IPersistentMap)
 
-; TODO: rule macro, rulefn fn
+; TODO: make rule similar to defrule, rulefn fn
+; TODO docs
 (defn rule
   "Creates a rule associated with a parse action that can be called
   after matching. A rule has a required vector of clauses,
-  an head (optional, since Rules can also be embedded in other rules),
+  a head (optional, since Rules can also be embedded in other rules),
   and an optional action (the default action bundles the args into a list).
-  A clause can be a rule, a symbol referring to one or more rules,
-  an atom containing a rule,
-  or a vector or seq of one or more rules (anonymous rules)."
+  Any valid proto-rule can be a clause to a rule."
   ; TODO: clauses action, not head clauses
   ([clauses] (rule nil clauses nil))
   ([head clauses] (rule head clauses nil))
@@ -248,16 +252,13 @@
   (charts [parser input]))
 
 ; Searches a chart for completed parse of the goal rule, returning all matches
-(defn scan-goal [chart]
+(defn- scan-goal [chart]
   (mapcat :ostack (filter (comp (partial = ::goal) head :rule :earley-item)
                           (chart-seq chart))))
 
 (defn earley-parser
-  "Constructs an Earley parser, provided with a seq of rules and a predefined
-  goal symbol. The parser will attempt to match the given input to the goal symbol,
-  given the rules provided. The optional tokenizer can be used to map inputs
-  to the terminal rules of your grammar (the parse tree will contiain inputs
-  as its leaves, not the terminal symbols)."
+  "Constructs an Earley parser given a grammar (seq) of rules,
+  a goal symbol, and an optional tokenizer."
   ([goal rules]
    (earley-parser goal identity rules))
   ([goal tokenizer rules]
@@ -405,33 +406,19 @@
   `(def ~head (vec (concat ~head ~(build-defrule-bodies head impl-or-impls)))))
 
 ; TODO: better name than add-rules
+; TODO doc
 (defmacro add-rules
   [head & rules]
   `(def ~head (vec (concat ~head [~@rules]))))
-
-; TODO: reformalize clauses.
 
 ; Assumed to represent another clause
 (defn- clause-symbol? [clause]
   (or (symbol? clause) (keyword? clause)))
 
-(defn- gmv-mapcat-helper [head thefn theseq]
-  (try
-    (mapcat thefn theseq)
-    (catch Exception e
-      (throw (RuntimeException.
-               (str "Problem processing rule " head)
-               e)))))
-
-(defn- gmv-assoc-helper [head]
-  (fn [rule]
-    (try
-      ;(assoc rule head head)
-      (rehead-rule head rule)
-      (catch Exception e
-        (throw (RuntimeException.
-                 (str "Problem processing rule " head)
-                 e))))))
+; Wanted: a custom fn that converts a clause to a rule.
+; Doesn't need to be complicated.
+; Put these rules on the stack for processing.
+; Needs access or some kind of tie-in to the grammar...
 
 ; resolves all clauses in a grammar seeded by the given goal,
 ; populating rule heads (overriding possibly)
@@ -451,42 +438,49 @@
                                               (conj breadcrumbs current-head) return)
           true ; rule is a symbol--look it up
           (if-let [resolved (ns-resolve thens theenv current-head)]
-            (let [resolved @resolved]
-              (if (or (vector? resolved) (seq? resolved))
-                ; assume it is a seq of rules
-                (recur (concat (gmv-mapcat-helper current-head
-                                                  clauses resolved) stack)
+            (let [resolved @resolved
+                  resolved (if (or (vector? resolved) (seq? resolved))
+                             resolved
+                             [resolved])]
+                (recur (concat (with-rethrow RuntimeException
+                                 (mapcat clauses resolved)
+                                 (str "Problem processing rule " current-head)) stack)
                        (conj breadcrumbs current-head)
                        (assoc return current-head
-                              (map (gmv-assoc-helper current-head) resolved)))
-                ; assume it is a rule
-                (recur (cons resolved stack)
-                       (conj breadcrumbs current-head)
-                       (assoc return current-head
-                              [((gmv-assoc-helper current-head) resolved)]))))
+                              (with-rethrow RuntimeException
+                                (map #(rehead-rule current-head %) resolved)
+                                (str "Problem processing rule " current-head)))))
             (TIAE "Cannot resolve rule for head: " current-head))))
       return))) ; stack is empty--we are done
 
-; IN the future, we might bind &env to theenv
-; Currently this may cause a print-dup-not-defined error (because &env
-; is a map of symbol -> LocalBinding)
+; In the future, we might bind &env to theenv
+; The form of &env is not fixed by Clojure authors so don't do it now
 (defn- build-grammar-in-env
   [goal grammar thens theenv]
   (apply concat (vals (resolve-all-clauses goal thens theenv))))
 
+(defn build-grammar-with-ns
+  "Builds a grammar in the given ns from the given goal rule."
+  [goal thens]
+  (build-grammar-in-env goal {} thens {}))
+
+(defmacro build-grammar
+  "Builds a grammar in the current ns from the given goal rule.
+  A grammar is implemented as a seq of rules."
+  [goal]
+  `(build-grammar-with-ns '~goal {} *ns* {}))
+
+; TODO build grammar, build grammar in env
 (defmacro build-parser
-  "Builds an earley parser with the given goal rule. build-parser will
-  crawl the tree of sub-rules, looking up any symbols in the current namespace
-  and figuring out what rules or seqs of rules they map to. If any symbol
-  could not be looked up, that is an error. After all the rules are looked up,
-  the parser is built."
+  "Build a parser in the current ns from the given goal rule and an
+  optional tokenizer."
   ([goal]
    `(build-parser ~goal identity))
   ([goal tokenizer]
-   `(build-parser-in-env '~goal ~tokenizer *ns*)))
+   `(build-parser-with-ns '~goal ~tokenizer *ns*)))
 
-(defn build-parser-in-env
-  "Fn version of build-parser if you want to provide your own *ns*."
+(defn build-parser-with-ns
+  "Build a parser in a given ns from the given goal rule and tokenizer."
   ; TODO: test
   [goal tokenizer thens]
-  (earley-parser goal tokenizer (build-grammar-in-env goal {} thens {})))
+  (earley-parser goal tokenizer (build-grammar-with-ns goal thens)))

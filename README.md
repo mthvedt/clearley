@@ -56,6 +56,19 @@ This makes it difficult to use parsers in a exploratory, flexible, agile manner.
 Yet the theory of context-free grammars is simple and provably tractable by computer--
 so why should parsing be hard?
 
+## Caveats
+
+There are three major obstacles in Clearley right now:
+1) The rule/defrule syntax is somewhat confusing, with some broken edge cases.
+This is priority number 1.
+2) Error reporting could use some work. Right now, Clearley simply fails with
+"Failure to parse".
+3) Clearley is slow.
+
+Because the underlying machine--context-free grammar parsing--is very well understood,
+issues 2 and 3 are solvable by applying current, well-understood techniques. This
+is probably the near future of Clearley should adoption and work continue.
+
 ## References
 
 [1] "Parsing: the solved problem that isn't". Laurence Tratt. Retrieved June 18, 2012 at
