@@ -467,6 +467,9 @@
             (TIAE "Cannot resolve rule for head: " current-head))))
       return))) ; stack is empty--we are done
 
+; IN the future, we might bind &env to theenv
+; Currently this may cause a print-dup-not-defined error (because &env
+; is a map of symbol -> LocalBinding)
 (defn- build-grammar-in-env
   [goal grammar thens theenv]
   (apply concat (vals (resolve-all-clauses goal thens theenv))))
@@ -480,11 +483,10 @@
   ([goal]
    `(build-parser ~goal identity))
   ([goal tokenizer]
-   `(build-parser-in-env '~goal ~tokenizer *ns* ~&env)))
+   `(build-parser-in-env '~goal ~tokenizer *ns*)))
 
 (defn build-parser-in-env
-  "Fn version of build-parser if you want to provide your own *ns* and enviornment
-  map."
-  ; TODO: test, change build-parser
-  [goal tokenizer thens theenv]
-  (earley-parser goal tokenizer (build-grammar-in-env goal {} thens theenv)))
+  "Fn version of build-parser if you want to provide your own *ns*."
+  ; TODO: test
+  [goal tokenizer thens]
+  (earley-parser goal tokenizer (build-grammar-in-env goal {} thens {})))

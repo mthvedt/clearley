@@ -116,8 +116,7 @@
   ([object-values comma object-value] (concat object-value object-values)))
 
 (defrule object [object-begin object-values object-end]
-  (do (println object-values)
-  (apply hash-map object-values)))
+  (apply hash-map object-values))
 
 ; Put it all together...
 ; TODO: support the below syntax instead:
