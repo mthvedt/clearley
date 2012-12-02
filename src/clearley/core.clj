@@ -90,10 +90,6 @@
                  (and (<= intx intmax) (>= intx intmin))))
              action))))
 
-; A grammar maps rule heads to rules. nil never maps to anything.
-(defn- grammar [rules]
-  (dissoc (group-by rulename rules) nil))
-
 (defn- token-match [token] [token])
 
 ; Gets a seq of subrules from a clause
@@ -267,19 +263,18 @@
                           (chart-seq chart))))
 
 (defn earley-parser
-  "Constructs an Earley parser given a grammar (seq) of rules,
+  "Constructs an Earley parser given a map of rules,
   a goal symbol, and an optional tokenizer."
   ([goal rules]
    (earley-parser goal identity rules))
   ([goal tokenizer rules]
-   (let [goal-rule (rule ::goal [goal] identity)
-         grammar (grammar rules)]
+   (let [goal-rule (rule ::goal [goal] identity)]
      (reify Parser
        (parse [parser input]
          ; For now, only retunr first match
          (first (scan-goal (peek (charts parser input)))))
        (charts [parser input]
-         (parse-charts input grammar tokenizer goal-rule))))))
+         (parse-charts input rules tokenizer goal-rule))))))
 
 (defn parse-tree
   "Parses the given input with the given parser, yielding an abstract
@@ -422,9 +417,10 @@
 
 ; In the future, we might bind &env to theenv
 ; The form of &env is not fixed by Clojure authors so don't do it now
+; TODO superfluous
 (defn- build-grammar-in-env
   [goal grammar thens theenv]
-  (apply concat (vals (resolve-all-clauses goal thens theenv))))
+  (resolve-all-clauses goal thens theenv))
 
 (defn build-grammar-with-ns
   "Builds a grammar in the given ns from the given goal rule."

@@ -11,7 +11,13 @@
 (def sum2 (rulefn :sum :times))
 (def num1 (rulefn :num \1))
 
-(def simple-parser-rules [sum1
+(def simple-parser-rules
+  {:sum [sum1 sum2]
+   :times [(rulefn :times :times \* :num) (rulefn :times :num)]
+   :num [num1 (rulefn :num \2) (rulefn :num \3) (rulefn :num \4)
+         (rulefn :num \5 \5) (rule :num "777")]})
+
+#_(def simple-parser-rules [sum1
                           sum2
                           (rulefn :times :times \* :num)
                           (rulefn :times :num)
@@ -73,12 +79,12 @@
 
 ; Action tests
 (def calculator-rules
-  [(rule :sum [:sum \+ :times] (fn [a _ b] (+ a b)))
-   (rule :sum [:times] identity)
-   (rule :times [:times \* :num] (fn [a _ b] (* a b)))
-   (rule :times [:num] identity)
-   (rule :num [\2] (fn [_] 2))
-   (rule :num [\3] (fn [_] 3))])
+  {:sum [(rule :sum [:sum \+ :times] (fn [a _ b] (+ a b)))
+   (rule :sum [:times] identity)]
+   :times [(rule :times [:times \* :num] (fn [a _ b] (* a b)))
+   (rule :times [:num] identity)]
+   :num [(rule :num [\2] (fn [_] 2))
+   (rule :num [\3] (fn [_] 3))]})
 
 (def calculator-parser (earley-parser :sum calculator-rules))
 
