@@ -410,22 +410,18 @@
   `(def ~head (vec (concat ~head ~(build-defrule-bodies head impl-or-impls)))))
 
 ; TODO: better name than add-rules
-; TODO doc... i dont even know what this is
+; TODO clarify symbol -> [rule] binding
 (defmacro add-rules
+  "Adds some amount of additional rule objects to an existing def'd rule."
   [head & rules]
   `(def ~head (vec (concat ~head [~@rules]))))
 
 ; In the future, we might bind &env to theenv
 ; The form of &env is not fixed by Clojure authors so don't do it now
-; TODO superfluous
-(defn- build-grammar-in-env
-  [goal grammar thens theenv]
-  (resolve-all-clauses goal thens theenv))
-
 (defn build-grammar-with-ns
   "Builds a grammar in the given ns from the given goal rule."
   [goal thens]
-  (build-grammar-in-env goal {} thens {}))
+  (resolve-all-clauses goal thens {}))
 
 (defmacro build-grammar
   "Builds a grammar in the current ns from the given goal rule.
@@ -433,7 +429,6 @@
   [goal]
   `(build-grammar-with-ns '~goal {} *ns* {}))
 
-; TODO build grammar, build grammar in env
 (defmacro build-parser
   "Build a parser in the current ns from the given goal rule and an
   optional tokenizer."

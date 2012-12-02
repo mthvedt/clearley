@@ -76,7 +76,6 @@
           (recur (concat predictions (rest stack))
                  (conj breadcrumbs current-clause)
                  (if rulename
-                   (assoc grammar current-clause
-                          (map #(rename-rule current-clause %) predictions))
+                   (assoc grammar current-clause predictions)
                    grammar))))
       grammar)))

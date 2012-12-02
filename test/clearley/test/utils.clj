@@ -4,7 +4,10 @@
 (defmacro is= [& forms]
   `(is (= ~@forms)))
 
-(defmacro isnt [& forms]
+(defmacro isnt [form]
+  `(is (not ~form)))
+
+(defmacro isnt= [& forms]
   `(is (not (= ~@forms))))
 
 (def ^:dynamic local-parser)
@@ -15,7 +18,7 @@
 ; I want to make this more compact by building the parser inline,
 ; but deftest closes over the tests you pass it -> can't build a parser off
 ; a local symbol...
-;
+
 ; TODO: use macro for other tests
 (defmacro def-parser-test [test-name parser & forms]
   `(deftest ~test-name
