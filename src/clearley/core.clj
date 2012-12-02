@@ -17,9 +17,9 @@
   (^:private pstr [obj] "pstr stands for \"pretty-string\".
                         Returns a shorthand str of this item."))
 
-(defrecord ^:private RuleImpl [head clauses action]
+(defrecord ^:private RuleImpl [name clauses action]
   Rule
-  (head [_] head)
+  (rulename [_] name)
   (clauses [_] clauses)
   (action [_] action)
   (rule-str [_]
@@ -54,14 +54,15 @@
   ([a-token value] (rule nil [a-token] (fn [_] value))))
 
 ; TODO test in core tests
+; TODO action
 (defn one-or-more
   "Creates a rule that matches one or more of a subrule. Returns a vector
   of the matches."
   ([subrule]
-   (one-or-more (str (head subrule) "+") subrule))
-  ([head subrule]
+   (one-or-more (str (rulename subrule) "+") subrule))
+  ([name subrule]
    (reify Rule
-     (head [_] head)
+     (rulename [_] name)
      (clauses [self] [[(rule nil [subrule] vector)
                        (rule nil [self subrule] conj)]])
      (action [_] identity)
@@ -91,7 +92,7 @@
 
 ; A grammar maps rule heads to rules. nil never maps to anything.
 (defn- grammar [rules]
-  (dissoc (group-by head rules) nil))
+  (dissoc (group-by rulename rules) nil))
 
 (defn- token-match [token] [token])
 
@@ -105,19 +106,27 @@
     ;(instance? clearley.core.RuleImpl clause) [clause]
     true (get grammar clause [])))
 
+(defn- rulehead-clause [clause]
+  (cond
+    (symbol? clause) (str clause)
+    (string? clause) (str \" clause \")
+    (keyword? clause) (str clause)
+    true "anon"))
+
 (defprotocol ^:private EarleyItem
   (^:private predict [self index])
   (^:private escan [self input-token])
   (^:private is-complete? [self])
   (^:private advance [self]))
 
-(defrecord ^:private REarleyItem [rule dot index grammar]
+(defrecord ^:private REarleyItem [rulehead rule dot index grammar]
   EarleyItem
   (predict [self pos]
     (if (not (is-complete? self))
-      (map (fn [prediction]
-             (REarleyItem. prediction 0 pos grammar))
-           (predict-clause (get (clauses rule) dot) grammar))))
+      (let [clause (get (clauses rule) dot)]
+        (map (fn [prediction]
+               (REarleyItem. (rulehead-clause clause) prediction 0 pos grammar))
+             (predict-clause clause grammar)))))
   (escan [self input-token]
     (cond
       (::scanner (get (clauses rule) dot))
@@ -131,11 +140,11 @@
   (is-complete? [_]
     (= dot (count (clauses rule))))
   (advance [self]
-    (REarleyItem. rule (inc dot) index grammar))
+    (REarleyItem. rulehead rule (inc dot) index grammar))
   PStrable
   (pstr [_]
     ; TODO: stop the below from stack overflowing on self-referential rules
-    (separate-str (concat [(head rule) "->"]
+    (separate-str (concat [rulehead "->"]
                           (take dot (clauses rule)) ["*"]
                           (drop dot (clauses rule)) [(str "@" index)])
                   " ")))
@@ -177,8 +186,8 @@
                  (separate-str (map (comp pstr first) @rstack) ", "))))
 
 ; creates an initial earley item with dot and pos 0
-(defn- chart-item [rule grammar]
-  (RChartItem. (REarleyItem. rule 0 0 grammar) (atom {}) '()))
+(defn- chart-item [head-sym rule grammar]
+  (RChartItem. (REarleyItem. head-sym rule 0 0 grammar) (atom {}) '()))
 
 ; TODO: nuke this protocol, have data object chart
 ; data object charts can also serve as prototypes of parsing NDFA states
@@ -229,7 +238,8 @@
 (defn- parse-charts [inputstr grammar tokenizer goal-rule]
   (loop [pos 0
          thestr inputstr
-         current-chart (add new-chart (chart-item goal-rule grammar))
+         ; TODO actual goal symbol
+         current-chart (add new-chart (chart-item ::goal goal-rule grammar))
          charts []]
     (if-let [thechar (first thestr)]
       (let [thetoken (tokenizer thechar)
@@ -253,7 +263,7 @@
 
 ; Searches a chart for completed parse of the goal rule, returning all matches
 (defn- scan-goal [chart]
-  (mapcat :ostack (filter (comp (partial = ::goal) head :rule :earley-item)
+  (mapcat :ostack (filter (comp (partial = ::goal) :rulehead :earley-item)
                           (chart-seq chart))))
 
 (defn earley-parser
@@ -305,8 +315,8 @@
         (apply action subactions)
         (catch clojure.lang.ArityException e
           (throw (RuntimeException. (str "Wrong # of params taking action for rule "
-                                         (if (head (first match))
-                                           (head (first match))
+                                         (if (rulename (first match))
+                                           (rulename (first match))
                                            (first match)) ", "
                                          "was given " (count subactions))
                                     e)))))))
@@ -395,7 +405,6 @@
   and adds them together. If a parse action is not provided, a default
   will be used which bundles its args into a list. The rule's head is
   'sum and will be bound to *ns*/sum."
-  ; TODO: test all above cases
   ; TODO: qualify syms
   [head & impl-or-impls]
   `(def ~head ~(build-defrule-bodies head impl-or-impls)))
@@ -406,52 +415,10 @@
   `(def ~head (vec (concat ~head ~(build-defrule-bodies head impl-or-impls)))))
 
 ; TODO: better name than add-rules
-; TODO doc
+; TODO doc... i dont even know what this is
 (defmacro add-rules
   [head & rules]
   `(def ~head (vec (concat ~head [~@rules]))))
-
-; Assumed to represent another clause
-(defn- clause-symbol? [clause]
-  (or (symbol? clause) (keyword? clause)))
-
-; Wanted: a custom fn that converts a clause to a rule.
-; Doesn't need to be complicated.
-; Put these rules on the stack for processing.
-; Needs access or some kind of tie-in to the grammar...
-
-; resolves all clauses in a grammar seeded by the given goal,
-; populating rule heads (overriding possibly)
-(defn- resolve-all-clauses [goal thens theenv]
-  (loop [stack [goal] ; stack: clauses to resolve
-         breadcrumbs #{}
-         return {}] ; grammar: maps keyword clauses to rules
-    (if-let [current-head (first stack)]
-      (let [predictions (if (or (vector? current-head) (seq? current-head))
-                          current-head
-                          (clauses current-head))]
-        (cond
-          ; have we already seen this? skip it entirely
-          (contains? breadcrumbs current-head) (recur (rest stack) breadcrumbs return)
-          ; do we have to look it up? if not skip it but keep track of predictions
-          (not (symbol? current-head)) (recur (concat predictions (rest stack))
-                                              (conj breadcrumbs current-head) return)
-          true ; rule is a symbol--look it up
-          (if-let [resolved (ns-resolve thens theenv current-head)]
-            (let [resolved @resolved
-                  resolved (if (or (vector? resolved) (seq? resolved))
-                             resolved
-                             [resolved])]
-                (recur (concat (with-rethrow RuntimeException
-                                 (mapcat clauses resolved)
-                                 (str "Problem processing rule " current-head)) stack)
-                       (conj breadcrumbs current-head)
-                       (assoc return current-head
-                              (with-rethrow RuntimeException
-                                (map #(rehead-rule current-head %) resolved)
-                                (str "Problem processing rule " current-head)))))
-            (TIAE "Cannot resolve rule for head: " current-head))))
-      return))) ; stack is empty--we are done
 
 ; In the future, we might bind &env to theenv
 ; The form of &env is not fixed by Clojure authors so don't do it now
