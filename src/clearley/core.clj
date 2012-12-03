@@ -8,8 +8,12 @@
   Clearley docs assume familiarity with the library's high level concepts,
   for succintness."
   (require [clojure string]
-           [clojure.pprint :as pp])
+           [clojure.pprint])
+  (import [clearley.rules RuleImpl])
   (use [clearley utils rules]))
+; All of the Clearley core library goes here.
+; Because I like short files, other stuff is shuffled into various files.
+
 ; TODO: empty rule?
 
 ; TODO: get rid of this protocol?
@@ -17,35 +21,19 @@
   (^:private pstr [obj] "pstr stands for \"pretty-string\".
                         Returns a shorthand str of this item."))
 
-(defrecord ^:private RuleImpl [name clauses action]
-  Rule
-  (rulename [_] name)
-  (clauses [_] clauses)
-  (action [_] action)
-  (rule-str [_]
-    (separate-str clauses " ")))
-
-#_(defmethod clojure.core/print-method clearley.core.RuleImpl [rule writer]
-  (.write writer (rule-str rule)))
-
-(defmethod clojure.pprint/simple-dispatch clearley.rules.Rule [rule]
-  (clojure.pprint/write-out (rule-str rule)))
-
-(prefer-method clojure.pprint/simple-dispatch clearley.rules.Rule clojure.lang.IPersistentMap)
-
 ; TODO: make rule similar to defrule, rulefn fn
 ; TODO docs
 (defn rule
   "Creates a rule associated with a parse action that can be called
   after matching. A rule has a required vector of clauses,
   a head (optional, since Rules can also be embedded in other rules),
-  and an optional action (the default action bundles the args into a list).
-  Any valid proto-rule can be a clause to a rule."
+  and an optional action (the default action bundles the args into a list)."
   ; TODO: clauses action, not head clauses
   ([clauses] (rule nil clauses nil))
   ([head clauses] (rule head clauses nil))
   ([head clauses action]
    (RuleImpl. head (vec clauses) action)))
+   ;(RuleImpl. head (vec (map to-clause clauses)) action)))
 
 (defn token
   "Returns a rule that matches a single object (the token). Its action by default
@@ -91,16 +79,6 @@
              action))))
 
 (defn- token-match [token] [token])
-
-; Gets a seq of subrules from a clause
-(defn- predict-clause [clause grammar]
-  (cond
-    (sequential? clause) clause
-    ; This is just hideous, we can't even use satisfies?...
-    ; Clearley needs a unified clause model, stat
-    (instance? clearley.rules.Rule clause) [clause]
-    ;(instance? clearley.core.RuleImpl clause) [clause]
-    true (get grammar clause [])))
 
 (defn- rulehead-clause [clause]
   (cond
@@ -377,7 +355,8 @@
                      "expected clause vector, string, or clause-body pairs"))))
 
 (defmacro defrule
-  "Defs a parser rule or seq of parser rules.
+  "Defs a parser rule or seq of parser rules. See the docs for
+  the full defrule syntax.
   
   Usage:
   (defrule rule-name [clauses] action?)

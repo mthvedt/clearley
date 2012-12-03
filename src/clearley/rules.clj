@@ -1,5 +1,10 @@
 (ns clearley.rules
+  "Back-end stuff for Clearley. Work in progress with unstable API."
   (use clearley.utils))
+
+; ===
+; Stuff about Rules
+; ===
 
 (defprotocol Rule
   (rulename [self])
@@ -12,36 +17,22 @@
   (rulename [self] nil)
   (clauses [self] [self])
   (action [self] (fn [& _] self))
-  (rule-str [self] (str self))) ; TODO: rule-str?
+  (rule-str [self] (str self))) ; TODO work on this
 
-; TODO: eliminiate need for this--head should only be used when building grammars
-(defn rename-rule [new-name rule]
-  (reify Rule
-    (rulename [_] new-name)
-    (clauses [_] (clauses rule))
-    (action [_] (action rule))
-    (rule-str [_] (rule-str rule))))
+(defrecord RuleImpl [name clauses action]
+  Rule
+  (rulename [_] name)
+  (clauses [_] clauses)
+  (action [_] action)
+  (rule-str [_]
+    (separate-str clauses " ")))
 
-(defmulti rule-builder)
+; ===
+; Stuff about rule clauses
+; ===
 
-(defn request-for-symbol [sym])
-
-; (defn request-for-key [thekey])
-
-; TODO s/rule/protorule and s/earleyrule/rule?
-#_(defprotocol Protorule
-  (requires [self]) ; symbols required ot be in the grammar
-  (to-rule [self])) ; Rule for now... soon EarleyRule
-
-; A clause is something which, given a grammar, yields a category of subrules.
-; Fundemental part of CFGs.
-#_(defrecord Clause
-  (clause-name [self])
-  (clause-dependencies [self])
-  (clause-predictions [self]))
-
+; Resolves a symbol to a seq of clauses.
 (defn lookup-symbol [thesym thens theenv]
-  ; TODO return a clause
   (if-let [resolved (ns-resolve thens theenv thesym)]
     (let [resolved @resolved]
       (if (or (vector? resolved) (seq? resolved))
@@ -49,11 +40,35 @@
         [resolved]))
     (TIAE "Cannot resolve rule for head: " thesym)))
 
-;(defn predict-clause-1 [clause grammar]
-;  (cond
-;    (vector? clause) clause
-;    (seq? clause) clause
-;    (
+; Rule-ifies the given clause, wrapping it in a one-clause rule if neccesary.
+(defn to-rule [clause]
+  (if (instance? clearley.rules.Rule clause)
+    clause
+    (RuleImpl. (str "Anon@" (hash clause)) [clause] identity)))
+
+; Processes the clause re. a grammar. If clause is a symbol,
+; looks up the symbol, maps to-rule to the result, and adds it to the grammar.
+(defn update-grammar [grammar clause thens theenv]
+  (if (symbol? clause)
+    (assoc grammar clause (map to-rule (lookup-symbol clause thens theenv)))
+    grammar))
+
+; Gets a seq of subrules from a clause
+(defn predict-clause [clause grammar]
+  (cond
+    (instance? clearley.rules.Rule clause) [clause]
+    (seq? clause) (map to-rule clause)
+    (vector? clause) (map to-rule clause)
+    true (get grammar clause [])))
+
+; All things this clause might point to, that we must resolve at grammar build time
+(defn clause-deps [x grammar]
+  (cond (instance? clearley.rules.Rule x) (clauses x)
+        true (predict-clause x grammar)))
+
+; ===
+; Here be dragons
+; ===
 
 (defn resolve-all-clauses [goal thens theenv]
   (loop [stack [goal] ; stack: clauses to resolve
@@ -63,19 +78,10 @@
       (if (contains? breadcrumbs current-clause)
         ; have we already seen this? skip it entirely
         (recur (rest stack) breadcrumbs grammar)
-        (let [predictions (if (or (vector? current-clause) (seq? current-clause))
-                            current-clause
-                            (clauses current-clause))
-              predictions (if (symbol? current-clause)
-                            ; lookup rule if it is a symbol
-                            (lookup-symbol current-clause thens theenv)
-                            predictions)
-              rulename (if (symbol? current-clause)
-                         current-clause
-                         nil)]
+        ; otherwise, process it
+        (let [grammar (update-grammar grammar current-clause thens theenv)
+              predictions (clause-deps current-clause grammar)] ; order is important
           (recur (concat predictions (rest stack))
                  (conj breadcrumbs current-clause)
-                 (if rulename
-                   (assoc grammar current-clause predictions)
-                   grammar))))
+                 grammar)))
       grammar)))

@@ -34,4 +34,4 @@
 (defmacro with-rethrow [ex-class form ex-str-form]
   `(try ~form
      (catch ~ex-class e#
-       (throw (new ~ex-class ~form e#)))))
+       (throw (new ~ex-class ~ex-str-form e#)))))
