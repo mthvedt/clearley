@@ -37,6 +37,9 @@
 (defmacro not-parsing [input]
   `(is (not (parses? ~input))))
 
+(defmacro action-throws [exception-type input]
+  `(is (thrown? ~exception-type (take-action (parse local-parser ~input)))))
+
 ; valued trees of the form (value & branches)
 ; neccesary for comparing heterogeneous seqables (here, vec vs lazy-seq)
 (defn tree-eq [tree1 tree2]

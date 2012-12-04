@@ -12,6 +12,7 @@
   (action [self])
   (rule-str [self]))
 
+; TODO make unneccesary
 (extend-protocol Rule
   Object
   (rulename [self] nil)

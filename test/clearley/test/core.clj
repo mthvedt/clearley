@@ -1,21 +1,20 @@
 (ns clearley.test.core
   (:use clearley.core clearley.test.utils lazytest.deftest))
 
-; Some basic tests
 (defn rulefn
-  [head & clauses]
-  (rule head clauses))
+  [name & clauses]
+  (rule name clauses nil))
 
 (def sum1 (rulefn :sum :sum \+ :times))
 (def sum2 (rulefn :sum :times))
 (def num1 (rulefn :num \1))
 
+; Some basic tests
 (def simple-parser-rules
   {:sum [sum1 sum2]
    :times [(rulefn :times :times \* :num) (rulefn :times :num)]
    :num [num1 (rulefn :num \2) (rulefn :num \3) (rulefn :num \4)
-         (rulefn :num \5 \5) (rule :num "777")]})
-; Logical progression is "666", but "777" is better luck
+         (rulefn :num \5 \5) (rule :num "777" nil)]})
 
 (def simple-parser (earley-parser :sum simple-parser-rules))
 
@@ -35,7 +34,7 @@
   (is-ast [[[[[\1]]] \+ [[[\2]] \* [\3]]] \+ [[[\4]] \* [\1]]] "1+2*3+4*1")
   (is-ast [[[\5 \5]]] "55"))
 
-; Slightly less basic tests
+; Less basic tests
 (def-parser-test simple-match-test simple-parser
   (is-parse [sum2 [(rulefn :times :num) [num1 [\1]]]] "1")
   (is-parse [sum2 [(rulefn :times :num) [(rulefn :num \5 \5) [\5] [\5]]]] "55")
@@ -79,13 +78,12 @@
   (is-action 19 "2*3+2*2+3*3"))
 
 ; Rule embedding
-; TODO fix, but not now
-#_(def weird-rules
-    [(rule :a [\a [\b \c] (rule :d [\d])])])
+(def embedded-rules
+    {:a [(rule :a [\a [\b \c] (rule :d [\d] nil)] nil)]})
 
-#_(def weird-rule-parser (earley-parser :a weird-rules))
+(def embedded-rule-parser (earley-parser :a embedded-rules))
 
-#_(def-parser-test rule-embedding-test weird-rule-parser
+(def-parser-test rule-embedding-test embedded-rule-parser
     (is-parsing "abd")
     (is-parsing "acd")
     (not-parsing "abcd"))
@@ -134,8 +132,7 @@
   (is-action 1 "9-8")
   (is-action 4 "9-5"))
 
-; Chart str format isn't fixed... so we don't test it
-; just test that it is not nil
+; Chart str format isn't fixed... just test not nil for now
 (deftest print-charts-test
   (is (with-out-str
         (print-charts parser5 "3*4+5-6+7"))))
@@ -149,7 +146,6 @@
   (is-action 1 "3+0*5*4+0+3-5"))
 
 ; Token ranges
-; should override digit
 (def digit (token-range \0 \9 (fn [c] (- (int c) (int \0)))))
 (def parser7 (build-parser sum))
 

@@ -12,26 +12,23 @@
 
 ; Fourth is the string.
 
-; Unfortunately, Clojure doesn't like adding and subtracting from Chars...
-; we need to do it ourselves.
+; Clojure doesn't support character arithmetic so we need a manual implementation.
 (defn char-to-num [char-start num-start]
   (let [char-start-int (int char-start)]
     (fn [c] (+ num-start (- (int c) char-start-int)))))
 
-; TODO: should def and defrule be interchangable for the single rule case?
 (def digit (token-range \0 \9 (char-to-num \0 0)))
 (def hex-char [digit
                (token-range \a \f (char-to-num \a 10))
                (token-range \A \F (char-to-num \A 10))])
 
 (def string-char-scanner
-  (scanner (fn [c] (and (char? c)
-                        (not (= \\ c))
-                        (not (= \" c)))) identity))
+  (scanner (fn [c] (and (char? c) (not (= \\ c)) (not (= \" c))))
+           identity))
 
 (defrule string-char
   ; an escaped char
-  ([\\ (escaped-char (map token [\" \\ \/ \b \f \n \r \t]))] escaped-char)
+  ([\\ (escaped-char [\" \\ \/ \b \f \n \r \t])] escaped-char)
   ; a unicode char, using a rule literal
   ([\\ \u (hex (rule 'unicode-hex [hex-char hex-char hex-char hex-char]
                      ; hex-char returns an int... we turn that into Unicode char
@@ -45,7 +42,7 @@
   ([\" \"] "")
   ([\" string-body \"] (java.lang.String. (char-array string-body))))
 
-; Fifth, the Number, the most complicated one...
+; Fifth, the Number, the most complex.
 
 (def digit1-9 (token-range \1 \9 (char-to-num \1 1)))
 (def digits (one-or-more digit))
@@ -67,7 +64,7 @@
   ([digits] (digits-to-number digits))
   ([\- digits] (- (digits-to-number digits))))
 
-; TODO: return floats not exact numbers? double-check JSON spec.
+; It appears JSON numbers are exact although JS numbers are double floats.
 (defrule posnum
   ([fraction] fraction)
   ([fraction [\e \E] mantissa] (* fraction (expt 10 mantissa))))
@@ -76,12 +73,11 @@
   ([posnum] posnum)
   ([\- posnum] (- posnum)))
 
-; The sixth type is the array...
+; The sixth type is the array.
 
 ; First we need to define some structural tokens. These can contain whitespace.
-; JSON recognizes fewer whitespace chars than Java. These are it.
-(def whitespace-char
-  (map token [\u0020 \u0009 \u000A \u000D]))
+; JSON recognizes fewer whitespace chars than Java. These are they.
+(def whitespace-char [\u0020 \u0009 \u000A \u000D])
 
 (def whitespace (one-or-more "whitespace" whitespace-char))
 
@@ -112,25 +108,19 @@
 (defrule object-value [string colon value] [(keyword string) value])
 ; TODO: what about object collision?
 (defrule object-values
-  ([object-value] object-value)
-  ([object-values comma object-value] (concat object-value object-values)))
+  ([object-value] (let [[k v] object-value] {k v}))
+  ([object-values comma object-value] (let [[k v] object-value
+                                            o object-values]
+                                        (if (contains? o k)
+                                          (throw (RuntimeException.
+                                                   (str "Duplicate key: " o)))
+                                          (assoc o k v)))))
 
-(defrule object [object-begin object-values object-end]
-  (apply hash-map object-values))
+(defrule object [object-begin object-values object-end] object-values)
 
 ; Put it all together...
-; TODO: support the below syntax instead:
-#_(def value [true-token false-token null-token
+(def value [true-token false-token null-token
             string number array object])
-
-(defrule value
-  ([true-token] true-token)
-  ([false-token] false-token)
-  ([null-token] null-token)
-  ([string] string)
-  ([number] number)
-  ([array] array)
-  ([object] object))
 
 ; And we are done
 (def json-parser (build-parser object))
@@ -139,7 +129,6 @@
 
 (use 'clearley.test.utils 'lazytest.deftest)
 
-; First, test values
 (def json-value-parser (build-parser value))
 
 (def-parser-test json-literal-test json-value-parser
@@ -189,8 +178,9 @@
   (is-action [1 true "yo"] " [1, true,\"yo\" ] ")
   (is-action [1 [2]] "[1,[2]]")
   (is-action [[1] [2]] "[[1],[2]]")
-  (is-action [1 true "yo" [2 3]] "[1,true,\"yo\" ,[2,3]]"))
-; (is-action [1 true "yo" [2 3]] "  [1,true  ,\"yo\" , [ 2,3]] "))
+  (is-action [1 true "yo" [2 3]] "[1,true,\"yo\" ,[2,3]]")
+  ) ; TODO fix--something haywire in embedded vector reductions
+;  (is-action [1 true "yo" [2 3]] "  [1,true  ,\"yo\" , [ 2,3]] "))
 
 ; Only Objects are valid json parses.
 (def-parser-test json-test json-parser
@@ -199,9 +189,9 @@
   (not-parsing "\"a\"")
   (not-parsing "[1]")
   (is-action {:a 1} "{\"a\" : 1}")
+  (is-parsing "{\"a\" : 1, \"a\" : 2}")
+  (action-throws RuntimeException "{\"a\" : 1, \"a\" : 2}")
   (not-parsing "{a : 1}")
   (not-parsing "{\"a\" : 1 \"b\" : 2}")
   (is-action {:a 1 :b 2} "{\"a\" : 1, \"b\" : 2}")
   (is-action {:a 1 :b true :c "3"} "{\"a\" : 1, \"b\" : true, \"c\" : \"3\"}"))
-
-; TODO fix the vector embedding reduction case

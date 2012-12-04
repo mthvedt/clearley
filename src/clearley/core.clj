@@ -21,28 +21,23 @@
   (^:private pstr [obj] "pstr stands for \"pretty-string\".
                         Returns a shorthand str of this item."))
 
-; TODO: make rule similar to defrule, rulefn fn
-; TODO docs
+; TODO: make rule similar to defrule, rulefn fn?
 (defn rule
   "Creates a rule associated with a parse action that can be called
   after matching. A rule has a required vector of clauses,
   a head (optional, since Rules can also be embedded in other rules),
   and an optional action (the default action bundles the args into a list)."
-  ; TODO: clauses action, not head clauses
   ([clauses] (rule nil clauses nil))
-  ([head clauses] (rule head clauses nil))
-  ([head clauses action]
-   (RuleImpl. head (vec clauses) action)))
-   ;(RuleImpl. head (vec (map to-clause clauses)) action)))
+  ([clauses action] (rule nil clauses action))
+  ([name clauses action]
+   (RuleImpl. name (vec clauses) action)))
 
 (defn token
-  "Returns a rule that matches a single object (the token). Its action by default
-  returns the token but can also return some specified value."
-  ([a-token] (rule nil [a-token] (fn [_] a-token)))
+  "Returns a rule that matches a single object (the token)."
   ([a-token value] (rule nil [a-token] (fn [_] value))))
 
 ; TODO test in core tests
-; TODO action
+; TODO presents an argument for some type of Clause protocol.
 (defn one-or-more
   "Creates a rule that matches one or more of a subrule. Returns a vector
   of the matches."
@@ -56,6 +51,7 @@
      (action [_] identity)
      (rule-str [self] (str subrule)))))
 
+; TODO work on this
 (defn scanner
   "Defines a rule that scans one token of input with the given scanner function.
   The scanner function is used by the parser to match tokens. If this rule is invoked
@@ -379,19 +375,17 @@
   and adds them together. If a parse action is not provided, a default
   will be used which bundles its args into a list. The rule's head is
   'sum and will be bound to *ns*/sum."
-  ; TODO: qualify syms
+  ; TODO: qualify syms?
   [head & impl-or-impls]
   `(def ~head ~(build-defrule-bodies head impl-or-impls)))
 
 (defmacro extend-rule
-  "Like defrule, but extends an existing rule."
+  "Like defrule, but for an existing symbol with some rules bound to it."
   [head & impl-or-impls]
   `(def ~head (vec (concat ~head ~(build-defrule-bodies head impl-or-impls)))))
 
-; TODO: better name than add-rules
-; TODO clarify symbol -> [rule] binding
 (defmacro add-rules
-  "Adds some amount of additional rule objects to an existing def'd rule."
+  "Adds some amount of additional rule objects to a symbol with rules bound to it."
   [head & rules]
   `(def ~head (vec (concat ~head [~@rules]))))
 
@@ -421,3 +415,5 @@
   ; TODO: test
   [goal tokenizer thens]
   (earley-parser goal tokenizer (build-grammar-with-ns goal thens)))
+
+; TODO execute fn?
