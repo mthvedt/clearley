@@ -10,7 +10,7 @@
   (require [clojure string]
            [clojure.pprint])
   (import [clearley.rules RuleImpl REarleyItem])
-  (use [clearley utils rules]))
+  (use [clearley utils rules earley]))
 ; All of the Clearley core library goes here.
 ; Because I like short files, other stuff is shuffled into various files.
 
@@ -71,110 +71,6 @@
 
 (defn- token-match [token] [token])
 
-(defprotocol ^:private ChartItem
-  (^:private cpredict [self pos])
-  (^:private cscan [self input-token input])
-  (^:private emerge [self other-item]))
-
-; Builds a rule match from the output stack and pushes the match to the top
-; (think of a Forth operator reducing the top of a stack)
-; Right now, we build the stack as we parse instead of emitting an output stream...
-; this may change in the future e.g. to support pull parsing
-(defn- reduce-ostack [ostack rule]
-  (let [thecount (count (clauses rule))]
-    (cons (vec (cons rule (reverse (take thecount ostack)))) (drop thecount ostack))))
-
-; earley-item: duh, rstack: @map<item rstack>, ostack: the output "stream"
-; TODO: eliminate need to wrap rstacks in atoms
-(defrecord ^:private RChartItem [earley-item rstack ostack]
-  ChartItem
-  (cpredict [self pos]
-    (if (is-complete? earley-item)
-      (map (fn [[item rstack]]
-             (RChartItem. (advance item) rstack
-                          (reduce-ostack ostack (:rule earley-item)))) @rstack)
-      (map (fn [item]
-             (RChartItem. item (atom {earley-item rstack}) ostack))
-           (predict earley-item pos))))
-  (cscan [self input-token input]
-    (map (fn [item]
-           (RChartItem. item rstack (cons [input] ostack)))
-         (escan earley-item input-token)))
-  ; Merges the stacks of this and the other-item. True if there was anything to merge.
-  (emerge [self other-item]
-    (swap! rstack #(merge % @(:rstack other-item))))
-  PStrable
-  (pstr [_] (str (pstr earley-item) " | "
-                 (separate-str (map (comp pstr first) @rstack) ", "))))
-
-; creates an initial earley item with dot and pos 0
-(defn- chart-item [head-sym rule grammar]
-  (RChartItem. (REarleyItem. head-sym rule 0 0 grammar) (atom {}) '()))
-
-; TODO: nuke this protocol, have data object chart
-; data object charts can also serve as prototypes of parsing NDFA states
-(defprotocol Chart
-  (^:private add [self item])
-  (^:private cfirst [self])
-  (^:private crest [self])
-  (^:private reset [self])
-  (^:private chart-seq [self]))
-
-(defrecord RChart [chartvec chartmap dot]
-  Chart
-  (add [self item]
-    (let [ikey (:earley-item item)]
-      (if-let [previndex (get chartmap ikey)]
-        (do (emerge (get chartvec previndex) item)
-          self)
-        (RChart. (conj chartvec item)
-                 (assoc chartmap ikey (count chartvec)) dot))))
-  (cfirst [self]
-    (if (not (= dot (count chartvec)))
-      (get chartvec dot)))
-  (crest [self]
-    (RChart. chartvec chartmap (inc dot)))
-  (reset [self] (RChart. chartvec chartmap 0))
-  (chart-seq [self] chartvec)
-  PStrable
-  (pstr [self]
-    (if (= dot (count chartvec))
-      (apply str (map #(str (pstr %) "\n") chartvec))
-      (apply str (update-in (vec (map #(str (pstr %) "\n") chartvec))
-                            [dot] #(str "* " %))))))
-
-(def ^:private new-chart (RChart. [] {} 0))
-
-; scans an input character, seeding a new chart
-(defn- scan-chart [chart input-token input]
-  (reduce add new-chart (mapcat #(cscan % input-token input)
-                                (chart-seq chart))))
-
-; process completions and predictions for a single chart
-(defn- parse-chart [chart pos]
-  (loop [c chart]
-    (if-let [item (cfirst c)]
-      (recur (crest (reduce add c (cpredict item pos))))
-     c)))
-
-(defn- parse-charts [inputstr grammar tokenizer goal-rule]
-  (loop [pos 0
-         thestr inputstr
-         ; TODO actual goal symbol
-         current-chart (add new-chart (chart-item ::goal goal-rule grammar))
-         charts []]
-    (if-let [thechar (first thestr)]
-      (let [thetoken (tokenizer thechar)
-            parsed-chart (parse-chart current-chart pos)
-            next-chart (scan-chart parsed-chart thetoken thechar)
-            next-charts (conj charts parsed-chart)]
-        (if (cfirst next-chart)
-          (recur (inc pos) (rest thestr) next-chart next-charts)
-          ; early termination on failure, incl. failed chart
-          (conj next-charts next-chart)))
-      ; end step
-      (conj charts (parse-chart current-chart (inc pos))))))
-
 ; Don't need to expose parser protocol... only 'parse' fn
 (defprotocol ^:private Parser
   (parse [parser input] "Parse the given input with the given parser,
@@ -182,11 +78,6 @@
                         [rule leaves] where leaves is a seq).")
   ; charts is not yet usable by external users
   (charts [parser input]))
-
-; Searches a chart for completed parse of the goal rule, returning all matches
-(defn- scan-goal [chart]
-  (mapcat :ostack (filter (comp (partial = ::goal) :rulehead :earley-item)
-                          (chart-seq chart))))
 
 (defn earley-parser
   "Constructs an Earley parser given a map of rules,
