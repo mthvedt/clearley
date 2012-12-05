@@ -42,7 +42,7 @@
   "Creates a rule that matches one or more of a subrule. Returns a vector
   of the matches."
   ([subrule]
-   (one-or-more (str (rulename subrule) "+") subrule))
+   (one-or-more (str (rule-name subrule) "+") subrule))
   ([name subrule]
    (reify Rule
      (rulename [_] name)
@@ -279,7 +279,7 @@
     (let [subactions (map take-action (rest match))
           rule (first match)
           ; Below is the default action--return args if not empty, otherwise return rule
-          action (action rule)]
+          action (rule-action rule)]
       (try
         (apply action subactions)
         (catch clojure.lang.ArityException e
@@ -296,8 +296,7 @@
   (take-action (parse parser input)))
 
 ; Defrule begins here.
-; TODO: experiment with using a parser for defrule
-; instead of all these macro helpers... would make a convincing POC for earley parsing!
+; --In the future, might be able to replace all this nonsense with a parser.
 
 ; Macro helper fn. Dequalifies a stringable qualified sym or keyword
 (defn- dequalify [strable]

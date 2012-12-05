@@ -12,14 +12,6 @@
   (action [self])
   (rule-str [self]))
 
-; TODO make unneccesary
-(extend-protocol Rule
-  Object
-  (rulename [self] nil)
-  (clauses [self] [self])
-  (action [self] (fn [& _] self))
-  (rule-str [self] (str self))) ; TODO work on this
-
 (defrecord RuleImpl [name clauses action]
   Rule
   (rulename [_] name)
@@ -31,6 +23,16 @@
 ; ===
 ; Stuff about rule clauses
 ; ===
+
+(defn rule-name [rule]
+  (if (instance? clearley.rules.Rule rule)
+    (rulename rule)
+    nil))
+
+(defn rule-action [rule]
+  (if (instance? clearley.rules.Rule rule)
+    (action rule)
+    (fn [] rule)))
 
 ; Resolves a symbol to a seq of clauses.
 (defn lookup-symbol [thesym thens theenv]
