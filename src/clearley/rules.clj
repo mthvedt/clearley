@@ -2,6 +2,11 @@
   "Back-end stuff for Clearley. Work in progress with unstable API."
   (use clearley.utils))
 
+; TODO: get rid of this protocol?
+(defprotocol PStrable
+  (pstr [obj] "pstr stands for \"pretty-string\".
+                        Returns a shorthand str of this item."))
+
 ; ===
 ; Stuff about Rules
 ; ===
@@ -28,6 +33,13 @@
   (if (instance? clearley.rules.Rule rule)
     (rulename rule)
     nil))
+
+(defn rulehead-clause [clause]
+  (cond
+    (symbol? clause) (str clause)
+    (string? clause) (str \" clause \")
+    (keyword? clause) (str clause)
+    true "anon"))
 
 (defn rule-action [rule]
   (if (instance? clearley.rules.Rule rule)
@@ -88,3 +100,44 @@
                  (conj breadcrumbs current-clause)
                  grammar)))
       grammar)))
+
+; ===
+; Earley rules
+; TODO
+; ===
+
+(defprotocol EarleyItem
+  (predict [self index])
+  (escan [self input-token])
+  (is-complete? [self])
+  (advance [self]))
+
+(defrecord REarleyItem [rulehead rule dot index grammar]
+  EarleyItem
+  (predict [self pos]
+    (if (not (is-complete? self))
+      (let [clause (get (clauses rule) dot)]
+        (map (fn [prediction]
+               (REarleyItem. (rulehead-clause clause) prediction 0 pos grammar))
+             (predict-clause clause grammar)))))
+  (escan [self input-token]
+    (cond
+      (::scanner (get (clauses rule) dot))
+      (if ((::scanner (get (clauses rule) dot)) input-token)
+        [(advance self)]
+        [])
+      (and (not (is-complete? self)) (= (get (clauses rule) dot) input-token))
+      [(advance self)]
+      true
+      []))
+  (is-complete? [_]
+    (= dot (count (clauses rule))))
+  (advance [self]
+    (REarleyItem. rulehead rule (inc dot) index grammar))
+  PStrable
+  (pstr [_]
+    ; TODO: stop the below from stack overflowing on self-referential rules
+    (separate-str (concat [rulehead "->"]
+                          (take dot (clauses rule)) ["*"]
+                          (drop dot (clauses rule)) [(str "@" index)])
+                  " ")))

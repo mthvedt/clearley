@@ -9,17 +9,12 @@
   for succintness."
   (require [clojure string]
            [clojure.pprint])
-  (import [clearley.rules RuleImpl])
+  (import [clearley.rules RuleImpl REarleyItem])
   (use [clearley utils rules]))
 ; All of the Clearley core library goes here.
 ; Because I like short files, other stuff is shuffled into various files.
 
 ; TODO: empty rule?
-
-; TODO: get rid of this protocol?
-(defprotocol ^:private PStrable
-  (^:private pstr [obj] "pstr stands for \"pretty-string\".
-                        Returns a shorthand str of this item."))
 
 ; TODO: make rule similar to defrule, rulefn fn?
 (defn rule
@@ -57,7 +52,7 @@
   The scanner function is used by the parser to match tokens. If this rule is invoked
   on a token, and the scanner returns logcial true, the rule matches the token."
   ([scanner-fn action]
-   (rule nil [{::scanner scanner-fn}] action)))
+   (rule nil [{:clearley.rules/scanner scanner-fn}] action)))
 
 (defn token-range
   "Creates a rule that accepts all characters within a range. The given min and max
@@ -75,49 +70,6 @@
              action))))
 
 (defn- token-match [token] [token])
-
-(defn- rulehead-clause [clause]
-  (cond
-    (symbol? clause) (str clause)
-    (string? clause) (str \" clause \")
-    (keyword? clause) (str clause)
-    true "anon"))
-
-(defprotocol ^:private EarleyItem
-  (^:private predict [self index])
-  (^:private escan [self input-token])
-  (^:private is-complete? [self])
-  (^:private advance [self]))
-
-(defrecord ^:private REarleyItem [rulehead rule dot index grammar]
-  EarleyItem
-  (predict [self pos]
-    (if (not (is-complete? self))
-      (let [clause (get (clauses rule) dot)]
-        (map (fn [prediction]
-               (REarleyItem. (rulehead-clause clause) prediction 0 pos grammar))
-             (predict-clause clause grammar)))))
-  (escan [self input-token]
-    (cond
-      (::scanner (get (clauses rule) dot))
-      (if ((::scanner (get (clauses rule) dot)) input-token)
-        [(advance self)]
-        [])
-      (and (not (is-complete? self)) (= (get (clauses rule) dot) input-token))
-      [(advance self)]
-      true
-      []))
-  (is-complete? [_]
-    (= dot (count (clauses rule))))
-  (advance [self]
-    (REarleyItem. rulehead rule (inc dot) index grammar))
-  PStrable
-  (pstr [_]
-    ; TODO: stop the below from stack overflowing on self-referential rules
-    (separate-str (concat [rulehead "->"]
-                          (take dot (clauses rule)) ["*"]
-                          (drop dot (clauses rule)) [(str "@" index)])
-                  " ")))
 
 (defprotocol ^:private ChartItem
   (^:private cpredict [self pos])
