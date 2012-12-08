@@ -8,42 +8,48 @@
                         Returns a shorthand str of this item."))
 
 ; ===
-; Stuff about Rules
+; Rules--preamble
 ; ===
 
-(defprotocol Rule
-  (rulename [self])
-  (clauses [self])
-  (action [self])
+(defprotocol RuleKernel
+  (clauses [self]) ; TODO s/clauses/deps
+  (predict [self]) ; TODO: return clause instead?
+  (escan [self input-token])
+  (is-complete? [self])
+  (original [self]) ; TODO make this unneccesary
+  (advance [self])
   (rule-str [self]))
 
-(defrecord RuleImpl [name clauses action]
-  Rule
-  (rulename [_] name)
-  (clauses [_] clauses)
-  (action [_] action)
-  (rule-str [_]
-    (separate-str clauses " ")))
+(declare context-free-rule)
 
 ; ===
-; Stuff about rule clauses
+; Rule clauses
 ; ===
 
 (defn rule-name [rule]
-  (if (instance? clearley.rules.Rule rule)
-    (rulename rule)
+  (if (instance? clearley.rules.RuleKernel rule)
+    (:name rule)
     nil))
+
+(defn clause-str [clause]
+  (if (instance? clearley.rules.RuleKernel clause)
+    (rule-str clause)
+    (str clause)))
 
 (defn rulehead-clause [clause]
   (cond
+    (:name clause) (:name clause)
     (symbol? clause) (str clause)
     (string? clause) (str \" clause \")
     (keyword? clause) (str clause)
     true "anon"))
 
 (defn rule-action [rule]
-  (if (instance? clearley.rules.Rule rule)
-    (action rule)
+  (if (instance? clearley.rules.RuleKernel rule)
+    ; if-let avoids :key -> nil maps for defrecords
+    (if-let [r (:action rule)]
+      r
+      (fn [& xs] (vec xs)))
     (fn [] rule)))
 
 ; Resolves a symbol to a seq of clauses.
@@ -57,9 +63,9 @@
 
 ; Rule-ifies the given clause, wrapping it in a one-clause rule if neccesary.
 (defn to-rule [clause]
-  (if (instance? clearley.rules.Rule clause)
+  (if (instance? clearley.rules.RuleKernel clause)
     clause
-    (RuleImpl. (str "Anon@" (hash clause)) [clause] identity)))
+    (context-free-rule (str "Anon@" (hash clause)) [clause] identity)))
 
 ; Processes the clause re. a grammar. If clause is a symbol,
 ; looks up the symbol, maps to-rule to the result, and adds it to the grammar.
@@ -71,14 +77,14 @@
 ; Gets a seq of subrules from a clause
 (defn predict-clause [clause grammar]
   (cond
-    (instance? clearley.rules.Rule clause) [clause]
+    (instance? clearley.rules.RuleKernel clause) [clause]
     (seq? clause) (map to-rule clause)
     (vector? clause) (map to-rule clause)
     true (get grammar clause [])))
 
 ; All things this clause might point to, that we must resolve at grammar build time
 (defn clause-deps [x grammar]
-  (cond (instance? clearley.rules.Rule x) (clauses x)
+  (cond (instance? clearley.rules.RuleKernel x) (clauses x)
         true (predict-clause x grammar)))
 
 ; ===
@@ -102,42 +108,41 @@
       grammar)))
 
 ; ===
-; Earley rules
-; TODO
+; Rules
 ; ===
 
-(defprotocol EarleyItem
-  (predict [self index])
-  (escan [self input-token])
-  (is-complete? [self])
-  (advance [self]))
+(defrecord RuleImpl [kernel name action]
+  RuleKernel
+  (predict [self] (predict kernel))
+  (clauses [_] (clauses kernel))
+  (escan [self input-token] (map #(assoc self :kernel %) (escan kernel input-token)))
+  (is-complete? [_] (is-complete? kernel))
+  (advance [self] (assoc self :kernel (advance kernel)))
+  (rule-str [_] (rule-str kernel)))
 
-(defrecord REarleyItem [rulehead rule dot index grammar]
-  EarleyItem
-  (predict [self pos]
-    (if (not (is-complete? self))
-      (let [clause (get (clauses rule) dot)]
-        (map (fn [prediction]
-               (REarleyItem. (rulehead-clause clause) prediction 0 pos grammar))
-             (predict-clause clause grammar)))))
+(defn wrap-kernel [kernel name action]
+  (RuleImpl. kernel name action))
+
+(defn cfg-rule-str [clauses dot]
+    (separate-str " " (if (zero? dot)
+                        clauses
+                        (concat (take dot clauses) ["*"] (drop dot clauses)))))
+
+(defrecord CfgRule [clauses dot]
+  RuleKernel
+  (clauses [_] clauses)
+  (predict [self]
+    (if (is-complete? self)
+      []
+      (get clauses dot)))
   (escan [self input-token]
-    (cond
-      (::scanner (get (clauses rule) dot))
-      (if ((::scanner (get (clauses rule) dot)) input-token)
-        [(advance self)]
-        [])
-      (and (not (is-complete? self)) (= (get (clauses rule) dot) input-token))
+    (if (and (not (is-complete? self)) (= (get clauses dot) input-token))
       [(advance self)]
-      true
       []))
   (is-complete? [_]
-    (= dot (count (clauses rule))))
-  (advance [self]
-    (REarleyItem. rulehead rule (inc dot) index grammar))
-  PStrable
-  (pstr [_]
-    ; TODO: stop the below from stack overflowing on self-referential rules
-    (separate-str (concat [rulehead "->"]
-                          (take dot (clauses rule)) ["*"]
-                          (drop dot (clauses rule)) [(str "@" index)])
-                  " ")))
+    (= dot (count clauses)))
+  (advance [self] (assoc self :dot (inc dot)))
+  (rule-str [_] (cfg-rule-str clauses dot)))
+
+(defn context-free-rule [name clauses action]
+  (wrap-kernel (CfgRule. (vec clauses) 0) name action))

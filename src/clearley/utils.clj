@@ -15,7 +15,7 @@
     (str (subs thestr 0 100) "(...)")
     thestr))
 
-(defn separate-str [theseq separator]
+(defn separate-str [separator theseq]
   (cutoff (apply str (drop 1 (interleave (repeat separator) theseq)))))
 
 (def ^:dynamic *debug* true)

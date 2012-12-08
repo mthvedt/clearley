@@ -9,12 +9,11 @@
   for succintness."
   (require [clojure string]
            [clojure.pprint])
-  (import [clearley.rules RuleImpl REarleyItem])
   (use [clearley utils rules earley]))
 ; All of the Clearley core library goes here.
 ; Because I like short files, other stuff is shuffled into various files.
 
-; TODO: empty rule?
+; TODO do not support the empty rule?
 
 ; TODO: make rule similar to defrule, rulefn fn?
 (defn rule
@@ -24,35 +23,56 @@
   and an optional action (the default action bundles the args into a list)."
   ([clauses] (rule nil clauses nil))
   ([clauses action] (rule nil clauses action))
-  ([name clauses action]
-   (RuleImpl. name (vec clauses) action)))
+  ([name clauses action] (context-free-rule name clauses action)))
 
 (defn token
-  "Returns a rule that matches a single object (the token)."
+  "Returns a rule that matches a single given token.
+  Its action returns the given value."
   ([a-token value] (rule nil [a-token] (fn [_] value))))
 
-; TODO test in core tests
-; TODO presents an argument for some type of Clause protocol.
+(defrecord OneOrMoreImpl [subrule dot]
+  RuleKernel
+  (predict [self] [(rule nil [subrule] vector)
+                   (rule nil [self subrule] conj)])
+  (clauses [self] [subrule])
+  (escan [_ _] [])
+  (is-complete? [_] (= dot 1))
+  (advance [self] (assoc self :dot 1))
+  (rule-str [_] (if (not (zero? dot))
+                  (str (clause-str subrule) " *")
+                  subrule)))
+
+; TODO use map interface? or?
 (defn one-or-more
   "Creates a rule that matches one or more of a subrule. Returns a vector
   of the matches."
   ([subrule]
    (one-or-more (str (rule-name subrule) "+") subrule))
   ([name subrule]
-   (reify Rule
-     (rulename [_] name)
-     (clauses [self] [[(rule nil [subrule] vector)
-                       (rule nil [self subrule] conj)]])
-     (action [_] identity)
-     (rule-str [self] (str subrule)))))
+   (-> (OneOrMoreImpl. subrule 0)
+     (assoc :name name)
+     (assoc :action identity))))
 
-; TODO work on this
+(defrecord Scanner [rulefn dot]
+  RuleKernel
+  (clauses [_] [])
+  (predict [self] [])
+  (escan [self input-token]
+    (if (and (not (is-complete? self)) (rulefn input-token))
+      [(advance self)]
+      []))
+  (is-complete? [_] (= dot 1))
+  (advance [self] (assoc self :dot 1))
+  (rule-str [_] (if (zero? dot)
+                  (clause-str rulefn)
+                  (str (clause-str rulefn) " *"))))
+
 (defn scanner
   "Defines a rule that scans one token of input with the given scanner function.
   The scanner function is used by the parser to match tokens. If this rule is invoked
   on a token, and the scanner returns logcial true, the rule matches the token."
   ([scanner-fn action]
-   (rule nil [{:clearley.rules/scanner scanner-fn}] action)))
+   (wrap-kernel (Scanner. scanner-fn 0) nil action)))
 
 (defn token-range
   "Creates a rule that accepts all characters within a range. The given min and max
@@ -108,8 +128,7 @@
 (defn print-charts
   "For a given parser and input, prints a multi-line representation of its charts to
   *out*. The representation might change in the future. For more about
-  parse charts, see http://www.wikipedia.org/wiki/Earley_parser. Primarily
-  useful for debugging."
+  parse charts, see http://www.wikipedia.org/wiki/Earley_parser. Good for debugging."
   [parser input]
   (dorun (for [chart (charts parser input)]
            (println (pstr chart)))))
@@ -121,15 +140,12 @@
     (throw (RuntimeException. "Failure to parse"))
     (let [subactions (map take-action (rest match))
           rule (first match)
-          ; Below is the default action--return args if not empty, otherwise return rule
           action (rule-action rule)]
       (try
         (apply action subactions)
         (catch clojure.lang.ArityException e
           (throw (RuntimeException. (str "Wrong # of params taking action for rule "
-                                         (if (rulename (first match))
-                                           (rulename (first match))
-                                           (first match)) ", "
+                                         (rule-str rule) ", "
                                          "was given " (count subactions))
                                     e)))))))
 

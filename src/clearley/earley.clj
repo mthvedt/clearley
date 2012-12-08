@@ -1,6 +1,31 @@
 (ns clearley.earley
-  (import [clearley.rules REarleyItem])
   (use [clearley utils rules]))
+
+; ===
+; Parse chart items
+; ===
+
+(defrecord REarleyItem [rulehead rule original index match-count]
+  PStrable
+  (pstr [_]
+    (str rulehead " -> " (rule-str rule) " @" index)))
+
+(defn predict-earley-item [earley-item grammar index]
+  (let [clause (predict (:rule earley-item))]
+    (map #(REarleyItem. (rulehead-clause clause) % % index 0)
+         (predict-clause clause grammar))))
+
+(defn scan-earley-item [earley-item input-token]
+  (map #(update-in (assoc earley-item :rule %) [:match-count] inc)
+    (escan (:rule earley-item) input-token)))
+
+(defn advance-earley-item [earley-item]
+  (-> earley-item
+    (update-in [:rule] advance)
+    (update-in [:match-count] inc)))
+
+(defn earley-itemize [head-sym rule]
+  (REarleyItem. head-sym rule rule 0 0))
 
 (defprotocol ChartItem
   (cpredict [self pos])
@@ -11,39 +36,40 @@
 ; (think of a Forth operator reducing the top of a stack)
 ; Right now, we build the stack as we parse instead of emitting an output stream...
 ; this may change in the future e.g. to support pull parsing
-(defn- reduce-ostack [ostack rule]
-  (let [thecount (count (clauses rule))]
-    (cons (vec (cons rule (reverse (take thecount ostack)))) (drop thecount ostack))))
+(defn- reduce-ostack [ostack item]
+  (let [thecount (:match-count item)]
+    (cons (vec (cons (:original item)
+                     (reverse (take thecount ostack)))) (drop thecount ostack))))
 
 (defrecord ChartRef [chart dot])
 
 ; rstack: map<item chart-ref>
 ; earley-item: duh, rstack: @map<item rstack>, ostack: the output "stream"
 ; TODO: eliminate need to wrap rstacks in atoms
-(defrecord RChartItem [earley-item rstack ostack]
+(defrecord RChartItem [earley-item rstack ostack grammar]
   ChartItem
   (cpredict [self pos]
-    (if (is-complete? earley-item)
+    (if (is-complete? (:rule earley-item))
       (map (fn [[item rstack]]
-             (RChartItem. (advance item) rstack
-                          (reduce-ostack ostack (:rule earley-item)))) @rstack)
-      (map (fn [item]
-             (RChartItem. item (atom {earley-item rstack}) ostack))
-           (predict earley-item pos))))
+             (RChartItem. (advance-earley-item item) rstack
+                          (reduce-ostack ostack earley-item) grammar))
+           @rstack)
+      (map #(RChartItem. % (atom {earley-item rstack}) ostack grammar)
+           (predict-earley-item earley-item grammar pos))))
   (cscan [self input-token input]
     (map (fn [item]
-           (RChartItem. item rstack (cons [input] ostack)))
-         (escan earley-item input-token)))
+           (RChartItem. item rstack (cons [input] ostack) grammar))
+         (scan-earley-item earley-item input-token)))
   ; Merges the stacks of this and the other-item. True if there was anything to merge.
   (emerge [self other-item]
     (swap! rstack #(merge % @(:rstack other-item))))
   PStrable
   (pstr [_] (str (pstr earley-item) " | "
-                 (separate-str (map (comp pstr first) @rstack) ", "))))
+                 (separate-str ", " (map (comp pstr first) @rstack)))))
 
 ; creates an initial earley item with dot and pos 0
 (defn chart-item [head-sym rule grammar]
-  (RChartItem. (REarleyItem. head-sym rule 0 0 grammar) (atom {}) '()))
+  (RChartItem. (earley-itemize head-sym rule) (atom {}) '() grammar))
 
 ; TODO: nuke this protocol, have data object chart
 ; data object charts can also serve as prototypes of parsing NDFA states
@@ -57,6 +83,8 @@
 (defrecord RChart [chartvec chartmap dot]
   Chart
   (add-to-chart [self item]
+    (if (vector? (:earley-item item))
+      (throw (RuntimeException.)))
     (let [ikey (:earley-item item)]
       (if-let [previndex (get chartmap ikey)]
         (do (emerge (get chartvec previndex) item)
