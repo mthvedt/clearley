@@ -18,6 +18,11 @@
 (defn separate-str [separator theseq]
   (cutoff (apply str (drop 1 (interleave (repeat separator) theseq)))))
 
+(defn update [map key f] (update-in map [key] f))
+
+(defn update-all [map keyvals]
+  (reduce (fn [m [k f]] (update m k f)) map keyvals))
+
 (def ^:dynamic *debug* true)
 
 (defmacro debug
