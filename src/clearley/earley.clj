@@ -17,13 +17,14 @@
 
 (defn scan-earley-item [earley-item input-token]
   (map #(update (assoc earley-item :rule %) :match-count inc)
-    (escan (:rule earley-item) input-token)))
+    (scan (:rule earley-item) input-token)))
 
 (defn advance-earley-item [earley-item]
   (update-all earley-item {:rule advance, :match-count inc}))
 
-(defn earley-itemize [head-sym rule]
-  (REarleyItem. head-sym rule rule 0 0))
+(defn earley-item [head-sym clause]
+  (let [rule (to-rule clause)]
+    (REarleyItem. head-sym rule rule 0 0)))
 
 ; ===
 ; Parse states
@@ -42,7 +43,6 @@
 ; A parse item together with output state
 ; rstack: map<item chart-ref>
 ; earley-item: duh, rstack: @map<item rstack>, ostack: the output "stream"
-; TODO: eliminate need to wrap rstacks in atoms
 (defrecord RChartItem [earley-item rstack ostack]
   PStrable
   (pstr [_] (str (pstr earley-item) " | "
@@ -74,14 +74,12 @@
 
 ; creates an initial earley item with dot and pos 0
 (defn chart-item [head-sym rule]
-  (RChartItem. (earley-itemize head-sym rule) (atom {}) '()))
+  (RChartItem. (earley-item head-sym rule) (atom {}) '()))
 
 ; ===
 ; Parse charts
 ; ===
 
-; TODO: nuke this protocol, have data object chart
-; data object charts can also serve as prototypes of parsing NDFA states
 (defprotocol Chart
   (add-to-chart [self item])
   (current-item [self])
@@ -128,11 +126,11 @@
                                                               (:grammar chart)))))
      c)))
 
-(defn parse-charts [inputstr grammar tokenizer goal-rule]
+(defn parse-charts [inputstr grammar tokenizer goal]
   (loop [pos 0
          thestr inputstr
          current-chart (add-to-chart (initial-chart grammar)
-                                     (chart-item ::goal goal-rule))
+                                     (chart-item ::goal goal))
          charts []]
     (if-let [thechar (first thestr)]
       (let [thetoken (tokenizer thechar)

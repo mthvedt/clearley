@@ -17,10 +17,10 @@
   (let [char-start-int (int char-start)]
     (fn [c] (+ num-start (- (int c) char-start-int)))))
 
-(def digit (token-range \0 \9 (char-to-num \0 0)))
+(def digit (char-range \0 \9 (char-to-num \0 0)))
 (def hex-char [digit
-               (token-range \a \f (char-to-num \a 10))
-               (token-range \A \F (char-to-num \A 10))])
+               (char-range \a \f (char-to-num \a 10))
+               (char-range \A \F (char-to-num \A 10))])
 
 (def string-char-scanner
   (scanner (fn [c] (and (char? c) (not (= \\ c)) (not (= \" c))))
@@ -44,7 +44,7 @@
 
 ; Fifth, the Number, the most complex.
 
-(def digit1-9 (token-range \1 \9 (char-to-num \1 1)))
+(def digit1-9 (char-range \1 \9 (char-to-num \1 1)))
 (def digits (one-or-more digit))
 (defn digits-to-number [digits]
   (reduce (fn [a b] (+ (* 10 a) b)) 0 digits))
@@ -106,7 +106,6 @@
 (def colon (whitespaced-rule \:))
 
 (defrule object-value [string colon value] [(keyword string) value])
-; TODO: what about object collision?
 (defrule object-values
   ([object-value] (let [[k v] object-value] {k v}))
   ([object-values comma object-value] (let [[k v] object-value
@@ -126,7 +125,6 @@
 (def json-parser (build-parser object))
 
 ; Let's prove that it works
-
 (use 'clearley.test.utils 'lazytest.deftest)
 
 (def json-value-parser (build-parser value))

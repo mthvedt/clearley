@@ -11,12 +11,18 @@
 ; Rules--preamble
 ; ===
 
+; rule-deps: rule dependencies
+; predict: predicts a single clause that must be matched
+; scan: scans a single input
+; is-complete?: is this rule fully matched
+; advance: called when a predicted clause is matched
+; rule-str: a short useful string representation of this rule
+
 (defprotocol RuleKernel
-  (clauses [self]) ; TODO s/clauses/deps
-  (predict [self]) ; TODO: return clause instead?
-  (escan [self input-token])
+  (rule-deps [self])
+  (predict [self])
+  (scan [self input-token])
   (is-complete? [self])
-  (original [self]) ; TODO make this unneccesary
   (advance [self])
   (rule-str [self]))
 
@@ -46,13 +52,13 @@
 
 (defn rule-action [rule]
   (if (instance? clearley.rules.RuleKernel rule)
-    ; if-let avoids :key -> nil maps for defrecords
+    ; avoid :key -> nil maps in defrecords
     (if-let [r (:action rule)]
       r
       (fn [& xs] (vec xs)))
     (fn [] rule)))
 
-; Resolves a symbol to a seq of clauses.
+; Resolves a symbol to a seq of clauses
 (defn lookup-symbol [thesym thens theenv]
   (if-let [resolved (ns-resolve thens theenv thesym)]
     (let [resolved @resolved]
@@ -84,14 +90,14 @@
 
 ; All things this clause might point to, that we must resolve at grammar build time
 (defn clause-deps [x grammar]
-  (cond (instance? clearley.rules.RuleKernel x) (clauses x)
+  (cond (instance? clearley.rules.RuleKernel x) (rule-deps x)
         true (predict-clause x grammar)))
 
 ; ===
 ; Here be dragons
 ; ===
 
-(defn resolve-all-clauses [goal thens theenv]
+(defn resolve-all-rule-deps [goal thens theenv]
   (loop [stack [goal] ; stack: clauses to resolve
          breadcrumbs #{}
          grammar {}] ; grammar: maps keyword clauses to rules
@@ -114,8 +120,8 @@
 (defrecord RuleImpl [kernel name action]
   RuleKernel
   (predict [self] (predict kernel))
-  (clauses [_] (clauses kernel))
-  (escan [self input-token] (map #(assoc self :kernel %) (escan kernel input-token)))
+  (rule-deps [_] (rule-deps kernel))
+  (scan [self input-token] (map #(assoc self :kernel %) (scan kernel input-token)))
   (is-complete? [_] (is-complete? kernel))
   (advance [self] (assoc self :kernel (advance kernel)))
   (rule-str [_] (rule-str kernel)))
@@ -123,19 +129,19 @@
 (defn wrap-kernel [kernel name action]
   (RuleImpl. kernel name action))
 
-(defn cfg-rule-str [clauses dot]
+(defn cfg-rule-str [rule-deps dot]
     (separate-str " " (if (zero? dot)
-                        clauses
-                        (concat (take dot clauses) ["*"] (drop dot clauses)))))
+                        rule-deps
+                        (concat (take dot rule-deps) ["*"] (drop dot rule-deps)))))
 
 (defrecord CfgRule [clauses dot]
   RuleKernel
-  (clauses [_] clauses)
+  (rule-deps [_] clauses)
   (predict [self]
     (if (is-complete? self)
       []
       (get clauses dot)))
-  (escan [self input-token]
+  (scan [self input-token]
     (if (and (not (is-complete? self)) (= (get clauses dot) input-token))
       [(advance self)]
       []))

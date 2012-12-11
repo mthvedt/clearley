@@ -13,9 +13,6 @@
 ; All of the Clearley core library goes here.
 ; Because I like short files, other stuff is shuffled into various files.
 
-; TODO do not support the empty rule?
-
-; TODO: make rule similar to defrule, rulefn fn?
 (defn rule
   "Creates a rule associated with a parse action that can be called
   after matching. A rule has a required vector of clauses,
@@ -34,30 +31,27 @@
   RuleKernel
   (predict [self] [(rule nil [subrule] vector)
                    (rule nil [self subrule] conj)])
-  (clauses [self] [subrule])
-  (escan [_ _] [])
+  (rule-deps [self] [subrule])
+  (scan [_ _] [])
   (is-complete? [_] (= dot 1))
   (advance [self] (assoc self :dot 1))
   (rule-str [_] (if (not (zero? dot))
                   (str (clause-str subrule) " *")
                   subrule)))
 
-; TODO use map interface? or?
 (defn one-or-more
   "Creates a rule that matches one or more of a subrule. Returns a vector
   of the matches."
   ([subrule]
    (one-or-more (str (rule-name subrule) "+") subrule))
   ([name subrule]
-   (-> (OneOrMoreImpl. subrule 0)
-     (assoc :name name)
-     (assoc :action identity))))
+   (merge (OneOrMoreImpl. subrule 0) {:name name, :action identity})))
 
 (defrecord Scanner [rulefn dot]
   RuleKernel
-  (clauses [_] [])
+  (rule-deps [_] [])
   (predict [self] [])
-  (escan [self input-token]
+  (scan [self input-token]
     (if (and (not (is-complete? self)) (rulefn input-token))
       [(advance self)]
       []))
@@ -68,17 +62,16 @@
                   (str (clause-str rulefn) " *"))))
 
 (defn scanner
-  "Defines a rule that scans one token of input with the given scanner function.
-  The scanner function is used by the parser to match tokens. If this rule is invoked
-  on a token, and the scanner returns logcial true, the rule matches the token."
+  "Creates a rule that accepts input tokens. For a token t, if (scanner-fn t)
+  is logical true, this rule matches that token."
   ([scanner-fn action]
    (wrap-kernel (Scanner. scanner-fn 0) nil action)))
 
-(defn token-range
-  "Creates a rule that accepts all characters within a range. The given min and max
-  should be chars."
+(defn char-range
+  "Creates a rule that accepts any one character within a given range
+  given by min and max, inclusive. min and max should be chars."
   ([min max]
-   (token-range min max identity))
+   (char-range min max identity))
   ([min max action]
   (if (not (and (char? min) (char? max)))
     (TIAE "min and max should be chars"))
@@ -89,15 +82,13 @@
                  (and (<= intx intmax) (>= intx intmin))))
              action))))
 
-(defn- token-match [token] [token])
-
 ; Don't need to expose parser protocol... only 'parse' fn
 (defprotocol ^:private Parser
   (parse [parser input] "Parse the given input with the given parser,
                         yielding a match tree (a tree of the form
                         [rule leaves] where leaves is a seq).")
   ; charts is not yet usable by external users
-  (charts [parser input]))
+  (^:private charts [parser input]))
 
 (defn earley-parser
   "Constructs an Earley parser given a map of rules,
@@ -105,21 +96,19 @@
   ([goal rules]
    (earley-parser goal identity rules))
   ([goal tokenizer rules]
-   (let [goal-rule (rule ::goal [goal] identity)]
-     (reify Parser
-       (parse [parser input]
-         ; For now, only retunr first match
-         (first (scan-goal (peek (charts parser input)))))
-       (charts [parser input]
-         (parse-charts input rules tokenizer goal-rule))))))
+   (reify Parser
+     (parse [parser input]
+       ; For now, only return first match
+       (first (scan-goal (peek (charts parser input)))))
+     (charts [parser input]
+       (parse-charts input rules tokenizer goal)))))
 
 (defn parse-tree
   "Parses the given input with the given parser, yielding an abstract
-  syntax tree with no rules (effectively, the same as stripping the first elements
-  (the rules) from a match tree)."
+  syntax tree with no rule nodes."
   [parser input]
   (if-let [match (parse parser input)]
-    ((fn f [match] ; This fun will recursively reduce the match tree
+    ((fn f [match] ; This fn will recursively reduce the match tree
        (if-let [submatches (seq (rest match))]
          (vec (map f submatches))
          (first match)))
@@ -128,7 +117,7 @@
 (defn print-charts
   "For a given parser and input, prints a multi-line representation of its charts to
   *out*. The representation might change in the future. For more about
-  parse charts, see http://www.wikipedia.org/wiki/Earley_parser. Good for debugging."
+  parse charts, see http://www.wikipedia.org/wiki/Earley_parser. Useful for debugging."
   [parser input]
   (dorun (for [chart (charts parser input)]
            (println (pstr chart)))))
@@ -233,7 +222,7 @@
   and adds them together. If a parse action is not provided, a default
   will be used which bundles its args into a list. The rule's head is
   'sum and will be bound to *ns*/sum."
-  ; TODO: qualify syms?
+  ; TODO qualify syms?
   [head & impl-or-impls]
   `(def ~head ~(build-defrule-bodies head impl-or-impls)))
 
@@ -252,8 +241,9 @@
 (defn build-grammar-with-ns
   "Builds a grammar in the given ns from the given goal rule."
   [goal thens]
-  (resolve-all-clauses goal thens {}))
+  (resolve-all-rule-deps goal thens {}))
 
+; TODO test
 (defmacro build-grammar
   "Builds a grammar in the current ns from the given goal rule.
   A grammar is implemented as a seq of rules."
@@ -270,8 +260,5 @@
 
 (defn build-parser-with-ns
   "Build a parser in a given ns from the given goal rule and tokenizer."
-  ; TODO: test
   [goal tokenizer thens]
   (earley-parser goal tokenizer (build-grammar-with-ns goal thens)))
-
-; TODO execute fn?

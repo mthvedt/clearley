@@ -145,11 +145,11 @@
   (is-action 3 "0+3")
   (is-action 1 "3+0*5*4+0+3-5"))
 
-; Token ranges
-(def digit (token-range \0 \9 (fn [c] (- (int c) (int \0)))))
+; Char ranges
+(def digit (char-range \0 \9 (fn [c] (- (int c) (int \0)))))
 (def parser7 (build-parser sum))
 
-(def-parser-test token-range-test parser7
+(def-parser-test char-range-test parser7
   (is-action 1 "1")
   (is-action 3 "1+2")
   (is-action 23 "0+1*2+3*4+9"))
