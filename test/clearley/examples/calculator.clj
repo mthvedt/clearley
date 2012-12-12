@@ -31,7 +31,7 @@
 
 (use 'lazytest.deftest 'clearley.test.utils)
 
-(deftest simple-calculator-test
+(deftest calculator-test
   (with-parser my-calculator
     (is-action 1 "1")
     (is-action 2 "1+1")

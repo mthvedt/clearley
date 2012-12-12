@@ -117,6 +117,7 @@
 ; Rules
 ; ===
 
+; TODO rule attrs/metadata?
 (defrecord RuleImpl [kernel name action]
   RuleKernel
   (predict [self] (predict kernel))

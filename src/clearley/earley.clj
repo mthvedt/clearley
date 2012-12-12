@@ -12,6 +12,8 @@
 
 (defn predict-earley-item [earley-item grammar index]
   (let [clause (predict (:rule earley-item))]
+    #_(if (instance? clearley.core.ClosedRule (:rule earley-item))
+      (println (:rule earley-item)))
     (map #(REarleyItem. (rulehead-clause clause) % % index 0)
          (predict-clause clause grammar))))
 
@@ -59,6 +61,7 @@
        @rstack))
 
 (defn process-state [state pos grammar]
+  ;(println (:rule (:earley-item state)))
   (if (is-complete? (:rule (:earley-item state)))
     (complete-state state pos)
     (predict-state state pos grammar)))

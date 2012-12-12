@@ -220,8 +220,8 @@
   
   The above rule matches two nums (one of which is aliased as num2)
   and adds them together. If a parse action is not provided, a default
-  will be used which bundles its args into a list. The rule's head is
-  'sum and will be bound to *ns*/sum."
+  will be used which bundles its args into a list. The rule will be bound
+  to 'sum in the current namespace."
   ; TODO qualify syms?
   [head & impl-or-impls]
   `(def ~head ~(build-defrule-bodies head impl-or-impls)))
@@ -236,6 +236,7 @@
   [head & rules]
   `(def ~head (vec (concat ~head [~@rules]))))
 
+; TODO: construct a grammar
 ; In the future, we might bind &env to theenv
 ; The form of &env is not fixed by Clojure authors so don't do it now
 (defn build-grammar-with-ns
@@ -248,7 +249,30 @@
   "Builds a grammar in the current ns from the given goal rule.
   A grammar is implemented as a seq of rules."
   [goal]
-  `(build-grammar-with-ns '~goal {} *ns* {}))
+  `(build-grammar-with-ns '~goal *ns*))
+
+(declare close-rule)
+
+; TODO map interface perhaps
+(defrecord ^:private ClosedRule [rule grammar]
+  RuleKernel
+  (predict [self] 
+    (map #(close-rule % grammar)
+         (predict-clause (predict rule) grammar)))
+  (rule-deps [_] (rule-deps rule))
+  (scan [self input-token] (map #(assoc self :rule %) (scan rule input-token)))
+  (is-complete? [_] (is-complete? rule))
+  (advance [self] (assoc self :rule (advance rule)))
+  (rule-str [_] (str "\\" (rule-str rule))))
+
+; TODO test
+; TODO kernel goal-rule
+(defn close-rule [goal grammar]
+  "Creates a rule that closes over the given grammar. This rule
+  can be used as a rule in other grammars, while being unaffected by that grammar.
+  In charts closed rules are distinguished by a lambda."
+  (let [goal-rule (to-rule goal)]
+    (assoc goal-rule :kernel (ClosedRule. goal-rule grammar))))
 
 (defmacro build-parser
   "Build a parser in the current ns from the given goal rule and an

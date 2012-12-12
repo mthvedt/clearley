@@ -18,7 +18,7 @@
 
 (def simple-parser (earley-parser :sum simple-parser-rules))
 
-(def-parser-test simple-parser-test simple-parser
+(def-parser-test basic-parser-test simple-parser
   (is-parsing "1+2")
   (is-parsing "1+2*3+4")
   (is-parsing "1*2+3*4")
@@ -34,8 +34,8 @@
   (is-ast [[[[[\1]]] \+ [[[\2]] \* [\3]]] \+ [[[\4]] \* [\1]]] "1+2*3+4*1")
   (is-ast [[[\5 \5]]] "55"))
 
-; Less basic tests
-(def-parser-test simple-match-test simple-parser
+; Parse trees
+(def-parser-test parse-tree-test simple-parser
   (is-parse [sum2 [(rulefn :times :num) [num1 [\1]]]] "1")
   (is-parse [sum2 [(rulefn :times :num) [(rulefn :num \5 \5) [\5] [\5]]]] "55")
   (is-parse [sum1 [sum1 [sum2 [(rulefn :times :num) [num1 [\1]]]] [\+]
@@ -56,7 +56,7 @@
 
 (def letter-to-num-parser (earley-parser :sum letter-to-num simple-parser-rules))
 
-(def-parser-test simple-tokenizer-test letter-to-num-parser
+(def-parser-test basic-tokenizer-test letter-to-num-parser
   (is-ast [[[\a]]] "a")
   (is-ast [[[[[\a]]] \+ [[[\2]] \* [\c]]] \+ [[[\d]] \* [\1]]] "a+2*c+d*1")
   (is-parse [sum2 [(rulefn :times :num) [num1 [\a]]]] "a"))
@@ -120,6 +120,11 @@
 (def-parser-test rule-aliasing-test parser4
   (is-action 0 "3-3"))
 
+; Grammars... we will use this later
+(def incomplete-grammar (build-grammar sum))
+(def incomplete-sum (close-rule sum incomplete-grammar))
+(def incomplete-parser (build-parser incomplete-sum))
+
 ; Rule literals in defrule
 (def digits567 [(token \5 5) (token \6 6) (token \7 7)])
 (extend-rule digit
@@ -148,8 +153,34 @@
 ; Char ranges
 (def digit (char-range \0 \9 (fn [c] (- (int c) (int \0)))))
 (def parser7 (build-parser sum))
+(def full-grammar (build-grammar sum))
 
 (def-parser-test char-range-test parser7
   (is-action 1 "1")
   (is-action 3 "1+2")
   (is-action 23 "0+1*2+3*4+9"))
+
+;TODO tests on grammars alone
+
+(def closed-sum (close-rule sum full-grammar))
+(def closed-parser (build-parser closed-sum))
+
+(def digit (char-range \0 \3 (fn [c] (- (int c) (int \0)))))
+(def open-parser (build-parser sum))
+
+(deftest closure-test
+  (with-parser closed-parser
+    (is-action 6 "3+3")
+    (is-action 7 "3+4")
+    (is-action 19 "2*3+2*2+3*3")
+    (is-action 23 "0+1*2+3*4+9"))
+  (with-parser incomplete-parser
+    (is-action 6 "3+3")
+    (is-action 7 "3+4")
+    (isnt (parses? "2*3+2*2+3*3"))
+    (isnt (parses? "0+1*2+3*4+9")))
+  (with-parser open-parser
+    (is-action 6 "3+3")
+    (isnt (parses? "4+4"))
+    (is-action 19 "2*3+2*2+3*3")
+    (isnt (parses? "0+1*2+3*4+9"))))
