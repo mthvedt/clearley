@@ -151,7 +151,9 @@
   (is-action 1 "3+0*5*4+0+3-5"))
 
 ; Char ranges
-(def digit (char-range \0 \9 (fn [c] (- (int c) (int \0)))))
+(def digit (char-range \0 \9 (fn [c]
+                               (- (int c)
+                                  (int \0)))))
 (def parser7 (build-parser sum))
 (def full-grammar (build-grammar sum))
 

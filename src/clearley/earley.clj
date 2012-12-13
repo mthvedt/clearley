@@ -12,8 +12,6 @@
 
 (defn predict-earley-item [earley-item grammar index]
   (let [clause (predict (:rule earley-item))]
-    #_(if (instance? clearley.core.ClosedRule (:rule earley-item))
-      (println (:rule earley-item)))
     (map #(REarleyItem. (rulehead-clause clause) % % index 0)
          (predict-clause clause grammar))))
 
@@ -37,10 +35,9 @@
 ; (think of a Forth operator reducing the top of a stack)
 ; Right now, we build the stack as we parse instead of emitting an output stream...
 ; this may change in the future e.g. to support pull parsing
-(defn- reduce-ostack [ostack item]
-  (let [thecount (:match-count item)]
-    (cons (vec (cons (:original item)
-                     (reverse (take thecount ostack)))) (drop thecount ostack))))
+(defn- reduce-ostack [ostack {:keys [match-count original]}]
+  (cons (match original (vec (reverse (take match-count ostack))))
+        (drop match-count ostack)))
 
 ; A parse item together with output state
 ; rstack: map<item chart-ref>
@@ -66,9 +63,13 @@
     (complete-state state pos)
     (predict-state state pos grammar)))
 
+(defn singleton-match [m]
+  (match m []))
+
 (defn scan-state [state input-token input]
   (map (fn [new-item]
-         (update (assoc state :earley-item new-item) :ostack (partial cons [input])))
+         (update (assoc state :earley-item new-item)
+                 :ostack (partial cons (singleton-match input))))
        (scan-earley-item (:earley-item state) input-token)))
 
 ; Merges the stacks of two items. True if there was anything to merge.

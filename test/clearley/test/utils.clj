@@ -25,9 +25,6 @@
      (with-parser ~parser
        ~@forms)))
 
-(defmacro is-ast [expected testval]
-  `(is= ~expected (parse-tree local-parser ~testval)))
-
 (defn parses? [input]
   (not (nil? (parse local-parser input))))
 
@@ -58,8 +55,27 @@
   (is (not (tree-eq [\1 []] [\1])))
   (is (not (tree-eq [] nil))))
 
+; Yields a simple AST of the match, in the form [rule submatches*]
+(defn match-tree [match]
+  ((fn f [m]
+     (if (instance? clearley.rules.Match m)
+       (let [{:keys [rule submatches]} m]
+         (apply vector rule (map f submatches)))
+       m)) match))
+
+; Strips rule nodes from tree
+(defn stripped-match-tree [match]
+  ((fn f [m] ; This fn will recursively reduce the match tree
+     (if-let [submatches (seq (rest m))]
+       (vec (map f submatches))
+       (first m)))
+     (match-tree match)))
+
+(defmacro is-ast [expected testval]
+  `(is= ~expected (stripped-match-tree (parse local-parser ~testval))))
+
 (defmacro is-parse [expected testval]
-  `(is (tree-eq ~expected (parse local-parser ~testval))))
+  `(is (tree-eq ~expected (match-tree (parse local-parser ~testval)))))
 
 (defmacro is-action [expected testval]
   `(is= ~expected (take-action (parse local-parser ~testval))))

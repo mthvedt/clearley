@@ -177,8 +177,10 @@
   (is-action [1 [2]] "[1,[2]]")
   (is-action [[1] [2]] "[[1],[2]]")
   (is-action [1 true "yo" [2 3]] "[1,true,\"yo\" ,[2,3]]")
-  ) ; TODO fix--something haywire in embedded vector reductions
-;  (is-action [1 true "yo" [2 3]] "  [1,true  ,\"yo\" , [ 2,3]] "))
+  ; TODO seems to be a conflict with multiple structural whitespace tokens
+  ; overlapping and resulting ambiguous parse
+  )
+  ;(is-action [1 true "yo" [2 3]] "  [1,true  ,\"yo\" , [ 2,3]] "))
 
 ; Only Objects are valid json parses.
 (def-parser-test json-test json-parser

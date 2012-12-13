@@ -37,7 +37,7 @@
   (advance [self] (assoc self :dot 1))
   (rule-str [_] (if (not (zero? dot))
                   (str (clause-str subrule) " *")
-                  subrule)))
+                  (clause-str subrule))))
 
 (defn one-or-more
   "Creates a rule that matches one or more of a subrule. Returns a vector
@@ -103,16 +103,33 @@
      (charts [parser input]
        (parse-charts input rules tokenizer goal)))))
 
-(defn parse-tree
-  "Parses the given input with the given parser, yielding an abstract
-  syntax tree with no rule nodes."
-  [parser input]
-  (if-let [match (parse parser input)]
-    ((fn f [match] ; This fn will recursively reduce the match tree
-       (if-let [submatches (seq (rest match))]
-         (vec (map f submatches))
-         (first match)))
-       match)))
+#_(defn match-map [rule-fn leaf-fn match]
+  "Deeply maps the given fns to a match tree, using rule-fn on the rules
+  and leaf-fn on the leaves."
+  ((fn f [node]
+     (if-let [submatches (seq (rest node))]
+       (apply vector (rule-fn (first node)) (map f submatches))
+       (leaf-fn node)))
+     match))
+
+#_(defn deep-doall [seq]
+  "Realizes an entire nested sequence. Only operates on seqs
+  (and child seqs) where sequential? is true."
+  ((fn f [node]
+     (if (sequential? node)
+       (doall (map f node))))
+     seq))
+
+; TODO jack into pprint instead?
+; TODO should be able to use rule-str instead of clause-str.
+(defn print-match
+  "Prints a pretty shorthand tree to *out*."
+  [match]
+  ((fn f [{:keys [rule submatches]} depth]
+     (println (apply str (repeat depth " ")) (clause-str rule))
+     (doall (map #(f % (+ depth 2)) submatches)))
+     match 0)
+  nil) ; don't return a tree full of nils!
 
 (defn print-charts
   "For a given parser and input, prints a multi-line representation of its charts to
@@ -127,8 +144,8 @@
   [match]
   (if (nil? match)
     (throw (RuntimeException. "Failure to parse"))
-    (let [subactions (map take-action (rest match))
-          rule (first match)
+    (let [{:keys [rule submatches]} match
+          subactions (map take-action submatches)
           action (rule-action rule)]
       (try
         (apply action subactions)
@@ -136,6 +153,15 @@
           (throw (RuntimeException. (str "Wrong # of params taking action for rule "
                                          (rule-str rule) ", "
                                          "was given " (count subactions))
+                                    e)))
+        ; TODO causes tower of exceptions... hm
+        #_(catch RuntimeException e
+          (throw (RuntimeException. (str "Problem taking action for rule "
+                                         (rule-str rule) " and match "
+                                         (with-out-str (clojure.pprint/pprint match))
+                                         " with args "
+                                         (apply str subactions) " and action "
+                                         action)
                                     e)))))))
 
 (defn execute
@@ -265,8 +291,6 @@
   (advance [self] (assoc self :rule (advance rule)))
   (rule-str [_] (str "\\" (rule-str rule))))
 
-; TODO test
-; TODO kernel goal-rule
 (defn close-rule [goal grammar]
   "Creates a rule that closes over the given grammar. This rule
   can be used as a rule in other grammars, while being unaffected by that grammar.

@@ -1,11 +1,20 @@
 (ns clearley.rules
   "Back-end stuff for Clearley. Work in progress with unstable API."
-  (use clearley.utils))
+  (use clearley.utils)
+  (require clojure.string))
 
 ; TODO: get rid of this protocol?
 (defprotocol PStrable
   (pstr [obj] "pstr stands for \"pretty-string\".
                         Returns a shorthand str of this item."))
+
+(defrecord Match [rule submatches])
+
+(defn match [rule submatches]
+  (Match. rule submatches))
+
+#_(defn match-vec [{:keys [rule submatches]} match]
+  (apply vector rule submatches))
 
 ; ===
 ; Rules--preamble
@@ -37,10 +46,19 @@
     (:name rule)
     nil))
 
+(def cmap
+  {\newline "\\n"
+   \tab "\\t"
+   \backspace "\\b"
+   \formfeed "\\f"
+   \return "\\r"})
+
 (defn clause-str [clause]
-  (if (instance? clearley.rules.RuleKernel clause)
-    (rule-str clause)
-    (str clause)))
+  (clojure.string/escape
+    (if (instance? clearley.rules.RuleKernel clause)
+      (rule-str clause)
+      (str clause))
+    cmap))
 
 (defn rulehead-clause [clause]
   (cond
