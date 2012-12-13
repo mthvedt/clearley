@@ -88,7 +88,7 @@
                         yielding a match tree (a tree of the form
                         [rule leaves] where leaves is a seq).")
   ; charts is not yet usable by external users
-  (^:private charts [parser input]))
+  (charts [parser input]))
 
 (defn earley-parser
   "Constructs an Earley parser given a map of rules,
@@ -153,15 +153,6 @@
           (throw (RuntimeException. (str "Wrong # of params taking action for rule "
                                          (rule-str rule) ", "
                                          "was given " (count subactions))
-                                    e)))
-        ; TODO causes tower of exceptions... hm
-        #_(catch RuntimeException e
-          (throw (RuntimeException. (str "Problem taking action for rule "
-                                         (rule-str rule) " and match "
-                                         (with-out-str (clojure.pprint/pprint match))
-                                         " with args "
-                                         (apply str subactions) " and action "
-                                         action)
                                     e)))))))
 
 (defn execute
