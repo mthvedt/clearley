@@ -105,7 +105,7 @@
 (defn add-to-chart [chart item]
   (update chart :states #(conj % item)))
 
-(defn current-state [{:keys [states dot]}]
+(defn current-state [{:keys [states]} dot]
   (when-not (>= dot (count states))
     (get states dot)))
 
@@ -118,17 +118,14 @@
           (mapcat #(scan-state % chart input-token input)
                   (chart-seq chart))))
 
-(defn process-state [state chart grammar]
-  (if (is-complete? (:rule (:earley-item state)))
-    (reduce add-to-chart chart (complete-state state))
-    (reduce #(predict-into-chart % %2 state) chart (predict-state state grammar))))
-
 ; process completions and predictions for a single chart
 (defn- parse-chart [chart grammar]
-  (loop [c chart]
-    (if-let [s (current-state c)]
-      (recur (update (process-state s c grammar)
-                     :dot inc))
+  (loop [c chart, dot 0]
+    (if-let [s (current-state c dot)]
+      (recur (if (is-complete? (:rule (:earley-item s)))
+                       (reduce add-to-chart c (complete-state s))
+                       (reduce #(predict-into-chart % %2 s) c (predict-state s grammar)))
+             (inc dot))
      c)))
 
 (defn parse-charts [inputstr grammar tokenizer goal]
@@ -141,7 +138,7 @@
             parsed-chart (parse-chart current-chart grammar)
             next-chart (scan-chart parsed-chart (inc pos) thetoken thechar)
             next-charts (conj charts parsed-chart)]
-        (if (current-state next-chart)
+        (if (current-state next-chart 0) ; chart is nonempty
           (recur (inc pos) (rest thestr) next-chart next-charts)
           ; early termination on failure returning failed chart
           (conj next-charts next-chart)))

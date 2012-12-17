@@ -23,6 +23,12 @@
 (defn update-all [map keyvals]
   (reduce (fn [m [k f]] (update m k f)) map keyvals))
 
+; Eagerly evaluated map
+(defn domap [& args] (doall (apply map args)))
+
+; Eagerly evaluated map, no memory leaks
+(defn runmap [& args] (dorun (apply map args)))
+
 (def ^:dynamic *debug* true)
 
 (defmacro debug
