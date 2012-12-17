@@ -119,14 +119,26 @@
                   (chart-seq chart))))
 
 ; process completions and predictions for a single chart
-(defn- parse-chart [chart grammar]
+(defn- complete-chart [chart]
   (loop [c chart, dot 0]
     (if-let [s (current-state c dot)]
       (recur (if (is-complete? (:rule (:earley-item s)))
                        (reduce add-to-chart c (complete-state s))
+                       c)
+             (inc dot))
+     c)))
+
+(defn- predict-chart [chart grammar]
+  (loop [c chart, dot 0]
+    (if-let [s (current-state c dot)]
+      (recur (if (is-complete? (:rule (:earley-item s)))
+                       c
                        (reduce #(predict-into-chart % %2 s) c (predict-state s grammar)))
              (inc dot))
      c)))
+
+(defn parse-chart [chart grammar]
+  (predict-chart (complete-chart chart) grammar))
 
 (defn parse-charts [inputstr grammar tokenizer goal]
   (loop [pos 0
