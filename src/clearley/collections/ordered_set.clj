@@ -1,5 +1,5 @@
 (ns clearley.collections.ordered-set
-  (:refer-clojure :exclude [conj vec contains? into empty map])
+  (:refer-clojure :exclude [conj vec contains? into empty map get])
   (require [clojure.core :as core])
   (use clearley.utils))
 
@@ -14,6 +14,7 @@
 (defprotocol IOrderedSet
   (conj [self k])
   (vec [self])
+  (get [self i])
   (contains? [self k]))
 
 (deftype AOrderedSet [i->k ks]
@@ -22,6 +23,7 @@
     (if (core/contains? ks k)
       self
       (AOrderedSet. (core/conj i->k k) (core/conj ks k))))
+  (get [_ i] (core/get i->k i))
   (vec [self] i->k)
   (contains? [self k] (core/contains? ks k)))
 
