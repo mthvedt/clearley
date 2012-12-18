@@ -3,7 +3,7 @@
            [clearley.collections.ordered-multimap :as omm])
   (use clearley.test.utils lazytest.deftest))
 
-(def os1 (reduce os/conj os/empty-ordered-set [:m :o :u :s :e]))
+(def os1 (reduce os/conj os/empty [:m :o :u :s :e]))
 
 (deftest ordered-set-test
   (is= (os/vec os1) [:m :o :u :s :e])
@@ -16,7 +16,7 @@
   (reduce #(omm/assoc % k %2) m vs))
 
 (def mm1
-  (-> omm/empty-ordered-multimap
+  (-> omm/empty
     (add-values 1 [:c :a :r :l])
     (add-values 2 [:d :i :t :t :e :r :s])
     (add-values 3 [:v :o :n])

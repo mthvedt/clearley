@@ -21,7 +21,7 @@
 (defn scan-earley-item [earley-item input-token]
   (map (fn [rule]
          (update (assoc earley-item :rule rule) :match-count inc))
-    (scan (:rule earley-item) input-token)))
+       (scan (:rule earley-item) input-token)))
 
 (defn advance-earley-item [earley-item]
   (update-all earley-item {:rule advance, :match-count inc}))
@@ -45,28 +45,28 @@
 
 ; A parse item together with output state
 ; earley-item: duh, ostack: the output "stream"
-(defrecord State [earley-item predictor-chart ostack]
+(defrecord State [earley-item predictor-item-set ostack]
   PStrable
-  (pstr [_] (str (pstr earley-item) " @" (:index predictor-chart))))
+  (pstr [_] (str (pstr earley-item) " @" (:index predictor-item-set))))
 
 (defn predict-state [{:keys [earley-item] :as state} grammar]
-  (map #(merge state {:earley-item % :predictor-chart nil})
+  (map #(merge state {:earley-item % :predictor-item-set nil})
        (predict-earley-item earley-item grammar)))
 
 (defn complete-state [{{:keys [original] :as earley-item} :earley-item
-                       :keys [predictor-chart ostack]}]
-  (map (fn [{predictor-item :earley-item, prev-chart :predictor-chart}]
-         (State. (advance-earley-item predictor-item) (if prev-chart
-                                                        prev-chart
-                                                        predictor-chart)
+                       :keys [predictor-item-set ostack]}]
+  (map (fn [{predictor-item :earley-item, prev-item-set :predictor-item-set}]
+         (State. (advance-earley-item predictor-item) (if prev-item-set
+                                                        prev-item-set
+                                                        predictor-item-set)
                  (reduce-ostack ostack earley-item)))
-       (omm/get-vec (:predictor-map predictor-chart) original)))
+       (omm/get-vec (:predictor-map predictor-item-set) original)))
 
-(defn scan-state [state scanning-chart input-token input]
+(defn scan-state [state scanning-item-set input-token input]
   (map (fn [new-item]
          (update-all (assoc state :earley-item new-item)
-                 {:predictor-chart #(if % % scanning-chart)
-                  :ostack (partial cons (match input []))}))
+                     {:predictor-item-set #(if % % scanning-item-set)
+                      :ostack (partial cons (match input []))}))
        (scan-earley-item (:earley-item state) input-token)))
 
 ; creates an initial state with dot and pos 0
@@ -74,90 +74,116 @@
   (State. (earley-item head-sym rule) nil '()))
 
 ; ===
-; Parse charts
+; Parse item-sets
 ; ===
 
-(defn pstr-chart-item [item predictor-map]
+(defn pstr-item-set-item [item predictor-map]
   (str (pstr item) " | "
-       (separate-str ", " (map pstr (omm/get-vec predictor-map
-                                                 (:original (:earley-item item)))))))
+       (cutoff (separate-str ", " (map pstr (omm/get-vec predictor-map
+                                                 (:original (:earley-item item))))))))
 
 ; predictor-map: ordered multimap
-(defrecord Chart [states predictor-map index dot]
+(defrecord ItemSet [states predictor-map index]
   PStrable
   (pstr [self]
-    (let [strs (map #(str (pstr-chart-item % predictor-map) "\n") states)]
-      (if (= dot (count states))
-        (apply str strs)
-        (apply str (update (vec strs) dot #(str "* " %)))))))
+    (apply str (map #(str (pstr-item-set-item % predictor-map) "\n") states))))
 
-(def initial-chart (Chart. [] omm/empty-ordered-multimap 0 0))
+(def initial-item-set (ItemSet. [] omm/empty 0))
 
-(defn predict-into-chart [{:keys [states predictor-map] :as chart}
-                    {{original :original} :earley-item :as item}
-                    predictor]
+(defn predict-into-item-set [{:keys [states predictor-map] :as item-set}
+                             {{original :original} :earley-item :as item}
+                             predictor]
   (if (empty? (omm/get-vec predictor-map original))
-    (update-all chart {:states #(conj % item)
-                       :predictor-map #(omm/assoc % original predictor)})
-    (update chart :predictor-map #(omm/assoc % original predictor))))
+    (update-all item-set {:states #(conj % item)
+                          :predictor-map #(omm/assoc % original predictor)})
+    (update item-set :predictor-map #(omm/assoc % original predictor))))
 
-; Should only be called on a new chart
-(defn add-to-chart [chart item]
-  (update chart :states #(conj % item)))
+; Should only be called on a new item-set
+(defn add-to-item-set [item-set item]
+  (update item-set :states #(conj % item)))
 
 (defn current-state [{:keys [states]} dot]
   (when-not (>= dot (count states))
     (get states dot)))
 
-(defn chart-seq [chart] (seq (:states chart)))
+(defn item-set-seq [item-set] (seq (:states item-set)))
 
-; scans an input character, seeding a new chart
-(defn scan-chart [chart pos input-token input]
-  (reduce add-to-chart
-          (assoc initial-chart :index pos)
-          (mapcat #(scan-state % chart input-token input)
-                  (chart-seq chart))))
+; scans an input character, seeding a new item-set
+(defn scan-item-set [item-set pos input-token input]
+  (reduce add-to-item-set
+          (assoc initial-item-set :index pos)
+          (mapcat #(scan-state % item-set input-token input)
+                  (item-set-seq item-set))))
 
-; process completions and predictions for a single chart
-(defn- complete-chart [chart]
-  (loop [c chart, dot 0]
+; process completions and predictions for a single item-set
+(defn- complete-item-set [item-set]
+  (loop [c item-set, dot 0]
     (if-let [s (current-state c dot)]
       (recur (if (is-complete? (:rule (:earley-item s)))
-                       (reduce add-to-chart c (complete-state s))
-                       c)
+               (reduce add-to-item-set c (complete-state s))
+               c)
              (inc dot))
-     c)))
+      c)))
 
-(defn- predict-chart [chart grammar]
-  (loop [c chart, dot 0]
+; TODO: predicting completed items seems to cause combinatorial explosion
+(defn- predict-item-set [item-set grammar]
+  (loop [c item-set, dot 0]
     (if-let [s (current-state c dot)]
       (recur (if (is-complete? (:rule (:earley-item s)))
-                       c
-                       (reduce #(predict-into-chart % %2 s) c (predict-state s grammar)))
+               c
+               (reduce #(predict-into-item-set % %2 s)
+                       c (predict-state s grammar)))
              (inc dot))
-     c)))
+      c)))
 
-(defn parse-chart [chart grammar]
-  (predict-chart (complete-chart chart) grammar))
+(defn parse-item-set [item-set grammar]
+  (predict-item-set (complete-item-set item-set) grammar))
+
+; ===
+; Charts
+; ===
+
+; item-set: an ordered set
+(defrecord Chart [item-set]
+  PStrable
+  (pstr [self]
+    (separate-str "\n" (map pstr (os/vec item-set)))))
+
+(def empty-chart (Chart. os/empty)) ; TODO change to just empty
+
+(defn seed-chart [goal]
+  (assoc empty-chart :item-set
+         (os/ordered-set (add-to-item-set initial-item-set (state ::goal goal)))))
+
+(defn process-chart [chart grammar]
+  (assoc chart :item-set
+         (os/map #(parse-item-set % grammar) (os/vec (:item-set chart)))))
+
+(defn scan-chart [chart pos thetoken thechar]
+  (assoc empty-chart :item-set
+         (os/map #(scan-item-set % pos thetoken thechar) (os/vec (:item-set chart)))))
 
 (defn parse-charts [inputstr grammar tokenizer goal]
   (loop [pos 0
          thestr inputstr
-         current-chart (add-to-chart initial-chart (state ::goal goal))
+         current-chart (seed-chart goal)
          charts []]
     (if-let [thechar (first thestr)]
       (let [thetoken (tokenizer thechar)
-            parsed-chart (parse-chart current-chart grammar)
+            parsed-chart (process-chart current-chart grammar)
             next-chart (scan-chart parsed-chart (inc pos) thetoken thechar)
             next-charts (conj charts parsed-chart)]
-        (if (current-state next-chart 0) ; chart is nonempty
+        (if (some #(current-state % 0) (os/vec (:item-set next-chart)))
+          ; an item set is nonempty
           (recur (inc pos) (rest thestr) next-chart next-charts)
-          ; early termination on failure returning failed chart
+          ; early termination on failure returning failed item-set
           (conj next-charts next-chart)))
-      ; end returning all charts
-      (conj charts (parse-chart current-chart grammar)))))
+      ; end returning all item-sets
+      (conj charts (process-chart current-chart grammar)))))
 
-; Searches a chart for completed parse of the goal rule, returning all matches
+; Searches a item-set for completed parse of the goal rule, returning all matches
 (defn scan-goal [chart]
-  (mapcat :ostack (filter (comp (partial = ::goal) :rulehead :earley-item)
-                          (chart-seq chart))))
+  (mapcat
+    #(mapcat :ostack (filter (comp (partial = ::goal) :rulehead :earley-item)
+                          (item-set-seq %)))
+    (os/vec (:item-set chart))))

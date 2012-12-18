@@ -1,5 +1,5 @@
 (ns clearley.collections.ordered-multimap
-  (:refer-clojure :exclude [get assoc])
+  (:refer-clojure :exclude [get assoc empty])
   (require [clojure.core :as core])
   (require [clearley.collections.ordered-set :as os])
   (use clearley.utils))
@@ -14,11 +14,11 @@
 (deftype AOrderedMultimap [k->v]
   IOrderedMultimap
   (get [self k]
-    (core/get k->v k os/empty-ordered-set))
+    (core/get k->v k os/empty))
   (assoc [self k v]
     (AOrderedMultimap. (core/assoc k->v k (os/conj (get self k) v)))))
 
-(def empty-ordered-multimap (AOrderedMultimap. {}))
+(def empty (AOrderedMultimap. {}))
 
 (defn get-vec [mm k]
   (os/vec (get mm k)))

@@ -10,13 +10,15 @@
 (defmacro TRE [& strs]
   `(thrownew RuntimeException ~@strs))
 
-(defn cutoff [thestr]
-  (if (< 100 (count thestr))
-    (str (subs thestr 0 100) "(...)")
-    thestr))
+(defn cutoff
+  ([thestr] (cutoff thestr 80))
+  ([thestr val]
+   (if (< val (count thestr))
+     (str (subs thestr 0 val) "(...)")
+     thestr)))
 
-(defn separate-str [separator theseq]
-  (cutoff (apply str (drop 1 (interleave (repeat separator) theseq)))))
+(defn separate-str
+  [separator theseq] (apply str (drop 1 (interleave (repeat separator) theseq))))
 
 (defn update [map key f] (update-in map [key] f))
 
