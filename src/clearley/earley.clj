@@ -4,68 +4,39 @@
   (use [clearley utils rules]))
 
 ; ===
-; Earley items
-; An EarleyItem is a rule together with some instrumentation.
+; Parse items
+; An Item is a rule together with some instrumentation.
+; Items are the atoms of LR-automaton parsing.
 ; ===
 
-(defrecord REarleyItem [rulehead rule original match-count]
+(defrecord Item [rulehead rule original match-count]
   PStrable
   (pstr [_]
     (str rulehead " -> " (rule-str rule))))
 
-(defn predict-earley-item [earley-item grammar]
-  (let [clause (predict (:rule earley-item))]
-    (map #(REarleyItem. (rulehead-clause clause) % % 0)
+(defn item [head-sym clause]
+  (let [rule (to-rule clause)]
+    (Item. head-sym rule rule 0)))
+
+(defn predict-item [item grammar]
+  (let [clause (predict (:rule item))]
+    (map #(Item. (rulehead-clause clause) % % 0)
          (predict-clause clause grammar))))
 
-(defn scan-earley-item [earley-item input-token]
+(defn scan-item [item input-token]
   (map (fn [rule]
-         (update (assoc earley-item :rule rule) :match-count inc))
-       (scan (:rule earley-item) input-token)))
+         (update (assoc item :rule rule) :match-count inc))
+       (scan (:rule item) input-token)))
 
-(defn advance-earley-item [earley-item]
-  (update-all earley-item {:rule advance, :match-count inc}))
+(defn advance-item [item]
+  (update-all item {:rule advance, :match-count inc}))
 
-(defn earley-item [head-sym clause]
-  (let [rule (to-rule clause)]
-    (REarleyItem. head-sym rule rule 0)))
-
-; ===
-; Parse states
-; Earley items together with NDFA state and output stack
-; ===
-
-; A parse item together with output state
-(defrecord State [earley-item prev-set]
-  PStrable
-  (pstr [_] (str (pstr earley-item) (if-let [i (:index prev-set)]
-                                      (str " @" i)
-                                      ""))))
-
-(defn predict-state [{:keys [earley-item] :as state} grammar]
-  (map #(merge state {:earley-item % :prev-set nil})
-       (predict-earley-item earley-item grammar)))
-
-(defn complete-state [{{:keys [original] :as earley-item} :earley-item
-                       :keys [prev-set] :as state}]
-  (map (fn [{predictor-item :earley-item, old-prev-set :prev-set}]
-         (State. (advance-earley-item predictor-item) (if old-prev-set
-                                                        old-prev-set
-                                                        prev-set)))
-       (omm/get-vec (:predictor-map prev-set) original)))
-
-(defn scan-state [state scanning-item-set input-token input]
-  (map (fn [new-item]
-         (update (assoc state :earley-item new-item)
-                     :prev-set #(if % % scanning-item-set)))
-       (scan-earley-item (:earley-item state) input-token)))
-
-; creates an initial state with dot and pos 0
-(defn state [head-sym rule]
-  (State. (earley-item head-sym rule) nil))
+(defn complete-item [{:keys [original] :as item} completing-item-set]
+  (map advance-item (omm/get-vec (:predictor-map completing-item-set) original)))
 
 ; ===
 ; Parse item sets
+; Precalculated automaton states.
 ; ===
 
 ; Builds a rule match from the output stack and pushes the match to the top
@@ -77,81 +48,78 @@
         (drop match-count ostack)))
 
 (defn pstr-item-set-item [item predictor-map]
-  (let [predictor-str (cutoff
-                        (separate-str ", "
-                                      (map pstr
-                                           (omm/get-vec predictor-map
-                                                        (:original
-                                                          (:earley-item item))))))]
-    (str (pstr item) (if (seq predictor-str)
-                       (str " | " predictor-str)
-                       ""))))
+  (let [predictor-str
+        (cutoff (separate-str ", " (map pstr (omm/get-vec predictor-map
+                                                             (:original item)))))]
+    (str (pstr item) (if (seq predictor-str) (str " | " predictor-str)))))
 
-; states: a vector of states (predicted states)
-; predictor-map: ordered multimap, states -> predicting states
-; index: the parsing position of this state TODO can this be eliminated?
-; ostack: the output associated with this state
+; items: a vector of items
+; predictor-map: ordered multimap, items -> predicting items
+; ostack: the output associated with this item set
 ; prev-set: the origin itemset (will be null for the seed item at index 0)
-(defrecord ItemSet [states predictor-map index ostack prev-set]
+(defrecord ItemSet [items predictor-map ostack rstack]
   PStrable
-  (pstr [self] ; TODO switch args in cutoff
+  (pstr [self]
     (with-out-str
-      (println (str "ItemSet#" (hash self) "@" index))
-      (println "Predictor#" (hash prev-set))
-      (println "ostream " (cutoff (str ostack 80)))
-      (runmap println (map #(pstr-item-set-item % predictor-map) states)))))
+      (println "Item set" (hash self))
+      (print "Stack: ")
+      (print (separate-str " " (map hash rstack)))
+      (println)
+      (runmap println (map #(pstr-item-set-item % predictor-map) items)))))
 
-(def empty-item-set (ItemSet. [] omm/empty 0 '() nil))
+(def empty-item-set (ItemSet. [] omm/empty '() '()))
 
-(defn predict-into-item-set [{:keys [states predictor-map] :as item-set}
-                             {{original :original} :earley-item :as item}
+(defn predict-into-item-set [{:keys [items predictor-map] :as item-set}
+                             {original :original :as item}
                              predictor]
   (if (empty? (omm/get-vec predictor-map original))
-    (update-all item-set {:states #(conj % item)
+    (update-all item-set {:items #(conj % item)
                           :predictor-map #(omm/assoc % original predictor)})
     (update item-set :predictor-map #(omm/assoc % original predictor))))
 
 ; Should only be called on a new item-set
-; These states are not 'predicted' hence not in predictor-map
-(defn seed-item-set [item-set item] (update item-set :states #(conj % item)))
+; These items are not 'predicted' hence not in predictor-map
+(defn seed-item-set [item-set item] (update item-set :items #(conj % item)))
 
-(defn current-state [{:keys [states]} dot]
-  (when-not (>= dot (count states))
-    (get states dot)))
+(defn current-item [{:keys [items]} dot]
+  (when-not (>= dot (count items)) (get items dot)))
 
-(defn nontrivial? [item-set] (seq (:states item-set)))
+(defn nontrivial? [item-set] (seq (:items item-set)))
 
 ; scans an input character, seeding a new item-set
-(defn scan-item-set [{:keys [states ostack] :as item-set} pos input-token input]
+(defn shift-item-set [{:keys [items ostack rstack] :as item-set} pos input-token input]
   (reduce seed-item-set
-          (merge empty-item-set {:index pos, :ostack (cons (match input []) ostack)})
-          (mapcat #(scan-state % item-set input-token input) states)))
+          (merge empty-item-set {:ostack (cons (match input []) ostack)
+                                 :rstack (cons item-set rstack)})
+          (mapcat #(scan-item % input-token) items)))
 
-; The completed item-sets from one item-set
-(defn completions [{:keys [ostack states] :as item-set}]
+; Reduces the rules in an item set
+(defn reduce-item-set [{:keys [ostack rstack items] :as item-set}]
   (filter nontrivial?
           (mapcat
-            (fn [{{rule :rule :as earley-item} :earley-item :as state}]
+            (fn [{:keys [rule match-count] :as item}]
               (if (is-complete? rule)
-                (map #(assoc (seed-item-set empty-item-set %)
-                             :ostack (reduce-ostack ostack earley-item))
-                     (complete-state state))
+                (map #(merge (seed-item-set empty-item-set %)
+                             {:ostack (reduce-ostack ostack item)
+                              :rstack (drop (dec match-count) rstack)})
+                     (complete-item item (nth rstack (dec match-count))))
                 []))
-            states)))
+            items)))
 
 ; TODO: predicting completed items seems to cause combinatorial explosion
 (defn predict-item-set [item-set grammar]
   (loop [c item-set, dot 0]
-    (if-let [s (current-state c dot)]
-      (recur (if (is-complete? (:rule (:earley-item s)))
+    (if-let [s (current-item c dot)]
+      (recur (if (is-complete? (:rule s))
                c
                (reduce #(predict-into-item-set % %2 s)
-                       c (predict-state s grammar)))
+                       c (predict-item s grammar)))
              (inc dot))
       c)))
 
 ; ===
 ; Charts
+; Implementing a nondeterministic automaton.
 ; ===
 
 ; item-sets: an ordered set
@@ -162,19 +130,19 @@
 
 (def empty-chart (Chart. os/empty))
 
-(defn seed-chart [state]
+(defn seed-chart [item]
   (assoc empty-chart :item-sets 
-         (os/ordered-set (seed-item-set empty-item-set state))))
+         (os/ordered-set (seed-item-set empty-item-set item))))
 
-; process completions and predictions for a single item-sets
+; process reductions and predictions for a single item-set
 (defn complete-chart [chart]
   (loop [c chart, dot 0]
     (if-let [set (os/get (:item-sets c) dot)]
       (do
         (recur (reduce (fn [chart item-set]
                          (update chart :item-sets #(os/conj % item-set)))
-                     c (completions set))
-             (inc dot)))
+                       c (reduce-item-set set))
+               (inc dot)))
       c)))
 
 (defn process-chart [chart grammar]
@@ -186,7 +154,7 @@
   (assoc empty-chart :item-sets
          (os/into os/empty
                   (filter nontrivial?
-                          (map #(scan-item-set % pos thetoken thechar)
+                          (map #(shift-item-set % pos thetoken thechar)
                                (os/vec (:item-sets chart)))))))
 
 ; ===
@@ -196,14 +164,14 @@
 (defn parse-charts [inputstr grammar tokenizer goal]
   (loop [pos 0
          thestr inputstr
-         current-chart (seed-chart (state ::goal goal))
+         current-chart (seed-chart (item ::goal goal))
          charts []]
     (if-let [thechar (first thestr)]
       (let [thetoken (tokenizer thechar)
             parsed-chart (process-chart current-chart grammar)
             next-chart (scan-chart parsed-chart (inc pos) thetoken thechar)
             next-charts (conj charts parsed-chart)]
-        (if (some #(current-state % 0) (os/vec (:item-sets next-chart)))
+        (if (some #(current-item % 0) (os/vec (:item-sets next-chart)))
           ; an item set is nonempty
           (recur (inc pos) (rest thestr) next-chart next-charts)
           ; early termination on failure returning failed item-sets
@@ -211,9 +179,9 @@
       ; end returning all item-sets
       (conj charts (process-chart current-chart grammar)))))
 
+; TODO: if we omit seq, things break. why?
 (defn goals-from-itemset [item-set]
-  (seq (filter (comp (partial = ::goal) :rulehead :earley-item)
-               (:states item-set))))
+  (seq (filter (comp (partial = ::goal) :rulehead) (:items item-set))))
 
 ; Searches item-sets for completed parse of the goal rule, returning all matches
 (defn scan-goal [chart]
