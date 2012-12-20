@@ -1,5 +1,6 @@
 (ns clearley.test.collections
   (require [clearley.collections.ordered-set :as os]
+           [clearley.collections.ordered-map :as om]
            [clearley.collections.ordered-multimap :as omm])
   (use clearley.test.utils lazytest.deftest))
 
@@ -11,6 +12,19 @@
        [:m :o :u :s :e :i :c :k :y])
   (is (os/contains? os1 :m))
   (isnt (os/contains? os1 :q)))
+
+(def om1
+  (reduce (fn [m [k v]] (om/assoc m k v))
+          om/empty
+          [[0 0] [2 1] [4 2] [1 3] [3 4]]))
+
+(deftest ordered-map-test
+  (is= (om/get om1 0) 0)
+  (is= (om/get om1 1) 3)
+  (is= (om/get om1 5) nil)
+  (is= (os/vec (om/keys om1)) [0 2 4 1 3])
+  (let [om2 (om/assoc om1 0 5)]
+    (is= (om/get om2 0) 5)))
 
 (defn add-values [m k vs]
   (reduce #(omm/assoc % k %2) m vs))

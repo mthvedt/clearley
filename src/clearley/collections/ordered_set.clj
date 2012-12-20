@@ -14,7 +14,6 @@
 (defprotocol IOrderedSet
   (conj [self k])
   (vec [self])
-  (get [self i])
   (contains? [self k]))
 
 (deftype AOrderedSet [i->k ks]
@@ -23,12 +22,13 @@
     (if (core/contains? ks k)
       self
       (AOrderedSet. (core/conj i->k k) (core/conj ks k))))
-  (get [_ i] (core/get i->k i))
   (vec [self] i->k)
   (contains? [self k] (core/contains? ks k)))
 
-
 (def empty (AOrderedSet. [] #{}))
+
+(defn get [os i]
+  (core/get (vec os) i))
 
 (defn into [os coll]
   (reduce conj os coll))
