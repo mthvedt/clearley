@@ -9,29 +9,34 @@
 ; Items are the atoms of LR-automaton parsing.
 ; ===
 
+; rulehead: the clause predicting this item
+; TODO reexamine ruleheads?
+; rule: the rule for this item
+; original: the original (unadvanced) rule, used to populate matches
+; match-count: the number of times this rule has been scanned or advanced
 (defrecord Item [rulehead rule original match-count]
   PStrable
   (pstr [_]
     (str rulehead " -> " (rule-str rule))))
 
-(defn item [head-sym clause]
+(defn new-item [head-sym clause]
   (let [rule (to-rule clause)]
     (Item. head-sym rule rule 0)))
 
 (defn predict-item [item grammar]
   (let [clause (predict (:rule item))]
-    (map #(Item. (rulehead-clause clause) % % 0)
+    (map #(new-item (rulehead-clause clause) %)
          (predict-clause clause grammar))))
 
 (defn scan-item [item input-token]
-  (map (fn [rule]
-         (update (assoc item :rule rule) :match-count inc))
+  (map #(update (assoc item :rule %) :match-count inc)
        (scan (:rule item) input-token)))
 
 (defn advance-item [item]
   (update-all item {:rule advance, :match-count inc}))
 
-(defn complete-item [{:keys [original] :as item} completing-item-set]
+; Reduces an item given a stack-top state
+(defn reduce-item [{:keys [original] :as item} completing-item-set]
   (map advance-item (omm/get-vec (:predictor-map completing-item-set) original)))
 
 ; ===
@@ -70,8 +75,7 @@
 (def empty-item-set (ItemSet. [] omm/empty '() '()))
 
 (defn predict-into-item-set [{:keys [items predictor-map] :as item-set}
-                             {original :original :as item}
-                             predictor]
+                             {original :original :as item} predictor]
   (if (empty? (omm/get-vec predictor-map original))
     (update-all item-set {:items #(conj % item)
                           :predictor-map #(omm/assoc % original predictor)})
@@ -102,7 +106,7 @@
                 (map #(merge (seed-item-set empty-item-set %)
                              {:ostack (reduce-ostack ostack item)
                               :rstack (drop (dec match-count) rstack)})
-                     (complete-item item (nth rstack (dec match-count))))
+                     (reduce-item item (nth rstack (dec match-count))))
                 []))
             items)))
 
@@ -164,7 +168,7 @@
 (defn parse-charts [inputstr grammar tokenizer goal]
   (loop [pos 0
          thestr inputstr
-         current-chart (seed-chart (item ::goal goal))
+         current-chart (seed-chart (new-item ::goal goal))
          charts []]
     (if-let [thechar (first thestr)]
       (let [thetoken (tokenizer thechar)
