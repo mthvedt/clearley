@@ -44,14 +44,6 @@
 ; Precalculated automaton states.
 ; ===
 
-; Builds a rule match from the output stack and pushes the match to the top
-; (think of a Forth operator reducing the top of a stack)
-; Right now, we build the stack as we parse instead of emitting an output stream...
-; this may change in the future e.g. to support pull parsing
-(defn- reduce-ostack [ostack {:keys [match-count original]}]
-  (cons (match original (vec (reverse (take match-count ostack))))
-        (drop match-count ostack)))
-
 (defn pstr-item-set-item [item predictor-map]
   (let [predictor-str
         (cutoff (separate-str ", " (map pstr (omm/get-vec predictor-map
@@ -60,9 +52,10 @@
 
 ; items: a vector of items
 ; predictor-map: ordered multimap, items -> predicting items
-; ostack: the output associated with this item set
+; ostream: the output associated with this item set; a vector (token | item)
+; (this is safe because outside users shouldn't be using EarleyItem)
 ; prev-set: the origin itemset (will be null for the seed item at index 0)
-(defrecord ItemSet [items predictor-map ostack rstack]
+(defrecord ItemSet [items predictor-map ostream rstack]
   PStrable
   (pstr [self]
     (with-out-str
@@ -72,7 +65,7 @@
       (println)
       (runmap println (map #(pstr-item-set-item % predictor-map) items)))))
 
-(def empty-item-set (ItemSet. [] omm/empty '() '()))
+(def empty-item-set (ItemSet. [] omm/empty [] '()))
 
 (defn predict-into-item-set [{:keys [items predictor-map] :as item-set}
                              {original :original :as item} predictor]
@@ -95,8 +88,8 @@
              (inc dot))
       c)))
 
-(defn new-item-set [ostack rstack]
-  (merge empty-item-set {:ostack ostack :rstack rstack}))
+(defn new-item-set [ostream rstack]
+  (merge empty-item-set {:ostream ostream :rstack rstack}))
 
 ; Should only be called on a new item-set
 ; These items are not 'predicted' hence not in predictor-map
@@ -106,24 +99,25 @@
             item-set items)
     grammar))
 
+; TODO work out when to filter nontrivial
 (defn nontrivial? [item-set] (seq (:items item-set)))
 
 ; scans an input character, seeding a new item-set
-(defn shift-item-set [{:keys [items ostack rstack] :as item-set}
+(defn shift-item-set [{:keys [items ostream rstack] :as item-set}
                       input-token input grammar]
   (seed-item-set
-    (new-item-set (cons (match input []) ostack) (cons item-set rstack))
+    (new-item-set (conj ostream input) (cons item-set rstack))
     (mapcat #(scan-item % input-token) items)
     grammar))
 
 ; Reduces the rules in an item set
-(defn reduce-item-set [{:keys [ostack rstack items] :as item-set} grammar]
+(defn reduce-item-set [{:keys [ostream rstack items] :as item-set} grammar]
   (filter nontrivial?
           (mapcat
             (fn [{:keys [rule match-count] :as item}]
               (if (is-complete? rule)
                 (map #(seed-item-set 
-                        (new-item-set (reduce-ostack ostack item)
+                        (new-item-set (conj ostream item)
                                       (drop (dec match-count) rstack))
                                      [%]
                         grammar)
@@ -189,7 +183,21 @@
 (defn goals-from-itemset [item-set]
   (seq (filter (comp (partial = ::goal) :rulehead) (:items item-set))))
 
+; Builds a rule match from the output stack and pushes the match to the top
+; (think of a Forth operator reducing the top of a stack)
+; Final output (for a valid parse) will be a singleton list
+(defn reduce-ostream-helper [ostream item]
+  (if (instance? clearley.earley.Item item)
+    (let [{:keys [match-count original]} item]
+      (cons (match original (vec (reverse (take match-count ostream))))
+            (drop match-count ostream)))
+    (cons (match item []) ostream)))
+
+(defn reduce-ostream [ostream]
+  (first (reduce reduce-ostream-helper '() ostream)))
+
 ; Searches item-sets for completed parse of the goal rule, returning all matches
 (defn scan-goal [chart]
-  (mapcat :ostack
-          (filter goals-from-itemset (os/vec (:item-sets chart)))))
+  (map reduce-ostream
+       (map :ostream
+            (filter goals-from-itemset (os/vec (:item-sets chart))))))
