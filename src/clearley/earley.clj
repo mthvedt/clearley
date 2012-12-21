@@ -81,37 +81,11 @@
                           :predictor-map #(omm/assoc % original predictor)})
     (update item-set :predictor-map #(omm/assoc % original predictor))))
 
-; Should only be called on a new item-set
-; These items are not 'predicted' hence not in predictor-map
-(defn seed-item-set [item-set item] (update item-set :items #(conj % item)))
-
 (defn current-item [{:keys [items]} dot]
   (when-not (>= dot (count items)) (get items dot)))
 
-(defn nontrivial? [item-set] (seq (:items item-set)))
-
-; scans an input character, seeding a new item-set
-(defn shift-item-set [{:keys [items ostack rstack] :as item-set} pos input-token input]
-  (reduce seed-item-set
-          (merge empty-item-set {:ostack (cons (match input []) ostack)
-                                 :rstack (cons item-set rstack)})
-          (mapcat #(scan-item % input-token) items)))
-
-; Reduces the rules in an item set
-(defn reduce-item-set [{:keys [ostack rstack items] :as item-set}]
-  (filter nontrivial?
-          (mapcat
-            (fn [{:keys [rule match-count] :as item}]
-              (if (is-complete? rule)
-                (map #(merge (seed-item-set empty-item-set %)
-                             {:ostack (reduce-ostack ostack item)
-                              :rstack (drop (dec match-count) rstack)})
-                     (reduce-item item (nth rstack (dec match-count))))
-                []))
-            items)))
-
 ; TODO: predicting completed items seems to cause combinatorial explosion
-(defn predict-item-set [item-set grammar]
+(defn close-item-set [item-set grammar]
   (loop [c item-set, dot 0]
     (if-let [s (current-item c dot)]
       (recur (if (is-complete? (:rule s))
@@ -120,6 +94,42 @@
                        c (predict-item s grammar)))
              (inc dot))
       c)))
+
+(defn new-item-set [ostack rstack]
+  (merge empty-item-set {:ostack ostack :rstack rstack}))
+
+; Should only be called on a new item-set
+; These items are not 'predicted' hence not in predictor-map
+(defn seed-item-set [item-set items grammar]
+  (close-item-set
+    (reduce (fn [s i] (update s :items #(conj % i)))
+            item-set items)
+    grammar))
+
+(defn nontrivial? [item-set] (seq (:items item-set)))
+
+; scans an input character, seeding a new item-set
+(defn shift-item-set [{:keys [items ostack rstack] :as item-set}
+                      input-token input grammar]
+  (seed-item-set
+    (new-item-set (cons (match input []) ostack) (cons item-set rstack))
+    (mapcat #(scan-item % input-token) items)
+    grammar))
+
+; Reduces the rules in an item set
+(defn reduce-item-set [{:keys [ostack rstack items] :as item-set} grammar]
+  (filter nontrivial?
+          (mapcat
+            (fn [{:keys [rule match-count] :as item}]
+              (if (is-complete? rule)
+                (map #(seed-item-set 
+                        (new-item-set (reduce-ostack ostack item)
+                                      (drop (dec match-count) rstack))
+                                     [%]
+                        grammar)
+                     (reduce-item item (nth rstack (dec match-count))))
+                []))
+            items)))
 
 ; ===
 ; Charts
@@ -134,54 +144,46 @@
 
 (def empty-chart (Chart. os/empty))
 
-(defn seed-chart [item]
+(defn seed-chart [item grammar]
   (assoc empty-chart :item-sets 
-         (os/ordered-set (seed-item-set empty-item-set item))))
+         (os/ordered-set (seed-item-set empty-item-set [item] grammar))))
 
 ; process reductions and predictions for a single item-set
-(defn complete-chart [chart]
+(defn complete-chart [chart grammar]
   (loop [c chart, dot 0]
     (if-let [set (os/get (:item-sets c) dot)]
       (do
         (recur (reduce (fn [chart item-set]
                          (update chart :item-sets #(os/conj % item-set)))
-                       c (reduce-item-set set))
+                       c (reduce-item-set set grammar))
                (inc dot)))
       c)))
 
-(defn process-chart [chart grammar]
-  (let [chart (complete-chart chart)]
-    (assoc chart :item-sets
-           (os/map #(predict-item-set % grammar) (os/vec (:item-sets chart))))))
-
-(defn scan-chart [chart pos thetoken thechar]
+(defn scan-chart [chart thetoken thechar grammar]
   (assoc empty-chart :item-sets
          (os/into os/empty
                   (filter nontrivial?
-                          (map #(shift-item-set % pos thetoken thechar)
+                          (map #(shift-item-set % thetoken thechar grammar)
                                (os/vec (:item-sets chart)))))))
 
-; ===
-; Here be dragons
-; ===
+(defn process-chart [chart token input grammar]
+  (complete-chart (scan-chart chart token input grammar) grammar))
 
+; The punch line
 (defn parse-charts [inputstr grammar tokenizer goal]
   (loop [pos 0
          thestr inputstr
-         current-chart (seed-chart (new-item ::goal goal))
-         charts []]
+         current-chart (seed-chart (new-item ::goal goal) grammar)
+         charts [current-chart]]
     (if-let [thechar (first thestr)]
-      (let [thetoken (tokenizer thechar)
-            parsed-chart (process-chart current-chart grammar)
-            next-chart (scan-chart parsed-chart (inc pos) thetoken thechar)
-            next-charts (conj charts parsed-chart)]
-        (if (some #(current-item % 0) (os/vec (:item-sets next-chart)))
-          ; an item set is nonempty
+      (let [next-chart (process-chart current-chart (tokenizer thechar) thechar grammar)
+            next-charts (conj charts next-chart)]
+        (if (seq (os/vec (:item-sets next-chart)))
           (recur (inc pos) (rest thestr) next-chart next-charts)
           ; early termination on failure returning failed item-sets
-          (conj next-charts next-chart)))
+          next-charts))
       ; end returning all item-sets
-      (conj charts (process-chart current-chart grammar)))))
+      charts)))
 
 ; TODO: if we omit seq, things break. why?
 (defn goals-from-itemset [item-set]
