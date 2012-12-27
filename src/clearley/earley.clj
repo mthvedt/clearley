@@ -36,15 +36,14 @@
   (update-all item {:rule advance, :match-count inc}))
 
 ; Reduces an item given a stack-top state
-(defn reduce-item [{:keys [original] :as item} completing-item-set]
-  (map advance-item (omm/get-vec (:predictor-map completing-item-set) original)))
+(defn reduce-item [{:keys [original] :as item} completing-state]
+  (map advance-item (omm/get-vec (:predictor-map completing-state) original)))
 
 ; ===
-; Parse item sets
-; Precalculated automaton states.
+; NPDA states
 ; ===
 
-(defn pstr-item-set-item [item predictor-map]
+(defn pstr-state-item [item predictor-map]
   (let [predictor-str
         (cutoff (separate-str ", " (map pstr (omm/get-vec predictor-map
                                                              (:original item)))))]
@@ -54,8 +53,8 @@
 ; predictor-map: ordered multimap, items -> predicting items
 ; ostream: the output associated with this item set; a vector (token | item)
 ; (this is safe because outside users shouldn't be using EarleyItem)
-; prev-set: the origin itemset (will be null for the seed item at index 0)
-(defrecord ItemSet [items predictor-map ostream rstack]
+; prev-set: the origin state (will be null for the seed item at index 0)
+(defrecord State [items predictor-map ostream rstack]
   PStrable
   (pstr [self]
     (with-out-str
@@ -63,61 +62,61 @@
       (print "Stack: ")
       (print (separate-str " " (map hash rstack)))
       (println)
-      (runmap println (map #(pstr-item-set-item % predictor-map) items)))))
+      (runmap println (map #(pstr-state-item % predictor-map) items)))))
 
-(def empty-item-set (ItemSet. [] omm/empty [] '()))
+(def empty-state (State. [] omm/empty [] '()))
 
-(defn predict-into-item-set [{:keys [items predictor-map] :as item-set}
+(defn predict-into-state [{:keys [items predictor-map] :as state}
                              {original :original :as item} predictor]
   (if (empty? (omm/get-vec predictor-map original))
-    (update-all item-set {:items #(conj % item)
+    (update-all state {:items #(conj % item)
                           :predictor-map #(omm/assoc % original predictor)})
-    (update item-set :predictor-map #(omm/assoc % original predictor))))
+    (update state :predictor-map #(omm/assoc % original predictor))))
 
 (defn current-item [{:keys [items]} dot]
   (when-not (>= dot (count items)) (get items dot)))
 
 ; TODO: predicting completed items seems to cause combinatorial explosion
-(defn close-item-set [item-set grammar]
-  (loop [c item-set, dot 0]
+(defn close-state [state grammar]
+  (loop [c state, dot 0]
     (if-let [s (current-item c dot)]
       (recur (if (is-complete? (:rule s))
                c
-               (reduce #(predict-into-item-set % %2 s)
+               (reduce #(predict-into-state % %2 s)
                        c (predict-item s grammar)))
              (inc dot))
       c)))
 
-(defn new-item-set [ostream rstack]
-  (merge empty-item-set {:ostream ostream :rstack rstack}))
-
-; Should only be called on a new item-set
+; Should only be called on a new state
 ; These items are not 'predicted' hence not in predictor-map
-(defn seed-item-set [item-set items grammar]
-  (close-item-set
+(defn seed-state [state items grammar]
+  (close-state
     (reduce (fn [s i] (update s :items #(conj % i)))
-            item-set items)
+            state items)
     grammar))
 
-; TODO work out when to filter nontrivial
-(defn nontrivial? [item-set] (seq (:items item-set)))
+(defn new-state [ostream rstack]
+  (merge empty-state {:ostream ostream :rstack rstack}))
 
-; scans an input character, seeding a new item-set
-(defn shift-item-set [{:keys [items ostream rstack] :as item-set}
+; TODO work out when to filter nontrivial
+(defn nontrivial? [state] (seq (:items state)))
+
+; scans an input character, seeding a new state
+(defn shift-state [{:keys [items ostream rstack] :as state}
                       input-token input grammar]
-  (seed-item-set
-    (new-item-set (conj ostream input) (cons item-set rstack))
+  (seed-state
+    (new-state (conj ostream input) (cons state rstack))
     (mapcat #(scan-item % input-token) items)
     grammar))
 
 ; Reduces the rules in an item set
-(defn reduce-item-set [{:keys [ostream rstack items] :as item-set} grammar]
+(defn reduce-state [{:keys [ostream rstack items] :as state} grammar]
   (filter nontrivial?
           (mapcat
             (fn [{:keys [rule match-count] :as item}]
               (if (is-complete? rule)
-                (map #(seed-item-set 
-                        (new-item-set (conj ostream item)
+                (map #(seed-state 
+                        (new-state (conj ostream item)
                                       (drop (dec match-count) rstack))
                                      [%]
                         grammar)
@@ -130,35 +129,35 @@
 ; Implementing a nondeterministic automaton.
 ; ===
 
-; item-sets: an ordered set
-(defrecord Chart [item-sets]
+; states: an ordered set
+(defrecord Chart [states]
   PStrable
   (pstr [self]
-    (separate-str "---\n" (map pstr (os/vec item-sets)))))
+    (separate-str "---\n" (map pstr (os/vec states)))))
 
 (def empty-chart (Chart. os/empty))
 
 (defn seed-chart [item grammar]
-  (assoc empty-chart :item-sets 
-         (os/ordered-set (seed-item-set empty-item-set [item] grammar))))
+  (assoc empty-chart :states 
+         (os/ordered-set (seed-state empty-state [item] grammar))))
 
-; process reductions and predictions for a single item-set
+; process reductions and predictions for a single state
 (defn complete-chart [chart grammar]
   (loop [c chart, dot 0]
-    (if-let [set (os/get (:item-sets c) dot)]
+    (if-let [set (os/get (:states c) dot)]
       (do
-        (recur (reduce (fn [chart item-set]
-                         (update chart :item-sets #(os/conj % item-set)))
-                       c (reduce-item-set set grammar))
+        (recur (reduce (fn [chart state]
+                         (update chart :states #(os/conj % state)))
+                       c (reduce-state set grammar))
                (inc dot)))
       c)))
 
 (defn scan-chart [chart thetoken thechar grammar]
-  (assoc empty-chart :item-sets
+  (assoc empty-chart :states
          (os/into os/empty
                   (filter nontrivial?
-                          (map #(shift-item-set % thetoken thechar grammar)
-                               (os/vec (:item-sets chart)))))))
+                          (map #(shift-state % thetoken thechar grammar)
+                               (os/vec (:states chart)))))))
 
 (defn process-chart [chart token input grammar]
   (complete-chart (scan-chart chart token input grammar) grammar))
@@ -172,16 +171,16 @@
     (if-let [thechar (first thestr)]
       (let [next-chart (process-chart current-chart (tokenizer thechar) thechar grammar)
             next-charts (conj charts next-chart)]
-        (if (seq (os/vec (:item-sets next-chart)))
+        (if (seq (os/vec (:states next-chart)))
           (recur (inc pos) (rest thestr) next-chart next-charts)
-          ; early termination on failure returning failed item-sets
+          ; early termination on failure returning failed states
           next-charts))
-      ; end returning all item-sets
+      ; end returning all states
       charts)))
 
 ; TODO: if we omit seq, things break. why?
-(defn goals-from-itemset [item-set]
-  (seq (filter (comp (partial = ::goal) :rulehead) (:items item-set))))
+(defn goals-from-state [state]
+  (seq (filter (comp (partial = ::goal) :rulehead) (:items state))))
 
 ; Builds a rule match from the output stack and pushes the match to the top
 ; (think of a Forth operator reducing the top of a stack)
@@ -196,8 +195,8 @@
 (defn reduce-ostream [ostream]
   (first (reduce reduce-ostream-helper '() ostream)))
 
-; Searches item-sets for completed parse of the goal rule, returning all matches
+; Searches states for completed parse of the goal rule, returning all matches
 (defn scan-goal [chart]
   (map reduce-ostream
        (map :ostream
-            (filter goals-from-itemset (os/vec (:item-sets chart))))))
+            (filter goals-from-state (os/vec (:states chart))))))
