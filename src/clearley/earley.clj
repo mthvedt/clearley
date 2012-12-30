@@ -35,14 +35,11 @@
 (defn advance-item [item]
   (update-all item {:rule advance, :match-count inc}))
 
-; Reduces an item given a stack-top item-set
-(defn reduce-item [{:keys [original] :as item} completing-item-set]
-  (map advance-item (omm/get-vec (:predictor-map completing-item-set) original)))
-
 ; ===
 ; Item sets
 ; ===
 
+; TODO is match count the same for any item?
 (defn pstr-item-set-item [item predictor-map]
   (let [predictor-str
         (cutoff (separate-str ", " (map pstr (omm/get-vec predictor-map
@@ -84,7 +81,16 @@
 
 ; scans an input character, seeding a new state
 (defn shift-item-set [{:keys [items grammar] :as item-set} input-token]
-  (new-item-set (mapcat #(scan-item % input-token) items) grammar))
+  (when-let [r (seq (mapcat #(scan-item % input-token) items))]
+    (new-item-set r grammar)))
+
+; Reduces an item given a stack-top item-set
+(defn reduce-item-set [item-set {:keys [original]}]
+  (map #(new-item-set [%] (:grammar item-set))
+       (map advance-item (omm/get-vec (:predictor-map item-set) original))))
+
+(defn complete-rules [{items :items}]
+  (filter #(is-complete? (:rule %)) items))
 
 ; ===
 ; NPDA states
@@ -92,39 +98,38 @@
 
 ; item-set: the item set for this state
 ; ostream: the output associated with this item set; a vector (token | item)
-; prev-set: the origin state (will be null for the seed item at index 0)
-(defrecord State [item-set ostream rstack]
+; stack: the origin state (will be null for the seed item at index 0)
+(defrecord State [item-set ostream stack]
   PStrable
   (pstr [self]
     (with-out-str
       (println "State" (hash self))
-      (print "Stack tops" (if (seq rstack)
-                            (separate-str " " (map hash rstack))
+      (print "Stack tops" (if (seq stack)
+                            (separate-str " " (map hash stack))
                             "(none)"))
       (println)
       (print (pstr item-set)))))
 
-(defn new-state [item-set ostream rstack] (State. item-set ostream rstack))
-
-(defn shift-state [{:keys [ostream rstack item-set] :as state} input-token input]
-  (new-state
-    (shift-item-set item-set input-token)
-    (conj ostream input)
-    (cons state rstack)))
+; TODO: shift node, reduce node.
+; shift node is easy. reduce node?--match count for a reduced node?
+(defn shift-state [{:keys [ostream stack item-set] :as state} input-token input]
+  (when-let [n (shift-item-set item-set input-token)]
+    (State. n (conj ostream input) (cons state stack))))
 
 ; Creates a seq of reductions for a state
 ; (If more than one, is a reduce-reduce conflict)
-(defn reduce-state [{{:keys [items grammar]} :item-set
-                     :keys [ostream rstack] :as state}]
+(defn reduce-state [{{:keys [items] :as item-set} :item-set
+                     :keys [ostream stack] :as state}]
   (mapcat
     (fn [{:keys [rule match-count] :as item}]
-      (if (is-complete? rule)
-        (map #(new-state (new-item-set [%] grammar)
-                         (conj ostream item)
-                         (drop (dec match-count) rstack))
-             (reduce-item item (:item-set (nth rstack (dec match-count)))))
-        []))
-    items))
+      (let [new-stack (drop (dec match-count) stack)]
+        (map (fn [item-set]
+               (State. item-set (conj ostream item) new-stack))
+             (reduce-item-set (:item-set (first new-stack)) item))))
+    (complete-rules item-set)))
+
+(defn initial-state [item grammar]
+  (State. (new-item-set [item] grammar) [] '{}))
 
 ; ===
 ; Charts
@@ -140,8 +145,7 @@
 (def empty-chart (Chart. os/empty))
 
 (defn initial-chart [item grammar]
-  (assoc empty-chart :states 
-         (os/ordered-set (new-state (new-item-set [item] grammar) [] '()))))
+  (assoc empty-chart :states (os/ordered-set (initial-state item grammar))))
 
 ; process reductions and predictions for a single state
 (defn complete-chart [chart]
@@ -154,13 +158,10 @@
                (inc dot)))
       c)))
 
-(defn nontrivial? [state]
-  (seq (:items (:item-set state))))
-
 (defn shift-chart [chart thetoken thechar]
   (assoc empty-chart :states
          (os/into os/empty
-                  (filter nontrivial?
+                  (remove nil?
                           (map #(shift-state % thetoken thechar)
                                (os/vec (:states chart)))))))
 
@@ -183,8 +184,8 @@
       ; end returning all states
       charts)))
 
-(defn goals-from-state [state]
-  (seq (filter (comp (partial = ::goal) :rulehead) (:items (:item-set state)))))
+(defn is-goal [state]
+  (some #(-> % :rulehead (= ::goal)) (-> state :item-set :items)))
 
 ; Builds a rule match from the output stack and pushes the match to the top
 ; (think of a Forth operator reducing the top of a stack)
@@ -203,4 +204,4 @@
 (defn scan-goal [chart]
   (map reduce-ostream
        (map :ostream
-            (filter #(seq (goals-from-state %)) (os/vec (:states chart))))))
+            (filter is-goal (os/vec (:states chart))))))
