@@ -49,10 +49,9 @@
                                                              (:original item)))))]
     (str (pstr item) (if (seq predictor-str) (str " | " predictor-str)))))
 
-; TODO internalize grammar
 ; items: a vector of items
 ; predictor-map: ordered multimap, items -> internal predicting items
-(defrecord ItemSet [items predictor-map]
+(defrecord ItemSet [items predictor-map grammar]
   PStrable
   (pstr [self]
     (with-out-str
@@ -69,23 +68,23 @@
   (when-not (>= dot (count items)) (get items dot)))
 
 ; TODO: predicting completed items seems to cause combinatorial explosion
-(defn close-item-set [item-set grammar]
+(defn close-item-set [item-set]
   (loop [c item-set, dot 0]
     (if-let [s (current-item c dot)]
       (recur (if (is-complete? (:rule s))
                c
                (reduce #(predict-into-item-set % %2 s)
-                       c (predict-item s grammar)))
+                       c (predict-item s (:grammar item-set))))
              (inc dot))
       c)))
 
 ; seed items don't go in predictor-map, closed items do
-(defn seed-item-set [items grammar]
-  (close-item-set (ItemSet. (vec items) omm/empty) grammar))
+(defn new-item-set [items grammar]
+  (close-item-set (ItemSet. (vec items) omm/empty grammar)))
 
 ; scans an input character, seeding a new state
-(defn shift-item-set [{:keys [items] :as item-set} input-token grammar]
-  (seed-item-set (mapcat #(scan-item % input-token) items) grammar))
+(defn shift-item-set [{:keys [items grammar] :as item-set} input-token]
+  (new-item-set (mapcat #(scan-item % input-token) items) grammar))
 
 ; ===
 ; NPDA states
@@ -105,31 +104,27 @@
       (println)
       (print (pstr item-set)))))
 
-(defn nontrivial? [state]
-  (seq (:items (:item-set state))))
-
 (defn new-state [item-set ostream rstack] (State. item-set ostream rstack))
 
-(defn shift-state [{:keys [ostream rstack item-set] :as state}
-                   input-token input grammar]
+(defn shift-state [{:keys [ostream rstack item-set] :as state} input-token input]
   (new-state
-    (shift-item-set item-set input-token grammar)
+    (shift-item-set item-set input-token)
     (conj ostream input)
     (cons state rstack)))
 
 ; Creates a seq of reductions for a state
 ; (If more than one, is a reduce-reduce conflict)
-(defn reduce-state [{{items :items} :item-set :keys [ostream rstack] :as state} grammar]
-  (filter nontrivial?
-          (mapcat
-            (fn [{:keys [rule match-count] :as item}]
-              (if (is-complete? rule)
-                (map #(new-state (seed-item-set [%] grammar)
-                                 (conj ostream item)
-                                 (drop (dec match-count) rstack))
-                     (reduce-item item (:item-set (nth rstack (dec match-count)))))
-                []))
-            items)))
+(defn reduce-state [{{:keys [items grammar]} :item-set
+                     :keys [ostream rstack] :as state}]
+  (mapcat
+    (fn [{:keys [rule match-count] :as item}]
+      (if (is-complete? rule)
+        (map #(new-state (new-item-set [%] grammar)
+                         (conj ostream item)
+                         (drop (dec match-count) rstack))
+             (reduce-item item (:item-set (nth rstack (dec match-count)))))
+        []))
+    items))
 
 ; ===
 ; Charts
@@ -144,39 +139,42 @@
 
 (def empty-chart (Chart. os/empty))
 
-(defn seed-chart [item grammar]
+(defn initial-chart [item grammar]
   (assoc empty-chart :states 
-         (os/ordered-set (new-state (seed-item-set [item] grammar) [] '()))))
+         (os/ordered-set (new-state (new-item-set [item] grammar) [] '()))))
 
 ; process reductions and predictions for a single state
-(defn complete-chart [chart grammar]
+(defn complete-chart [chart]
   (loop [c chart, dot 0]
     (if-let [set (os/get (:states c) dot)]
       (do
         (recur (reduce (fn [chart state]
                          (update chart :states #(os/conj % state)))
-                       c (reduce-state set grammar))
+                       c (reduce-state set))
                (inc dot)))
       c)))
 
-(defn shift-chart [chart thetoken thechar grammar]
+(defn nontrivial? [state]
+  (seq (:items (:item-set state))))
+
+(defn shift-chart [chart thetoken thechar]
   (assoc empty-chart :states
          (os/into os/empty
                   (filter nontrivial?
-                          (map #(shift-state % thetoken thechar grammar)
+                          (map #(shift-state % thetoken thechar)
                                (os/vec (:states chart)))))))
 
-(defn process-chart [chart token input grammar]
-  (complete-chart (shift-chart chart token input grammar) grammar))
+(defn process-chart [chart token input]
+  (complete-chart (shift-chart chart token input)))
 
 ; The punch line
 (defn parse-charts [inputstr grammar tokenizer goal]
   (loop [pos 0
          thestr inputstr
-         current-chart (seed-chart (new-item ::goal goal) grammar)
+         current-chart (initial-chart (new-item ::goal goal) grammar)
          charts [current-chart]]
     (if-let [thechar (first thestr)]
-      (let [next-chart (process-chart current-chart (tokenizer thechar) thechar grammar)
+      (let [next-chart (process-chart current-chart (tokenizer thechar) thechar)
             next-charts (conj charts next-chart)]
         (if (seq (os/vec (:states next-chart)))
           (recur (inc pos) (rest thestr) next-chart next-charts)
