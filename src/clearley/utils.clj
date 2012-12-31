@@ -1,6 +1,12 @@
 (ns clearley.utils)
 ; Some utils used by Clearley.
 
+; TODO: get rid of this protocol?
+; or maybe multimethod
+(defprotocol PStrable
+  (pstr [obj] "pstr stands for \"pretty-string\".
+                        Returns a shorthand str of this item."))
+
 (defmacro thrownew [extype & strs]
   `(throw (new ~extype (str ~@strs))))
 

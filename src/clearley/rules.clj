@@ -3,11 +3,6 @@
   (use clearley.utils)
   (require clojure.string))
 
-; TODO: get rid of this protocol?
-(defprotocol PStrable
-  (pstr [obj] "pstr stands for \"pretty-string\".
-                        Returns a shorthand str of this item."))
-
 (defrecord Match [rule submatches])
 
 (defn match [rule submatches]

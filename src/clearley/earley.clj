@@ -1,6 +1,7 @@
 (ns clearley.earley
   (require [clearley.collections.ordered-set :as os]
-           [clearley.collections.ordered-multimap :as omm])
+           [clearley.collections.ordered-multimap :as omm]
+           [clearley.npda :as npda])
   (use [clearley utils rules]))
 
 ; ===
@@ -46,9 +47,18 @@
                                                              (:original item)))))]
     (str (pstr item) (if (seq predictor-str) (str " | " predictor-str)))))
 
+(declare shift-item-set reduce-item-set item-set-reductions)
+
 ; items: a vector of items
 ; predictor-map: ordered multimap, items -> internal predicting items
 (defrecord ItemSet [items predictor-map grammar]
+  npda/Node
+  (npda/shift [self input]
+    (shift-item-set self input))
+  (npda/reduce [self output]
+    (reduce-item-set self output))
+  (npda/reductions [self]
+    (item-set-reductions self))
   PStrable
   (pstr [self]
     (with-out-str
@@ -89,103 +99,16 @@
   (map #(new-item-set [%] (:grammar item-set))
        (map advance-item (omm/get-vec (:predictor-map item-set) original))))
 
-(defn complete-rules [{items :items}]
-  (filter #(is-complete? (:rule %)) items))
+(defn item-set-reductions [{items :items}]
+  (map (fn [{:keys [match-count] :as item}] [item match-count])
+       (filter #(-> % :rule is-complete?) items)))
 
 ; ===
-; NPDA states
+; Using the automaton
 ; ===
-
-; item-set: the item set for this state
-; ostream: the output associated with this item set; a vector (token | item)
-; stack: the origin state (will be null for the seed item at index 0)
-(defrecord State [item-set ostream stack]
-  PStrable
-  (pstr [self]
-    (with-out-str
-      (println "State" (hash self))
-      (print "Stack tops" (if (seq stack)
-                            (separate-str " " (map hash stack))
-                            "(none)"))
-      (println)
-      (print (pstr item-set)))))
-
-; TODO: shift node, reduce node.
-; shift node is easy. reduce node?--match count for a reduced node?
-(defn shift-state [{:keys [ostream stack item-set] :as state} input-token input]
-  (when-let [n (shift-item-set item-set input-token)]
-    (State. n (conj ostream input) (cons state stack))))
-
-; Creates a seq of reductions for a state
-; (If more than one, is a reduce-reduce conflict)
-(defn reduce-state [{{:keys [items] :as item-set} :item-set
-                     :keys [ostream stack] :as state}]
-  (mapcat
-    (fn [{:keys [rule match-count] :as item}]
-      (let [new-stack (drop (dec match-count) stack)]
-        (map (fn [item-set]
-               (State. item-set (conj ostream item) new-stack))
-             (reduce-item-set (:item-set (first new-stack)) item))))
-    (complete-rules item-set)))
-
-(defn initial-state [item grammar]
-  (State. (new-item-set [item] grammar) [] '{}))
-
-; ===
-; Charts
-; Implementing a nondeterministic automaton.
-; ===
-
-; states: an ordered set
-(defrecord Chart [states]
-  PStrable
-  (pstr [self]
-    (separate-str "---\n" (map pstr (os/vec states)))))
-
-(def empty-chart (Chart. os/empty))
-
-(defn initial-chart [item grammar]
-  (assoc empty-chart :states (os/ordered-set (initial-state item grammar))))
-
-; process reductions and predictions for a single state
-(defn complete-chart [chart]
-  (loop [c chart, dot 0]
-    (if-let [set (os/get (:states c) dot)]
-      (do
-        (recur (reduce (fn [chart state]
-                         (update chart :states #(os/conj % state)))
-                       c (reduce-state set))
-               (inc dot)))
-      c)))
-
-(defn shift-chart [chart thetoken thechar]
-  (assoc empty-chart :states
-         (os/into os/empty
-                  (remove nil?
-                          (map #(shift-state % thetoken thechar)
-                               (os/vec (:states chart)))))))
-
-(defn process-chart [chart token input]
-  (complete-chart (shift-chart chart token input)))
-
-; The punch line
-(defn parse-charts [inputstr grammar tokenizer goal]
-  (loop [pos 0
-         thestr inputstr
-         current-chart (initial-chart (new-item ::goal goal) grammar)
-         charts [current-chart]]
-    (if-let [thechar (first thestr)]
-      (let [next-chart (process-chart current-chart (tokenizer thechar) thechar)
-            next-charts (conj charts next-chart)]
-        (if (seq (os/vec (:states next-chart)))
-          (recur (inc pos) (rest thestr) next-chart next-charts)
-          ; early termination on failure returning failed states
-          next-charts))
-      ; end returning all states
-      charts)))
 
 (defn is-goal [state]
-  (some #(-> % :rulehead (= ::goal)) (-> state :item-set :items)))
+  (some #(-> % :rulehead (= ::goal)) (-> state npda/peek :items)))
 
 ; Builds a rule match from the output stack and pushes the match to the top
 ; (think of a Forth operator reducing the top of a stack)
@@ -200,8 +123,11 @@
 (defn reduce-ostream [ostream]
   (first (reduce reduce-ostream-helper '() ostream)))
 
+(defn parse-charts [input-str grammar tokenizer goal]
+  (npda/run-automaton (new-item-set [(new-item ::goal goal)] grammar)
+                 input-str tokenizer))
+
 ; Searches states for completed parse of the goal rule, returning all matches
 (defn scan-goal [chart]
-  (map reduce-ostream
-       (map :ostream
-            (filter is-goal (os/vec (:states chart))))))
+  (map #(-> % npda/popone npda/stream reduce-ostream)
+       (filter is-goal (os/vec (:states chart)))))
