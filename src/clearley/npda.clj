@@ -45,8 +45,7 @@
   (stream [self])
   (rstream [self]) ; private accessor
   (astack [self])
-  ;(unify [self other-state])
-  )
+  (unify [self other-state]))
 
 (defn popone [state]
   (first (pop state)))
@@ -60,25 +59,35 @@
   State
   (shift-state [self input-token input]
     (when-let [n (shift node input-token)]
-      (AState. n (list input) (cons self stack))))
+      (AState. n (list input) (list self))))
   ; TODO holy cow, this is ugly. there must be a more elegant way
   (spin-state [self]
     (mapcat
       (fn [[item match-count]]
-        (let [new-state (first (nth (iterate #(mapcat pop %) [self]) match-count))]
-          ;(let [new-stack (drop (dec match-count) stack)]
-          (map (fn [node]
-                 (AState. node (list item)
-                          (cons new-state (astack new-state))))
-               (reduce (peek new-state) item))))
+        (let [new-states (nth (iterate #(mapcat pop %) [self]) match-count)]
+          (mapcat (fn [new-state]
+                    (map (fn [node]
+                           (AState. node (list item) (list new-state)))
+                         (reduce (peek new-state) item)))
+                  new-states)))
       (reductions node)))
   (peek [_] node)
   (pop [_]
-    (let [prev-state (first stack)]
-      [(AState. (peek prev-state) (concat ostream (rstream prev-state)) (rest stack))]))
+    (map (fn [prev-state]
+           (AState. (peek prev-state)
+                    (concat ostream (rstream prev-state))
+                    (astack prev-state)))
+         stack))
   (stream [self] (reverse ostream))
   (rstream [_] ostream)
   (astack [_] stack)
+  (unify [self ostate]
+    (let [on (peek ostate)
+          os (astack ostate)
+          oo (rstream ostate)]
+      ; doall prevents lazy stack explosions with very large numbers of states
+      ; for some reason
+      (AState. node ostream (doall (concat stack os)))))
   PStrable
   (pstr [self]
     (with-out-str
@@ -88,16 +97,6 @@
                             "(none)"))
       (println)
       (print (pstr node)))))
-
-#_(defrecord AState [node mystack ostream]
-    State
-  (unify [self ostate]
-    (let [on (peek ostate)
-          os (stack ostate)
-          oo (stream ostate)]
-      (assert (= on node))
-      (assert (= oo ostream))
-      (AState. node (concat mystack os) ostream))))
 
 (defn state [node] (AState. node [] '()))
 
@@ -129,10 +128,19 @@
 ; consume input and shift to the next chart
 (defn shift-chart [chart thetoken thechar]
   (Chart.
-    (os/into os/empty
-             (remove nil?
-                     (map #(shift-state % thetoken thechar)
-                          (os/vec (:states chart)))))))
+    (loop [stack->state om/empty
+           states (os/vec (:states chart))]
+      (if-let [old-state (first states)]
+        (recur
+          (if-let [new-state (shift-state old-state thetoken thechar)]
+            (let [stack-top (peek new-state)]
+              (om/assoc stack->state stack-top
+                        (if-let [old-new-state (om/get stack->state stack-top)]
+                          (unify old-new-state new-state)
+                          new-state)))
+            stack->state)
+          (rest states))
+        (os/into os/empty (om/vals stack->state))))))
 
 ; get the chart for an input
 (defn process-chart [chart token input]

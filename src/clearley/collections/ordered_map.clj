@@ -1,5 +1,5 @@
 (ns clearley.collections.ordered-map
-  (:refer-clojure :exclude [get assoc empty keys])
+  (:refer-clojure :exclude [get assoc empty keys vals into])
   (require [clojure.core :as core])
   (require [clearley.collections.ordered-set])
   (use clearley.utils))
@@ -9,6 +9,7 @@
 (defprotocol IOrderedMap
   (get [self k])
   (keys [self])
+  (vals [self])
   (assoc [self k v]))
 
 ; The keys in this map can only be added to, never removed.
@@ -18,6 +19,8 @@
     (core/get k->v k))
   (keys [self]
     (clearley.collections.ordered_set.AOrderedSet. i->k (core/keys k->v)))
+  (vals [self]
+    (core/vals k->v))
   (assoc [self k v]
     (AOrderedMap.
       (if (contains? k->v k) i->k (conj i->k k))

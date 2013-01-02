@@ -37,6 +37,11 @@
 ; Eagerly evaluated map, no memory leaks
 (defn runmap [& args] (dorun (apply map args)))
 
+(defmacro map-> [coll & forms]
+  `(map
+     (fn [x#] (-> x# ~@forms))
+     ~coll))
+
 (def ^:dynamic *debug* true)
 
 (defmacro debug
