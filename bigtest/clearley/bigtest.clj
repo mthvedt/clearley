@@ -15,3 +15,13 @@
   (is (parse s-parser
              "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss")))
 ; Snakes... why did it have to be snakes?
+
+(extend-rule S
+             ([(s1 S) (s2 S) (s3 S)] (str s1 s2 s3)))
+
+(def s-parser-2 (build-parser S))
+
+; TODO
+(deftest big-O-test
+  (is (parse s-parser
+             "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss")))

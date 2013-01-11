@@ -40,22 +40,23 @@
 (defprotocol State
   (shift-state [self input-token input]) ; Simultaneously push a node and emit output.
   (spin-state [self]) ; Emits a seq of reduced states
+  (state-key [self]) ; Only one state with a given state-key may be present in a chart
   (peek [self])
   (pop [self]) ; Returns a seq of states
   (stream [self])
   (rstream [self]) ; private accessor
-  (astack [self])
+  (prevs [self])
   (unify [self other-state]))
 
 (defn popone [state]
   (first (pop state)))
 
 ; node: the item set for this state
-; ostream: the partial output associated with this state
+; my-rstream: the partial output associated with this state
 ; --a full (nondeterministic) output stream can be got by concating
-;  all the ostreams on the stack, top to bottom, then reversing them
-; stack: the origin state (will be null for the seed item at index 0)
-(defrecord AState [node ostream stack]
+;  all the rstreams on the stack, top to bottom, then reversing them
+; my-prevs: the previous state on the stack (will be null for the seed item at index 0)
+(defrecord AState [node my-rstream my-prevs]
   State
   (shift-state [self input-token input]
     (when-let [n (shift node input-token)]
@@ -71,29 +72,30 @@
                          (reduce (peek new-state) item)))
                   new-states)))
       (reductions node)))
+  (state-key [self] 
+    (cons node (map state-key my-prevs)))
   (peek [_] node)
   (pop [_]
-    (map (fn [prev-state]
-           (AState. (peek prev-state)
-                    (concat ostream (rstream prev-state))
-                    (astack prev-state)))
-         stack))
-  (stream [self] (reverse ostream))
-  (rstream [_] ostream)
-  (astack [_] stack)
+    (map (fn [my-prevs]
+           (AState. (peek my-prevs)
+                    (concat my-rstream (rstream my-prevs))
+                    (prevs my-prevs)))
+         my-prevs))
+  (stream [self] (reverse my-rstream))
+  (rstream [_] my-rstream)
+  (prevs [_] my-prevs)
   (unify [self ostate]
     (let [on (peek ostate)
-          os (astack ostate)
-          oo (rstream ostate)]
-      ; doall prevents lazy stack explosions with very large numbers of states
+          op (prevs ostate)]
+      ; doall prevents lazy my-prevs explosions with very large numbers of states
       ; for some reason
-      (AState. node ostream (doall (concat stack os)))))
+      (AState. node my-rstream (doall (concat my-prevs op)))));)
   PStrable
   (pstr [self]
     (with-out-str
-      (println "State" (hash self))
-      (print "Stack tops" (if (seq stack)
-                            (separate-str " " (map hash stack))
+      (println "State" (hexhash (state-key self)))
+      (print "Stack tops" (if (seq my-prevs)
+                            (separate-str " " (map (fn-> state-key hexhash) my-prevs))
                             "(none)"))
       (println)
       (print (pstr node)))))
@@ -105,42 +107,62 @@
 ; Implementing a nondeterministic automaton.
 ; ===
 
-; states: an ordered set
-(defrecord Chart [states]
+(defprotocol Chart
+  (get-state [self index])
+  (add-state [self state])
+  (states [self]))
+
+; states: an ordered map state-key->state
+; Dropping duplicate states by state key makes the algo polynomial time
+; I strongly suspect it makes it O(n^3)--intuitively the number of stacks
+; present at a position n should be O(n^2), but haven't proven it.
+; There's also the correspondence between GLR and Earley states
+; (which are O(n^2) at position n).
+(defrecord AChart [my-states]
+  Chart
+  (get-state [_ index]
+    (om/get-index my-states index))
+  (add-state [_ new-state]
+    (AChart. (om/assoc my-states (state-key new-state) new-state)))
+  (states [_] (om/vals my-states))
   PStrable
   (pstr [self]
-    (separate-str "---\n" (map pstr (os/vec states)))))
+    (with-out-str
+      (println "===")
+      (print (separate-str "---\n" (map pstr (states self))))
+      (println "==="))))
+
+(def empty-chart (AChart. om/empty))
 
 (defn initial-chart [node]
-  (Chart. (os/ordered-set (state node))))
+  (add-state empty-chart (state node)))
 
 ; process states for a single chart
 (defn reduce-chart [chart]
   (loop [c chart, dot 0]
-    (if-let [set (os/get (:states c) dot)]
+    (if-let [set (get-state c dot)]
       (do
-        (recur (core/reduce (fn [chart state]
-                         (update chart :states #(os/conj % state)))
-                       c (spin-state set))
+        (recur (core/reduce #(add-state % %2) c (spin-state set))
                (inc dot)))
       c)))
 
 ; consume input and shift to the next chart
 (defn shift-chart [chart thetoken thechar]
-  (Chart.
-    (loop [stack->state om/empty
-           states (os/vec (:states chart))]
-      (if-let [old-state (first states)]
-        (recur
-          (if-let [new-state (shift-state old-state thetoken thechar)]
-            (let [stack-top (peek new-state)]
-              (om/assoc stack->state stack-top
-                        (if-let [old-new-state (om/get stack->state stack-top)]
-                          (unify old-new-state new-state)
-                          new-state)))
-            stack->state)
-          (rest states))
-        (os/into os/empty (om/vals stack->state))))))
+  (core/reduce add-state empty-chart
+               (loop [stack->state om/empty
+                      states (states chart)]
+                 (if-let [old-state (first states)]
+                   (recur
+                     (if-let [new-state (shift-state old-state thetoken thechar)]
+                       (let [stack-top (peek new-state)]
+                         (om/assoc stack->state stack-top
+                                   (if-let [old-new-state
+                                            (om/get stack->state stack-top)]
+                                     (unify old-new-state new-state)
+                                     new-state)))
+                       stack->state)
+                (rest states))
+              (om/vals stack->state)))))
 
 ; get the chart for an input
 (defn process-chart [chart token input]
@@ -155,7 +177,7 @@
     (if-let [thechar (first remaining-input)]
       (let [next-chart (process-chart current-chart (tokenizer thechar) thechar)
             next-charts (conj charts next-chart)]
-        (if (seq (os/vec (:states next-chart)))
+        (if (seq (states next-chart))
           (recur (inc pos) (rest remaining-input) next-chart next-charts)
           ; early termination on failure returning failed charts
           next-charts))

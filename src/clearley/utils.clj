@@ -42,6 +42,12 @@
      (fn [x#] (-> x# ~@forms))
      ~coll))
 
+(defmacro fn-> [& forms]
+  `(fn [x#] (-> x# ~@forms)))
+
+(defn hexhash [obj]
+  (Integer/toHexString (hash obj)))
+
 (def ^:dynamic *debug* true)
 
 (defmacro debug

@@ -101,14 +101,14 @@
 
 (defn item-set-reductions [{items :items}]
   (map (fn [{:keys [match-count] :as item}] [item match-count])
-       (filter #(-> % :rule is-complete?) items)))
+       (filter (fn-> :rule is-complete?) items)))
 
 ; ===
 ; Using the automaton
 ; ===
 
 (defn is-goal [state]
-  (some #(-> % :rulehead (= ::goal)) (-> state npda/peek :items)))
+  (some (fn-> :rulehead (= ::goal)) (-> state npda/peek :items)))
 
 ; Builds a rule match from the output stack and pushes the match to the top
 ; (think of a Forth operator reducing the top of a stack)
@@ -129,5 +129,5 @@
 
 ; Searches states for completed parse of the goal rule, returning all matches
 (defn scan-goal [chart]
-  (map #(-> % npda/popone npda/stream reduce-ostream)
-       (filter is-goal (os/vec (:states chart)))))
+  (map (fn-> npda/popone npda/stream reduce-ostream)
+       (filter is-goal (npda/states chart))))

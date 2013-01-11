@@ -16,7 +16,7 @@
   (vec [self])
   (contains? [self k]))
 
-(deftype AOrderedSet [i->k ks]
+(defrecord AOrderedSet [i->k ks]
   IOrderedSet
   (conj [self k]
     (if (core/contains? ks k)

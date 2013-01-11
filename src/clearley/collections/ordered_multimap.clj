@@ -3,22 +3,15 @@
   (require [clojure.core :as core])
   (require [clearley.collections.ordered-set :as os])
   (use clearley.utils))
+; TODO rename this to something that isn't collections?
 
-; See comments for clearley.collections.ordered-set.
+; don't use a defrecord, just use a map
+(def empty {})
 
-(defprotocol IOrderedMultimap
-  (get [self k])
-  (assoc [self k v]))
+(defn get [mm k] (core/get mm k os/empty))
 
-; A multimap with ordered values that can only be added to, not removed from.
-(deftype AOrderedMultimap [k->v]
-  IOrderedMultimap
-  (get [self k]
-    (core/get k->v k os/empty))
-  (assoc [self k v]
-    (AOrderedMultimap. (core/assoc k->v k (os/conj (get self k) v)))))
-
-(def empty (AOrderedMultimap. {}))
+(defn assoc [mm k v]
+  (core/assoc mm k (os/conj (get mm k) v)))
 
 (defn get-vec [mm k]
   (os/vec (get mm k)))
