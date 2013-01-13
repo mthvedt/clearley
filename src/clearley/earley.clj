@@ -40,7 +40,6 @@
 ; Item sets
 ; ===
 
-; TODO is match count the same for any item?
 (defn pstr-item-set-item [item predictor-map]
   (let [predictor-str
         (cutoff (separate-str ", " (map pstr (omm/get-vec predictor-map
@@ -96,9 +95,11 @@
 
 ; Reduces an item given a stack-top item-set
 (defn reduce-item-set [item-set {:keys [original]}]
-  (map #(new-item-set [%] (:grammar item-set))
-       (map advance-item (omm/get-vec (:predictor-map item-set) original))))
+  (if-let [new-items
+           (seq (map advance-item (omm/get-vec (:predictor-map item-set) original)))]
+    [(new-item-set new-items (:grammar item-set))]))
 
+; TODO something broken here?
 (defn item-set-reductions [{items :items}]
   (map (fn [{:keys [match-count] :as item}] [item match-count])
        (filter (fn-> :rule is-complete?) items)))
