@@ -23,8 +23,7 @@
                (char-range \A \F (char-to-num \A 10))])
 
 (def string-char-scanner
-  (scanner (fn [c] (and (char? c) (not (= \\ c)) (not (= \" c))))
-           identity))
+  (scanner (fn [c] (and (char? c) (not (= \\ c)) (not (= \" c))))))
 
 (defrule string-char
   ; an escaped char

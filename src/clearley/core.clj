@@ -1,8 +1,9 @@
 (ns clearley.core
-  "Tools for general context-free grammar parsing and syntax tree processing.
-  The goal of Clearley is to make parsing as easy as any other programming task.
+  "Tools for parsing and processing linear input.
+  The central abstraction is the context-free grammar, where one match rule
+  maps to arbitrary sequences of sub-rules.
   Emphasis is on completeness, modularity, and ease of use.
-  Can be used in a vanilla functional style or the provided macro language.
+  A functional API and a macro DSL are provided.
   
   Please be sure to see the docs for a high-level overview.
   Clearley docs assume familiarity with the library's high level concepts,
@@ -10,21 +11,21 @@
   (require [clojure string]
            [clojure.pprint])
   (use [clearley utils rules earley]))
-; All of the Clearley core library goes here.
+; Anything a programmer would need when requiring Clearley is here.
 ; Because I like short files, other stuff is shuffled into various files.
 
 (defn rule
-  "Creates a rule associated with a parse action that can be called
-  after matching. A rule has a required vector of clauses,
-  a head (optional, since Rules can also be embedded in other rules),
-  and an optional action (the default action bundles the args into a list)."
+  "Creates a context-free grammar rule. A rule has a required seq of clauses,
+  an optional name, and an optional action.
+  If not supplied, the default action bundles the args into a list."
   ([clauses] (rule nil clauses nil))
   ([clauses action] (rule nil clauses action))
   ([name clauses action] (context-free-rule name clauses action)))
 
 (defn token
-  "Returns a rule that matches a single given token.
-  Its action returns the given value."
+  "Creates a rule that matches a single given token.
+  Its action returns the given value if supplied, or the token if not."
+  ([a-token] (token a-token a-token))
   ([a-token value] (rule nil [a-token] (fn [_] value))))
 
 (defrecord OneOrMoreImpl [subrule dot]
@@ -40,7 +41,7 @@
                   (clause-str subrule))))
 
 (defn one-or-more
-  "Creates a rule that matches one or more of a subrule. Returns a vector
+  "Creates a rule that matches one or more of a subrule. Its action returns a vector
   of the matches."
   ([subrule]
    (one-or-more (str (rule-name subrule) "+") subrule))
@@ -63,13 +64,15 @@
 
 (defn scanner
   "Creates a rule that accepts input tokens. For a token t, if (scanner-fn t)
-  is logical true, this rule matches that token."
+  is logical true, this rule matches that token. The default action returns the token."
+  ([scanner-fn] (scanner scanner-fn identity))
   ([scanner-fn action]
    (wrap-kernel (Scanner. scanner-fn 0) nil action)))
 
 (defn char-range
   "Creates a rule that accepts any one character within a given range
-  given by min and max, inclusive. min and max should be chars."
+  given by min and max, inclusive. min and max should be chars. The default
+  action is the identity."
   ([min max]
    (char-range min max identity))
   ([min max action]
@@ -103,24 +106,6 @@
      (charts [parser input]
        (parse-charts input rules tokenizer goal)))))
 
-#_(defn match-map [rule-fn leaf-fn match]
-  "Deeply maps the given fns to a match tree, using rule-fn on the rules
-  and leaf-fn on the leaves."
-  ((fn f [node]
-     (if-let [submatches (seq (rest node))]
-       (apply vector (rule-fn (first node)) (map f submatches))
-       (leaf-fn node)))
-     match))
-
-#_(defn deep-doall [seq]
-  "Realizes an entire nested sequence. Only operates on seqs
-  (and child seqs) where sequential? is true."
-  ((fn f [node]
-     (if (sequential? node)
-       (doall (map f node))))
-     seq))
-
-; TODO jack into pprint instead?
 ; TODO should be able to use rule-str instead of clause-str.
 (defn print-match
   "Prints a pretty shorthand tree to *out*."
@@ -219,19 +204,22 @@
   the full defrule syntax.
   
   Usage:
-  (defrule rule-name [clauses] action?)
-  (defrule (rule-name [clauses] action?)+)
+  (defrule symbol [clauses] action?)
+  (defrule (symbol [clauses] action?)+)
 
   Valid clauses:
-  a rule
+  any rule object
   a symbol pointing to a seq of rules
-  [rule or rule symbol+]
+  [rule or rule-symbol]+
   (rule-alias-symbol rule-symbol)
-  (rule-alias-symbol [rule or rule symbol+])
+  (rule-alias-symbol [rule or rule-symbol]+)
   
-  Defines one or more rules and binds them (possibly in a seq) to a given var.
+  Defines one or more rules and binds them in a seq to the given var.
+  The rule's name will be the given symbol by default.
   The optional action form defines a parse action, where the symbols will be bound
-  to the results of the actions of the correspoinding subrules. For example:
+  to the results of the actions of the correspoinding subrules.
+
+  Example:
 
   (defrule sum [num \\+ (num2 num)] (+ num num2))
   
@@ -240,31 +228,32 @@
   will be used which bundles its args into a list. The rule will be bound
   to 'sum in the current namespace."
   ; TODO qualify syms?
-  [head & impl-or-impls]
-  `(def ~head ~(build-defrule-bodies head impl-or-impls)))
+  [sym & impl-or-impls]
+  `(def ~sym ~(build-defrule-bodies sym impl-or-impls)))
 
 (defmacro extend-rule
-  "Like defrule, but for an existing symbol with some rules bound to it."
-  [head & impl-or-impls]
-  `(def ~head (vec (concat ~head ~(build-defrule-bodies head impl-or-impls)))))
+  "Like defrule, but for an existing symbol with some rules bound to it,
+  such as one defined by defrule."
+  [sym & impl-or-impls]
+  `(def ~sym (vec (concat ~sym ~(build-defrule-bodies sym impl-or-impls)))))
 
 (defmacro add-rules
-  "Adds some amount of additional rule objects to a symbol with rules bound to it."
-  [head & rules]
-  `(def ~head (vec (concat ~head [~@rules]))))
+  "Adds some amount of additional rules to a symbol with rules bound to it,
+  such as one defined by defrule. The given rules must be rule objects, not
+  defrule-style definitions."
+  [sym & rules]
+  `(def ~sym (vec (concat ~sym [~@rules]))))
 
-; TODO: construct a grammar
 ; In the future, we might bind &env to theenv
 ; The form of &env is not fixed by Clojure authors so don't do it now
 (defn build-grammar-with-ns
-  "Builds a grammar in the given ns from the given goal rule."
+  "Builds a grammar in the given ns from the given goal clause."
   [goal thens]
-  (resolve-all-rule-deps goal thens {}))
+  (build-grammar-1 goal thens {}))
 
-; TODO test
 (defmacro build-grammar
-  "Builds a grammar in the current ns from the given goal rule.
-  A grammar is implemented as a seq of rules."
+  "Builds a grammar in the current ns from the given goal clause.
+  A grammar is a map from symbols to seqs of rules."
   [goal]
   `(build-grammar-with-ns '~goal *ns*))
 
@@ -284,8 +273,8 @@
 
 (defn close-rule [goal grammar]
   "Creates a rule that closes over the given grammar. This rule
-  can be used as a rule in other grammars, while being unaffected by that grammar.
-  In charts closed rules are distinguished by a lambda."
+  can be used as a rule in other grammars, while being unaffected by that grammar."
+  ; TODO closed rule name?
   (let [goal-rule (to-rule goal)]
     (assoc goal-rule :kernel (ClosedRule. goal-rule grammar))))
 

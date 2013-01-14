@@ -8,20 +8,12 @@
 (defn match [rule submatches]
   (Match. rule submatches))
 
-#_(defn match-vec [{:keys [rule submatches]} match]
-  (apply vector rule submatches))
-
-; ===
-; Rules--preamble
-; ===
-
 ; rule-deps: rule dependencies
 ; predict: predicts a single clause that must be matched
 ; scan: scans a single input
 ; is-complete?: is this rule fully matched
 ; advance: called when a predicted clause is matched
 ; rule-str: a short useful string representation of this rule
-
 (defprotocol RuleKernel
   (rule-deps [self])
   (predict [self])
@@ -65,7 +57,7 @@
 
 (defn rule-action [rule]
   (if (instance? clearley.rules.RuleKernel rule)
-    ; avoid :key -> nil maps in defrecords
+    ; work around :key -> nil maps in defrecords
     (if-let [r (:action rule)]
       r
       (fn [& xs] (vec xs)))
@@ -110,7 +102,7 @@
 ; Here be dragons
 ; ===
 
-(defn resolve-all-rule-deps [goal thens theenv]
+(defn build-grammar-1 [goal thens theenv]
   (loop [stack [goal] ; stack: clauses to resolve
          breadcrumbs #{}
          grammar {}] ; grammar: maps keyword clauses to rules

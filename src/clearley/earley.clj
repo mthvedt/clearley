@@ -52,12 +52,9 @@
 ; predictor-map: ordered multimap, items -> internal predicting items
 (defrecord ItemSet [items predictor-map grammar]
   npda/Node
-  (npda/shift [self input]
-    (shift-item-set self input))
-  (npda/reduce [self output]
-    (reduce-item-set self output))
-  (npda/reductions [self]
-    (item-set-reductions self))
+  (npda/shift [self input] (shift-item-set self input))
+  (npda/reduce [self output] (reduce-item-set self output))
+  (npda/reductions [self] (item-set-reductions self))
   PStrable
   (pstr [self]
     (with-out-str
@@ -95,8 +92,8 @@
 
 ; Reduces an item given a stack-top item-set
 (defn reduce-item-set [item-set {:keys [original]}]
-  (if-let [new-items
-           (seq (map advance-item (omm/get-vec (:predictor-map item-set) original)))]
+  (when-let [new-items
+             (seq (map advance-item (omm/get-vec (:predictor-map item-set) original)))]
     [(new-item-set new-items (:grammar item-set))]))
 
 ; TODO something broken here?
