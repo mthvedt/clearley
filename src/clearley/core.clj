@@ -102,7 +102,8 @@
    (reify Parser
      (parse [parser input]
        ; For now, only return first match
-       (first (scan-goal (peek (charts parser input)))))
+       ; TODO don't return on failure? why does this work?
+       (first (scan-goal (last (charts parser input)))))
      (charts [parser input]
        (parse-charts input rules tokenizer goal)))))
 

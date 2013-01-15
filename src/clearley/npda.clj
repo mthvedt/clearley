@@ -168,18 +168,26 @@
 (defn process-chart [chart token input]
   (reduce-chart (shift-chart chart token input)))
 
+; TODO test laziness
+(defn run-automaton-helper [input current-chart tokenizer]
+  (lazy-seq
+    (when-let [thechar (first input)]
+      (let [next-chart (process-chart current-chart (tokenizer thechar) thechar)]
+        (if (seq (states next-chart))
+          (cons next-chart (run-automaton-helper (rest input) next-chart tokenizer))
+          (list next-chart))))))
+
 ; Runs the automaton, returning a sequence of charts
 (defn run-automaton [initial-node input tokenizer]
-  (loop [pos 0
-         remaining-input input
-         current-chart (initial-chart initial-node)
-         charts [current-chart]]
+  (run-automaton-helper input (initial-chart initial-node) tokenizer))
+
+; TODO rename
+#_(defn run-automaton-2 [initial-node input tokenizer]
+  (loop [remaining-input input
+         current-chart (initial-chart initial-node)]
     (if-let [thechar (first remaining-input)]
-      (let [next-chart (process-chart current-chart (tokenizer thechar) thechar)
-            next-charts (conj charts next-chart)]
+      (let [next-chart (process-chart current-chart (tokenizer thechar) thechar)]
         (if (seq (states next-chart))
-          (recur (inc pos) (rest remaining-input) next-chart next-charts)
-          ; early termination on failure returning failed charts
-          next-charts))
-      ; end returning all charts
-      charts)))
+          (recur (rest remaining-input) next-chart)
+          nil))
+      current-chart)))
