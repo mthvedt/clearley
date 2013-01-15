@@ -96,7 +96,9 @@
   ([value] [value])
   ([array-values comma value] (conj array-values value)))
 
-(defrule array [array-begin array-values array-end] array-values)
+(defrule array
+  ([array-begin array-end] [])
+  ([array-begin array-values array-end] array-values))
 
 ; and the seventh (and also the goal type): Object.
 
@@ -114,7 +116,9 @@
                                                    (str "Duplicate key: " o)))
                                           (assoc o k v)))))
 
-(defrule object [object-begin object-values object-end] object-values)
+(defrule object
+  ([object-begin object-end] {})
+  ([object-begin object-values object-end] object-values))
 
 ; Put it all together...
 (def value [true-token false-token null-token
@@ -167,7 +171,9 @@
 
 (def-parser-test json-array-test json-value-parser
   (is-action [1] "[1]")
+  (is-action [] "[]")
   (is-action [1] " [ 1 ] ")
+  (is-action [] "  [   ]  ")
   (is-action [1 true] "[1,true]")
   (not-parsing "[1 true]")
   (is-action [1 true] " [ 1,true ]")
@@ -185,6 +191,7 @@
   (not-parsing "\"a\"")
   (not-parsing "[1]")
   (is-action {:a 1} "{\"a\" : 1}")
+  (is-action {} "{}")
   (is-parsing "{\"a\" : 1, \"a\" : 2}")
   (action-throws RuntimeException "{\"a\" : 1, \"a\" : 2}")
   (not-parsing "{a : 1}")
