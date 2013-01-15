@@ -121,9 +121,13 @@
 (defn reduce-ostream [ostream]
   (first (reduce reduce-ostream-helper '() ostream)))
 
+#_(defn parse [input-str grammar tokenizer goal]
+  (npda/run-automaton-2 (new-item-set [(new-item ::goal goal)] grammar)
+                        input-str tokenizer))
+
 (defn parse-charts [input-str grammar tokenizer goal]
   (npda/run-automaton (new-item-set [(new-item ::goal goal)] grammar)
-                 input-str tokenizer))
+                      input-str tokenizer))
 
 ; Searches states for completed parse of the goal rule, returning all matches
 (defn scan-goal [chart]
