@@ -14,6 +14,8 @@
 
 ; Things for a non-deterministic pushdown automaton (an NPDA).
 ; An NDPA state is a (node, stack, output-stream) tuple.
+; The output streams are partial, containing only the output emitted while
+; that state was on the stack.
 ;
 ; The input stream is the same for all active states. Each node may 'shift'
 ; by consuming input and returning a new node. This node is placed
@@ -181,8 +183,7 @@
 (defn run-automaton [initial-node input tokenizer]
   (run-automaton-helper input (initial-chart initial-node) tokenizer))
 
-; TODO rename
-#_(defn run-automaton-2 [initial-node input tokenizer]
+#_(defn fast-run-automaton [initial-node input tokenizer]
   (loop [remaining-input input
          current-chart (initial-chart initial-node)]
     (if-let [thechar (first remaining-input)]
