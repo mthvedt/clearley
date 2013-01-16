@@ -4,7 +4,8 @@
   (require [clearley.collections.ordered-set])
   (use clearley.utils))
 
-; See comments for clearley.collections.ordered-set.
+; A minimal implementation of an ordered map
+; in its own namespace for convenience.
 
 (defprotocol IOrderedMap
   (get [self k])

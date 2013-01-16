@@ -88,14 +88,14 @@
 ; Don't need to expose parser protocol... only 'parse' fn
 (defprotocol ^:private Parser
   (parse [parser input] "Parse the given input with the given parser,
-                        yielding a match tree (a tree of the form
-                        [rule leaves] where leaves is a seq).")
+                        yielding a match tree.")
   ; charts is not yet usable by external users
   (charts [parser input]))
 
+; TODO rename
 (defn earley-parser
   "Constructs an Earley parser given a map of rules,
-  a goal symbol, and an optional tokenizer."
+  a goal clause, and an optional tokenizer."
   ([goal rules]
    (earley-parser goal identity rules))
   ([goal tokenizer rules]
@@ -216,7 +216,7 @@
   (rule-alias-symbol [rule or rule-symbol]+)
   
   Defines one or more rules and binds them in a seq to the given var.
-  The rule's name will be the given symbol by default.
+  The rule's name will be the given (unqualified) symbol by default.
   The optional action form defines a parse action, where the symbols will be bound
   to the results of the actions of the correspoinding subrules.
 
@@ -227,8 +227,9 @@
   The above rule matches two nums (one of which is aliased as num2)
   and adds them together. If a parse action is not provided, a default
   will be used which bundles its args into a list. The rule will be bound
-  to 'sum in the current namespace."
-  ; TODO qualify syms?
+  to 'sum in the current namespace.
+  
+  Symbols in the defrule bodies do not become qualified."
   [sym & impl-or-impls]
   `(def ~sym ~(build-defrule-bodies sym impl-or-impls)))
 
@@ -248,13 +249,15 @@
 ; In the future, we might bind &env to theenv
 ; The form of &env is not fixed by Clojure authors so don't do it now
 (defn build-grammar-with-ns
-  "Builds a grammar in the given ns from the given goal clause."
+  "Builds a grammar in the given ns from the given goal clause.
+  Symbols in the grammar will be unqualified."
   [goal thens]
   (build-grammar-1 goal thens {}))
 
 (defmacro build-grammar
   "Builds a grammar in the current ns from the given goal clause.
-  A grammar is a map from symbols to seqs of rules."
+  A grammar is a map from symbols to seqs of rules.
+  Symbols in the grammar are unqualified."
   [goal]
   `(build-grammar-with-ns '~goal *ns*))
 

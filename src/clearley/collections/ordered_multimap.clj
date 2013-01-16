@@ -3,9 +3,11 @@
   (require [clojure.core :as core])
   (require [clearley.collections.ordered-set :as os])
   (use clearley.utils))
-; TODO rename this to something that isn't collections?
 
-; don't use a defrecord, just use a map
+; Stuff for manipulating ordered multimaps. It's just here
+; so it gets its own namespace.
+
+; ordered multimaps are just maps of key->ordered-set
 (def empty {})
 
 (defn get [mm k] (core/get mm k os/empty))

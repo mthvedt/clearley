@@ -3,6 +3,7 @@
   (use clearley.utils)
   (require clojure.string))
 
+; TODO merge into core? simplify rule kernel(?)
 (defrecord Match [rule submatches])
 
 (defn match [rule submatches]
@@ -47,7 +48,7 @@
       (str clause))
     cmap))
 
-(defn rulehead-clause [clause]
+(defn clause-name [clause]
   (cond
     (:name clause) (:name clause)
     (symbol? clause) (str clause)

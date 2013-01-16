@@ -3,12 +3,8 @@
   (require [clojure.core :as core])
   (use clearley.utils))
 
-; A poorly written library containing some collections
-; that the earley parser needs.
-
-; I'm not sure about the standard protocols in Clojurescript so
-; rolling my own protocols for now. stuff like conj is different
-; these data structures in the first place.
+; A minimal implementation of an ordered set
+; in its own namespace for convenience.
 
 ; An ordered set that can only be added to, not disj'd from.
 (defprotocol IOrderedSet
@@ -35,6 +31,5 @@
 
 (defn ordered-set [& ks] (into empty ks))
 
-; TODO test
 (defn map [& args]
   (into empty (apply core/map args)))

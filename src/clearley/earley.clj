@@ -10,23 +10,23 @@
 ; Items are the atoms of LR-automaton parsing.
 ; ===
 
-; rulehead: the clause predicting this item
-; TODO reexamine ruleheads?
+; name: an object representing the clause that predicted this item
+; should have a short str representation
 ; rule: the rule for this item
 ; original: the original (unadvanced) rule, used to populate matches
 ; match-count: the number of times this rule has been scanned or advanced
-(defrecord Item [rulehead rule original match-count]
+(defrecord Item [name rule original match-count]
   PStrable
   (pstr [_]
-    (str rulehead " -> " (rule-str rule))))
+    (str name " -> " (rule-str rule))))
 
-(defn new-item [head-sym clause]
+(defn new-item [name clause]
   (let [rule (to-rule clause)]
-    (Item. head-sym rule rule 0)))
+    (Item. name rule rule 0)))
 
 (defn predict-item [item grammar]
   (let [clause (predict (:rule item))]
-    (map #(new-item (rulehead-clause clause) %)
+    (map #(new-item (clause-name clause) %)
          (predict-clause clause grammar))))
 
 (defn scan-item [item input-token]
@@ -70,14 +70,11 @@
 (defn current-item [{items :items} dot]
   (when-not (>= dot (count items)) (get items dot)))
 
-; TODO: predicting completed items seems to cause combinatorial explosion
 (defn close-item-set [item-set]
   (loop [c item-set, dot 0]
     (if-let [s (current-item c dot)]
-      (recur (if (is-complete? (:rule s))
-               c
-               (reduce #(predict-into-item-set % %2 s)
-                       c (predict-item s (:grammar item-set))))
+      (recur (reduce #(predict-into-item-set % %2 s)
+                     c (predict-item s (:grammar item-set)))
              (inc dot))
       c)))
 
@@ -96,7 +93,6 @@
              (seq (map advance-item (omm/get-vec (:predictor-map item-set) original)))]
     [(new-item-set new-items (:grammar item-set))]))
 
-; TODO something broken here?
 (defn item-set-reductions [{items :items}]
   (map (fn [{:keys [match-count] :as item}] [item match-count])
        (filter (fn-> :rule is-complete?) items)))
@@ -106,7 +102,7 @@
 ; ===
 
 (defn is-goal [state]
-  (some (fn-> :rulehead (= ::goal)) (-> state npda/peek :items)))
+  (some (fn-> :name (= ::goal)) (-> state npda/peek :items)))
 
 ; Builds a rule match from the output stack and pushes the match to the top
 ; (think of a Forth operator reducing the top of a stack)
