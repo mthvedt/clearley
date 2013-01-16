@@ -26,7 +26,7 @@
 
 (defn predict-item [item grammar]
   (let [clause (predict (:rule item))]
-    (map #(new-item (clause-name clause) %)
+    (map #(new-item (clause-str clause) %)
          (predict-clause clause grammar))))
 
 (defn scan-item [item input-token]

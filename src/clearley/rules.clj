@@ -21,16 +21,28 @@
   (scan [self input-token])
   (is-complete? [self])
   (advance [self])
-  (rule-str [self]))
+  (rule-str [self])) ; TODO move to name
 
 (declare context-free-rule)
+
+(defn rule? [x]
+  (instance? clearley.rules.RuleKernel x))
+
+(defn rule-action [rule]
+  (if (rule? rule)
+    ; work around :key -> nil maps in defrecords
+    (if-let [r (:action rule)]
+      r
+      (fn [& xs] (vec xs)))
+    (fn [] rule)))
 
 ; ===
 ; Rule clauses
 ; ===
 
+; TODO where is this used vs clause-name?
 (defn rule-name [rule]
-  (if (instance? clearley.rules.RuleKernel rule)
+  (if (rule? rule)
     (:name rule)
     nil))
 
@@ -41,28 +53,18 @@
    \formfeed "\\f"
    \return "\\r"})
 
+; A short string representation of a clause.
 (defn clause-str [clause]
-  (clojure.string/escape
-    (if (instance? clearley.rules.RuleKernel clause)
-      (rule-str clause)
-      (str clause))
-    cmap))
-
-(defn clause-name [clause]
   (cond
-    (:name clause) (:name clause)
+    (and (rule? clause) (:name clause)) (:name clause)
     (symbol? clause) (str clause)
-    (string? clause) (str \" clause \")
+    (string? clause) (clojure.string/escape (str \" clause \") cmap)
+    (char? clause) (clojure.string/escape (str \' clause \') cmap)
     (keyword? clause) (str clause)
-    true "anon"))
-
-(defn rule-action [rule]
-  (if (instance? clearley.rules.RuleKernel rule)
-    ; work around :key -> nil maps in defrecords
-    (if-let [r (:action rule)]
-      r
-      (fn [& xs] (vec xs)))
-    (fn [] rule)))
+    (or (vector? clause) (seq? clause)) (str "["
+                                             (separate-str ", " (map clause-str clause))
+                                             "]")
+    true (clojure.string/escape (str clause) cmap)))
 
 ; Resolves a symbol to a seq of clauses
 (defn lookup-symbol [thesym thens theenv]
@@ -75,7 +77,7 @@
 
 ; Rule-ifies the given clause, wrapping it in a one-clause rule if neccesary.
 (defn to-rule [clause]
-  (if (instance? clearley.rules.RuleKernel clause)
+  (if (rule? clause)
     clause
     (context-free-rule (str "Anon@" (hash clause)) [clause] identity)))
 
@@ -89,14 +91,14 @@
 ; Gets a seq of subrules from a clause
 (defn predict-clause [clause grammar]
   (cond
-    (instance? clearley.rules.RuleKernel clause) [clause]
+    (rule? clause) [clause]
     (seq? clause) (map to-rule clause)
     (vector? clause) (map to-rule clause)
     true (get grammar clause [])))
 
 ; All things this clause might point to, that we must resolve at grammar build time
 (defn clause-deps [x grammar]
-  (cond (instance? clearley.rules.RuleKernel x) (rule-deps x)
+  (cond (rule? x) (rule-deps x)
         true (predict-clause x grammar)))
 
 ; ===
@@ -137,9 +139,10 @@
   (RuleImpl. kernel name action))
 
 (defn cfg-rule-str [rule-deps dot]
+  (let [clause-strs (map clause-str rule-deps)]
     (separate-str " " (if (zero? dot)
-                        rule-deps
-                        (concat (take dot rule-deps) ["*"] (drop dot rule-deps)))))
+                        clause-strs
+                        (concat (take dot clause-strs) ["*"] (drop dot clause-strs))))))
 
 (defrecord CfgRule [clauses dot]
   RuleKernel
