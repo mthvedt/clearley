@@ -21,7 +21,7 @@
   (scan [self input-token])
   (is-complete? [self])
   (advance [self])
-  (rule-str [self])) ; TODO move to name
+  (rule-str [self]))
 
 (declare context-free-rule)
 
@@ -39,12 +39,6 @@
 ; ===
 ; Rule clauses
 ; ===
-
-; TODO where is this used vs clause-name?
-(defn rule-name [rule]
-  (if (rule? rule)
-    (:name rule)
-    nil))
 
 (def cmap
   {\newline "\\n"

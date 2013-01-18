@@ -44,7 +44,7 @@
   "Creates a rule that matches one or more of a subrule. Its action returns a vector
   of the matches."
   ([subrule]
-   (one-or-more (str (rule-name subrule) "+") subrule))
+   (one-or-more (str (clause-str subrule) "+") subrule))
   ([name subrule]
    (merge (OneOrMoreImpl. subrule 0) {:name name, :action identity})))
 
