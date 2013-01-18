@@ -70,11 +70,15 @@
 (defn current-item [{items :items} dot]
   (when-not (>= dot (count items)) (get items dot)))
 
+; TODO: predicting completed items seems to cause combinatorial explosion
+; but only for some grammars (JSON)
 (defn close-item-set [item-set]
   (loop [c item-set, dot 0]
     (if-let [s (current-item c dot)]
-      (recur (reduce #(predict-into-item-set % %2 s)
-                     c (predict-item s (:grammar item-set)))
+      (recur (if (is-complete? (:rule s))
+               c
+               (reduce #(predict-into-item-set % %2 s)
+                       c (predict-item s (:grammar item-set))))
              (inc dot))
       c)))
 
