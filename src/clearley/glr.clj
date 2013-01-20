@@ -1,5 +1,4 @@
-; TODO rename
-(ns clearley.earley
+(ns clearley.glr
   (require [clearley.collections.ordered-set :as os]
            [clearley.collections.ordered-multimap :as omm]
            [clearley.npda :as npda])
@@ -113,7 +112,7 @@
 ; (think of a Forth operator reducing the top of a stack)
 ; Final output (for a valid parse) will be a singleton list
 (defn reduce-ostream-helper [ostream item]
-  (if (instance? clearley.earley.Item item)
+  (if (instance? clearley.glr.Item item)
     (let [{:keys [match-count original]} item]
       (cons (match original (vec (reverse (take match-count ostream))))
             (drop match-count ostream)))

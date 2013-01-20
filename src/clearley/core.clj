@@ -8,9 +8,11 @@
   See the high-level docs for a further background and overview." 
   (require [clojure string]
            [clojure.pprint])
-  (use [clearley utils rules earley]))
+  (use [clearley utils rules glr]))
 ; Anything a programmer would need when requiring Clearley is here.
 ; Because I like short files, other stuff is shuffled into various files.
+
+; TODO add execute
 
 (defn rule
   "Creates a context-free grammar rule. A rule has a required seq of clauses,
@@ -109,7 +111,7 @@
        (pstr-charts (parse-charts input rules tokenizer goal))))))
 
 (defn print-match
-  "Prints a pretty shorthand tree to *out*."
+  "Pretty-prints a match tree to *out*."
   [match]
   ((fn f [{:keys [rule submatches]} depth]
      (println (apply str (repeat depth " ")) (clause-str rule))
