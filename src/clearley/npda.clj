@@ -5,7 +5,9 @@
            [clojure.core :as core])
   (use clearley.utils))
 
-;(defrecord Reduction [rule count])
+; For use in print-charts &c.
+(defprotocol IPrinting
+  (pstr [obj]))
 
 (defprotocol Node
   (shift [self input])
@@ -92,7 +94,7 @@
       ; doall prevents lazy my-prevs explosions with very large numbers of states
       ; for some reason
       (AState. node my-rstream (doall (concat my-prevs op)))));)
-  PStrable
+  IPrinting
   (pstr [self]
     (with-out-str
       (println "State" (hexhash (state-key self)))
@@ -127,11 +129,13 @@
   (add-state [_ new-state]
     (AChart. (om/assoc my-states (state-key new-state) new-state)))
   (states [_] (om/vals my-states))
-  PStrable
+  IPrinting
   (pstr [self]
     (with-out-str
       (println "===")
-      (print (separate-str "---\n" (map pstr (states self))))
+      (if (seq (states self))
+        (print (separate-str "---\n" (map pstr (states self))))
+        (print "(empty)\n"))
       (println "==="))))
 
 (def empty-chart (AChart. om/empty))
@@ -170,19 +174,24 @@
 (defn process-chart [chart token input]
   (reduce-chart (shift-chart chart token input)))
 
-; TODO test laziness
+; Laziness knocks the big-O down a notch
+; but doesn't get us to best-case O(n^2)--O(1) for CLR(k) grammars
+; because we store matches in the chart. Push parsing could be added in the future
+; to accomplish this.
 (defn run-automaton-helper [input current-chart tokenizer]
-  (lazy-seq
-    (when-let [thechar (first input)]
-      (let [next-chart (process-chart current-chart (tokenizer thechar) thechar)]
-        (if (seq (states next-chart))
-          (cons next-chart (run-automaton-helper (rest input) next-chart tokenizer))
-          (list next-chart))))))
+  (cons current-chart
+        (lazy-seq
+          (when-let [thechar (first input)]
+            (let [next-chart (process-chart current-chart (tokenizer thechar) thechar)]
+              (if (seq (states next-chart))
+                (run-automaton-helper (rest input) next-chart tokenizer)
+                (list next-chart))))))) ; Puts an empty chart at the end
 
 ; Runs the automaton, returning a sequence of charts
 (defn run-automaton [initial-node input tokenizer]
   (run-automaton-helper input (initial-chart initial-node) tokenizer))
 
+; Saved for later
 #_(defn fast-run-automaton [initial-node input tokenizer]
   (loop [remaining-input input
          current-chart (initial-chart initial-node)]

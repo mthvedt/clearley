@@ -1,3 +1,4 @@
+; TODO rename
 (ns clearley.earley
   (require [clearley.collections.ordered-set :as os]
            [clearley.collections.ordered-multimap :as omm]
@@ -16,8 +17,8 @@
 ; original: the original (unadvanced) rule, used to populate matches
 ; match-count: the number of times this rule has been scanned or advanced
 (defrecord Item [name rule original match-count]
-  PStrable
-  (pstr [_]
+  npda/IPrinting
+  (npda/pstr [_]
     (str name " -> " (rule-str rule))))
 
 (defn new-item [name clause]
@@ -42,9 +43,9 @@
 
 (defn pstr-item-set-item [item predictor-map]
   (let [predictor-str
-        (cutoff (separate-str ", " (map pstr (omm/get-vec predictor-map
-                                                             (:original item)))))]
-    (str (pstr item) (if (seq predictor-str) (str " | " predictor-str)))))
+        (cutoff (separate-str ", " (map npda/pstr (omm/get-vec predictor-map
+                                                               (:original item)))))]
+    (str (npda/pstr item) (if (seq predictor-str) (str " | " predictor-str)))))
 
 (declare shift-item-set reduce-item-set item-set-reductions)
 
@@ -55,8 +56,8 @@
   (npda/shift [self input] (shift-item-set self input))
   (npda/reduce [self output] (reduce-item-set self output))
   (npda/reductions [self] (item-set-reductions self))
-  PStrable
-  (pstr [self]
+  npda/IPrinting
+  (npda/pstr [self]
     (with-out-str
       (runmap println (map #(pstr-item-set-item % predictor-map) items)))))
 
@@ -121,13 +122,12 @@
 (defn reduce-ostream [ostream]
   (first (reduce reduce-ostream-helper '() ostream)))
 
-#_(defn parse [input-str grammar tokenizer goal]
-  (npda/run-automaton-2 (new-item-set [(new-item ::goal goal)] grammar)
-                        input-str tokenizer))
-
 (defn parse-charts [input-str grammar tokenizer goal]
   (npda/run-automaton (new-item-set [(new-item ::goal goal)] grammar)
                       input-str tokenizer))
+
+(defn pstr-charts [charts]
+  (dorun (map-> charts npda/pstr println)))
 
 ; Searches states for completed parse of the goal rule, returning all matches
 (defn scan-goal [chart]

@@ -16,7 +16,7 @@
    :num [num1 (rulefn :num \2) (rulefn :num \3) (rulefn :num \4)
          (rulefn :num \5 \5) (rule :num "777" nil)]})
 
-(def simple-parser (earley-parser :sum simple-parser-rules))
+(def simple-parser (parser :sum simple-parser-rules))
 
 (def-parser-test basic-parser-test simple-parser
   (is-parsing "1+2")
@@ -54,7 +54,7 @@
     (char (- (int thechar) 48))
     thechar))
 
-(def letter-to-num-parser (earley-parser :sum letter-to-num simple-parser-rules))
+(def letter-to-num-parser (parser :sum letter-to-num simple-parser-rules))
 
 (def-parser-test basic-tokenizer-test letter-to-num-parser
   (is-ast [[[\a]]] "a")
@@ -70,7 +70,7 @@
    :num [(rule :num [\2] (fn [_] 2))
          (rule :num [\3] (fn [_] 3))]})
 
-(def calculator-parser (earley-parser :sum calculator-rules))
+(def calculator-parser (parser :sum calculator-rules))
 
 (def-parser-test calculator-test calculator-parser
   (is-action 5 "2+3")
@@ -81,7 +81,7 @@
 (def embedded-rules
     {:a [(rule :a [\a [\b \c] (rule :d [\d] nil)] nil)]})
 
-(def embedded-rule-parser (earley-parser :a embedded-rules))
+(def embedded-rule-parser (parser :a embedded-rules))
 
 (def-parser-test rule-embedding-test embedded-rule-parser
     (is-parsing "abd")
@@ -186,3 +186,10 @@
     (isnt (parses? "4+4"))
     (is-action 19 "2*3+2*2+3*3")
     (isnt (parses? "0+1*2+3*4+9"))))
+
+(def one-or-more-s (one-or-more \s))
+(def one-or-more-test-parser (build-parser one-or-more-s))
+(deftest special-rules-test
+  (with-parser one-or-more-test-parser
+    (is-parsing "sssss")
+    (isnt (parses? "sssst"))))

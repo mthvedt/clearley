@@ -3,7 +3,7 @@
   (use clearley.utils)
   (require clojure.string))
 
-; TODO merge into core? simplify rule kernel(?)
+; TODO merge into core? simplify rule kernel?
 (defrecord Match [rule submatches])
 
 (defn match [rule submatches]
@@ -119,7 +119,6 @@
 ; Rules
 ; ===
 
-; TODO rule attrs/metadata?
 (defrecord RuleImpl [kernel name action]
   RuleKernel
   (predict [self] (predict kernel))
@@ -155,4 +154,6 @@
   (rule-str [_] (cfg-rule-str clauses dot)))
 
 (defn context-free-rule [name clauses action]
-  (wrap-kernel (CfgRule. (vec clauses) 0) name action))
+  (if (= (count clauses) 0)
+    (TIAE "Clauses cannot be empty")
+    (wrap-kernel (CfgRule. (vec clauses) 0) name action)))

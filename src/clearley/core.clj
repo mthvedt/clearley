@@ -4,10 +4,8 @@
   maps to arbitrary sequences of sub-rules.
   Emphasis is on completeness, modularity, and ease of use.
   A functional API and a macro DSL are provided.
-  
-  Please be sure to see the docs for a high-level overview.
-  Clearley docs assume familiarity with the library's high level concepts,
-  for succintness."
+ 
+  See the high-level docs for a further background and overview." 
   (require [clojure string]
            [clojure.pprint])
   (use [clearley utils rules earley]))
@@ -28,27 +26,27 @@
   ([a-token] (token a-token a-token))
   ([a-token value] (rule nil [a-token] (fn [_] value))))
 
-(defrecord OneOrMoreImpl [subrule dot]
+(defrecord OneOrMoreImpl [subrule done]
   RuleKernel
   (predict [self] [(rule nil [subrule] vector)
                    (rule nil [self subrule] conj)])
   (rule-deps [self] [subrule])
   (scan [_ _] [])
-  (is-complete? [_] (= dot 1))
-  (advance [self] (assoc self :dot 1))
-  (rule-str [_] (if (not (zero? dot))
+  (is-complete? [_] done)
+  (advance [self] (assoc self :done true))
+  (rule-str [_] (if done
                   (str (clause-str subrule) " *")
                   (clause-str subrule))))
 
 (defn one-or-more
-  "Creates a rule that matches one or more of a subrule. Its action returns a vector
+  "Creates a rule that matches one or more of a clause. Its action returns a vector
   of the matches."
-  ([subrule]
-   (one-or-more (str (clause-str subrule) "+") subrule))
-  ([name subrule]
-   (merge (OneOrMoreImpl. subrule 0) {:name name, :action identity})))
+  ([clause]
+   (one-or-more (str (clause-str clause) "+") clause))
+  ([name clause]
+   (merge (OneOrMoreImpl. clause false) {:name name, :action identity})))
 
-(defrecord Scanner [rulefn dot]
+(defrecord Scanner [rulefn scanned]
   RuleKernel
   (rule-deps [_] [])
   (predict [self] [])
@@ -56,18 +54,18 @@
     (if (and (not (is-complete? self)) (rulefn input-token))
       [(advance self)]
       []))
-  (is-complete? [_] (= dot 1))
-  (advance [self] (assoc self :dot 1))
-  (rule-str [_] (if (zero? dot)
-                  (clause-str rulefn)
-                  (str (clause-str rulefn) " *"))))
+  (is-complete? [_] scanned)
+  (advance [self] (assoc self :scanned true))
+  (rule-str [_] (if scanned
+                  (str (clause-str rulefn) " *")
+                  (clause-str rulefn))))
 
 (defn scanner
   "Creates a rule that accepts input tokens. For a token t, if (scanner-fn t)
   is logical true, this rule matches that token. The default action returns the token."
   ([scanner-fn] (scanner scanner-fn identity))
   ([scanner-fn action]
-   (wrap-kernel (Scanner. scanner-fn 0) nil action)))
+   (wrap-kernel (Scanner. scanner-fn false) nil action)))
 
 (defn char-range
   "Creates a rule that accepts any one character within a given range
@@ -85,45 +83,39 @@
                  (and (<= intx intmax) (>= intx intmin))))
              action))))
 
-; Don't need to expose parser protocol... only 'parse' fn
-(defprotocol ^:private Parser
+(defprotocol Parser
   (parse [parser input] "Parse the given input with the given parser,
-                        yielding a match tree.")
-  ; charts is not yet usable by external users
-  (charts [parser input]))
+                        yielding a match tree."))
 
-; TODO rename
-(defn earley-parser
-  "Constructs an Earley parser given a map of rules,
+(defprotocol ChartParser
+  (print-charts [parser input] "Prints this parser's charts to *out*.
+                               Format is not fixed. A good explanation of parse charts
+                               (for an Earley parser, but same idea) is at
+                               http://www.wikipedia.org/wiki/Earley_parser."))
+
+(defn parser
+  "Constructs a parser given a map of rules,
   a goal clause, and an optional tokenizer."
   ([goal rules]
-   (earley-parser goal identity rules))
+   (parser goal identity rules))
   ([goal tokenizer rules]
-   (reify Parser
+   (reify
+     Parser
      (parse [parser input]
-       ; For now, only return first match
-       ; TODO don't return on failure? why does this work?
-       (first (scan-goal (last (charts parser input)))))
-     (charts [parser input]
-       (parse-charts input rules tokenizer goal)))))
+       ; For now, only return first match. If failure, last chart will be empty
+       (-> (parse-charts input rules tokenizer goal) last scan-goal first))
+     ChartParser
+     (print-charts [parser input]
+       (pstr-charts (parse-charts input rules tokenizer goal))))))
 
-; TODO should be able to use rule-str instead of clause-str.
 (defn print-match
   "Prints a pretty shorthand tree to *out*."
   [match]
   ((fn f [{:keys [rule submatches]} depth]
      (println (apply str (repeat depth " ")) (clause-str rule))
-     (doall (map #(f % (+ depth 2)) submatches)))
+     (domap #(f % (+ depth 2)) submatches))
      match 0)
-  nil) ; don't return a tree full of nils!
-
-(defn print-charts
-  "For a given parser and input, prints a multi-line representation of its charts to
-  *out*. The representation might change in the future. For more about
-  parse charts, see http://www.wikipedia.org/wiki/Earley_parser. Useful for debugging."
-  [parser input]
-  (dorun (for [chart (charts parser input)]
-           (println (pstr chart)))))
+  nil) ; don't return a tree full of nils
 
 (defn take-action
   "Executes the parse actions for a parser match."
@@ -263,7 +255,6 @@
 
 (declare close-rule)
 
-; TODO map interface perhaps
 (defrecord ^:private ClosedRule [rule grammar]
   RuleKernel
   (predict [self] 
@@ -273,12 +264,13 @@
   (scan [self input-token] (map #(assoc self :rule %) (scan rule input-token)))
   (is-complete? [_] (is-complete? rule))
   (advance [self] (assoc self :rule (advance rule)))
-  (rule-str [_] (str "\\" (rule-str rule))))
+  (rule-str [_] (str "::" (rule-str rule))))
 
 (defn close-rule [goal grammar]
   "Creates a rule that closes over the given grammar. This rule
-  can be used as a rule in other grammars, while being unaffected by that grammar."
-  ; TODO closed rule name?
+  can be used as a rule in other grammars, while being unaffected by that grammar.
+
+  Closed rules are indicated in charts with a :: prefix."
   (let [goal-rule (to-rule goal)]
     (assoc goal-rule :kernel (ClosedRule. goal-rule grammar))))
 
@@ -293,4 +285,4 @@
 (defn build-parser-with-ns
   "Build a parser in a given ns from the given goal rule and tokenizer."
   [goal tokenizer thens]
-  (earley-parser goal tokenizer (build-grammar-with-ns goal thens)))
+  (parser goal tokenizer (build-grammar-with-ns goal thens)))
