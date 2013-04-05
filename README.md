@@ -1,13 +1,26 @@
 # Clearley
 
-The better, easier way to parse, in Clojure. There's an Earley parser under the hood,
-hence the name Clearley.
-Clearley fits naturally in Clojure and handles all context-free grammars,
-no strings attached. Just define your parse rules and go.
+Parsing for Earthlings.
 
-## Example
+## Repository
 
-Here's a simple calculator written in Clearley. Parse rules and actions
+lein:
+```
+[clearley "0.0.2.SNAPSHOT"]
+```
+
+maven:
+```
+<dependency>
+  <groupId>clearley</groupId>
+  <artifactId>clearley</artifactId>
+  <version>0.0.2.SNAPSHOT</version>
+</dependency>
+```
+
+## Crash course
+
+This is a a simple calculator written in Clearley. Parse rules and actions
 are defined together in a style similar to defn.
 
 ```clojure
@@ -25,9 +38,10 @@ are defined together in a style similar to defn.
   ([\- number] (- number))
   ([number digit] (+ (* 10 number) digit))
   ([digit] digit))
-; The below converts a char digit to a Clojure number
-(def digit (char-range \0 \9
-  (fn [c] (- (int c) (int \0)))))
+; Convert a char digit to a Clojure number
+(def digit
+  (char-range \0 \9
+    (fn [c] (- (int c) (int \0)))))
 
 (def my-calculator (build-parser sum))
 
@@ -35,52 +49,125 @@ user=> (execute my-calculator "1+1")
 2
 ```
 
-More examples can be found in test/clearley/examples.
+More examples live in test/examples. For example, there's a fully valid JSON parser.
 
-## Usage
+## Bullet points
 
-Clearley is alpha software. All the base planned functionality of a context-free
-grammar parser is there. The next steps are to work on documentation,
-verify edge cases, and work on internals.
+* Clearley is Clojure-oriented. The 'defrule' macro library works in a style like that of defn. Or you can manipulate grammars and rule records directly.
+* Clearley will parse any set of rules and will always parse a string when possible. Many CFG grammars (LL, *LR) have restrictions on the rules, and memoizing parsers (Packrat) may fail to find valid parses.
+* Combining grammars is easy, and adding new rules will never break existing parses.
+* Everything parses in polynomial time. Many real world grammars parse in O(n) time.
 
-Documentation coming soon.
+## Disadvantages
 
-## Why yet another parser library?
+Clearley is alpha software and has a few drawbacks:
 
-Clearley arose when a few projects I'd worked on, and planned to work on in the future,
-needed a parser. Unfortunately, parsing is "the solved problem that isn't"[1].
-The world of parsers is a hazardous one, full of booby traps like
-left-recursion, "shift-reduce conflicts", lookahead sets, noncomposability of grammars;
-and impeding you as you navigate this minefield are requirements to handle things
-like tokenization, AST processing, and if you're unlucky a multi-stage build process.
-This makes it difficult to use parsers in a exploratory, flexible, agile manner.
-Yet the theory of context-free grammars is simple and provably tractable by computer--
-so why should parsing be hard?
+* Disambiguation is not supported. If input can be parsed in multiple ways, Clearley will silently pick one. This undesirable behavior will probably be changed in the future.
+* Clearley is not (yet) highly performant. Different libraries are available for this purpose, such as GNU Bison.
+* Error reporting is currently minimal.
 
-## Caveats
+The API may also change a little over time. I'm pretty pleased with it but some rough edges could use polishing.
 
-There are three major obstacles in Clearley right now:
-1. The rule/defrule syntax is somewhat confusing, with some broken edge cases.
-This is priority number 1.
-2. Error reporting could use some work. Right now, Clearley simply fails with
-"Failure to parse".
-3. Clearley is slow.
+## Defining rules
 
-Because the underlying machine--context-free grammar parsing--is very well understood,
-issues 2 and 3 are solvable by applying current, well-understood techniques. This
-is probably the near future of Clearley should adoption and work continue.
+The main macro is the defrule macro, which looks a lot like defn. The difference is the arguments aren't just symbols, they refer to other rules, which may or may not be defined yet.
+
+```clojure
+(defrule term
+  ([term \* number] (* term number))
+  ([term \/ number] (/ term number))
+  ([number] number))
+```
+
+A rule contains a sequence of clauses. If a clause is a symbol, it can be used in a defrule body. To match a rule, the parser must match all its clauses, in order.
+
+A clause can be any of the following:
+
+* Any instance of Rule. Rules can be embedded in anonymous rules.
+* Any sequence or vector of clauses. This matches any one of those subclauses.
+* Any symbol. Symbols map to sequences of rules in a grammar. If you use symbols, you probably want to use build-grammar or build-parser. When building a grammar, a symbol must be resolvable to any clause.
+* Any other Object. Objects that don't match one of the above are interpreted as tokens. These Objects match a single input token using =.
+
+In a built grammar, rules map to sequences of other rules. A non-rule clause will be wrapped up in an anonymous rule with the identity action. This doesn't affect behavior but affects match trees and parse charts.
+
+A rule is a record that implements an internal interface (RuleKernel). I might make them pure maps in the future, but this is how it is for now. Make sure that if you manipulate rule records, you get instances of the record back. Also, the structure of the record might change to something simpler.
+
+N.B.: The empty rule is not supported. This is usually easy to work around except you cannot parse the empty string.
+
+## Working with match trees
+
+You can get a match tree directly from the parser in the following way:
+
+```clojure
+user=> (parse my-calculator "1+2")
+#clearley.rules.Match{:rule #clearley.rules.RuleImpl{:kernel ...}}
+```
+
+There's some crude pretty printing for matches:
+
+```clojure
+user=> (print-match (parse my-calculator "1+2"))
+ sum
+   sum
+     term
+       pow
+         numexpr
+           number
+             clearley.rules.RuleImpl@4b2e1a6c
+               '1'
+   '+'
+   term
+     pow
+       numexpr
+         number
+           clearley.rules.RuleImpl@4b2e1a6c
+             '2'
+```
+
+You can also view parse charts:
+
+(TODO)
+
+## Working with grammars and rule objects
+
+A grammar is a map from symbols to seqs of rules.
+
+```clojure
+user=> (build-grammar sum)
+{digit (#clearley.rules.RuleImpl{:kernel (...) })}
+user=> (pprint *1)
+{digit
+ ({:kernel
+   {:rulefn
+    #<core$char_range$fn__1939 clearley.core$char_range$fn__1939@5f36ba9b>,
+    :scanned false},
+   :name nil,
+   :action
+   #<calculator$fn__2309 clearley.examples.calculator$fn__2309@21546f3>}),
+ number
+ ...}
+```
+
+You can manipulate it as you'd manipulate any other map. For nondeterministic grammars, the order of rules might make a difference, but exact behavior is unspecified for now.
+
+## Parsing in detail
+
+(TODO)
+
+## What's under the hood
+
+Currently Clearley is using a GLR parser with Earley-like charts. The code is designed such that new backends can be coded and plugged in. The rule API is seperate from the parser itself.
+
+## Next steps
+
+* Improve the rules API. Right now they are records that implement an interface.
+* Better ambiguity detection, error detection, and recovery.
+* Big-O performance improvements, such as using lookahead to parse right-recursive grammars in linear time.
+
+Please open an issue if you find any issues. If you have any suggestions, ideas, or have written some fns/libs that might be useful, please let me know!
 
 ## References
 
-[1] "Parsing: the solved problem that isn't". Laurence Tratt. Retrieved June 18, 2012 at
-<http://tratt.net/laurie/tech_articles/articles/parsing_the_solved_problem_that_isnt>.
+# License
 
-## License
-
-Copyright © 2012 Mike Thvedt.
-
-Distributed under the Eclipse Public License, the same as Clojure,
-which can be found in the file license.html at the root of this distribution.
-By using this software in any fashion, you are agreeing to be bound by
-the terms of this license.
-You must not remove this notice, or any other, from this software.
+Clearley is licesned under the EPL, the same as Clojure.
