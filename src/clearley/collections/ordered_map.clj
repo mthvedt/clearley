@@ -1,8 +1,7 @@
 (ns clearley.collections.ordered-map
   (:refer-clojure :exclude [get assoc empty keys vals into])
   (require [clojure.core :as core])
-  (require [clearley.collections.ordered-set])
-  (use clearley.utils))
+  (require [clearley.collections.ordered-set]))
 
 ; A minimal implementation of an ordered map
 ; in its own namespace for convenience.

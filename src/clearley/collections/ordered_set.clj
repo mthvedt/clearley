@@ -1,7 +1,6 @@
 (ns clearley.collections.ordered-set
   (:refer-clojure :exclude [conj vec contains? into empty map get])
-  (require [clojure.core :as core])
-  (use clearley.utils))
+  (require [clojure.core :as core]))
 
 ; A minimal implementation of an ordered set
 ; in its own namespace for convenience.

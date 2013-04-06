@@ -1,6 +1,6 @@
 (ns clearley.test.npda
   (require [clearley.npda :as npda])
-  (use clearley.utils
+  (use uncore.core
        clearley.test.utils
        lazytest.deftest))
 

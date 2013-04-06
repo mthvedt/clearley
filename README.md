@@ -6,7 +6,7 @@ Parsing for Earthlings.
 
 lein:
 ```
-[clearley "0.1.2.SNAPSHOT"]
+[clearley "0.1.2-SNAPSHOT"]
 ```
 
 maven:
@@ -14,7 +14,7 @@ maven:
 <dependency>
   <groupId>clearley</groupId>
   <artifactId>clearley</artifactId>
-  <version>0.1.2.SNAPSHOT</version>
+  <version>0.1.2-SNAPSHOT</version>
 </dependency>
 ```
 

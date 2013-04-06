@@ -77,12 +77,5 @@
 (defmacro is-parse [expected testval]
   `(is (tree-eq ~expected (match-tree (parse local-parser ~testval)))))
 
-#_(defmacro is-action [expected testval]
-  `(let [p# (parse local-parser ~testval)
-         a# (take-action p#)]
-     (when-not (= ~expected a#)
-       (print-match p#))
-  (is= ~expected (take-action (parse local-parser ~testval)))))
-
 (defmacro is-action [expected testval]
   `(is= ~expected (take-action (parse local-parser ~testval))))

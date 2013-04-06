@@ -1,7 +1,8 @@
 (ns clearley.rules
   "Back-end stuff for Clearley. Work in progress with unstable API."
-  (use clearley.utils)
-  (require clojure.string))
+  (require clojure.string
+           [uncore.throw :as t]
+           [uncore.str :as s]))
 
 ; TODO merge into core? simplify rule kernel?
 (defrecord Match [rule submatches])
@@ -55,9 +56,10 @@
     (string? clause) (clojure.string/escape (str \" clause \") cmap)
     (char? clause) (clojure.string/escape (str \' clause \') cmap)
     (keyword? clause) (str clause)
-    (or (vector? clause) (seq? clause)) (str "["
-                                             (separate-str ", " (map clause-str clause))
-                                             "]")
+    (or (vector? clause)
+        (seq? clause)) (str "["
+                            (s/separate-str ", " (map clause-str clause))
+                            "]")
     true (clojure.string/escape (str clause) cmap)))
 
 ; Resolves a symbol to a seq of clauses
@@ -67,7 +69,7 @@
       (if (or (vector? resolved) (seq? resolved))
         resolved
         [resolved]))
-    (TIAE "Cannot resolve rule for head: " thesym)))
+    (t/IAE "Cannot resolve rule for head: " thesym)))
 
 ; Rule-ifies the given clause, wrapping it in a one-clause rule if neccesary.
 (defn to-rule [clause]
@@ -133,9 +135,10 @@
 
 (defn cfg-rule-str [rule-deps dot]
   (let [clause-strs (map clause-str rule-deps)]
-    (separate-str " " (if (zero? dot)
+    (s/separate-str " " (if (zero? dot)
                         clause-strs
-                        (concat (take dot clause-strs) ["*"] (drop dot clause-strs))))))
+                        (concat (take dot clause-strs) ["*"]
+                                (drop dot clause-strs))))))
 
 (defrecord CfgRule [clauses dot]
   RuleKernel
@@ -155,5 +158,5 @@
 
 (defn context-free-rule [name clauses action]
   (if (= (count clauses) 0)
-    (TIAE "Clauses cannot be empty")
+    (t/IAE "Clauses cannot be empty")
     (wrap-kernel (CfgRule. (vec clauses) 0) name action)))

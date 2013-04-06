@@ -1,8 +1,9 @@
 (ns clearley.glr
   (require [clearley.collections.ordered-set :as os]
            [clearley.collections.ordered-multimap :as omm]
-           [clearley.npda :as npda])
-  (use [clearley utils rules]))
+           [clearley.npda :as npda]
+           [uncore.str :as s])
+  (use uncore.core [clearley rules]))
 
 ; ===
 ; Parse items
@@ -41,9 +42,8 @@
 ; ===
 
 (defn pstr-item-set-item [item predictor-map]
-  (let [predictor-str
-        (cutoff (separate-str ", " (map npda/pstr (omm/get-vec predictor-map
-                                                               (:original item)))))]
+  (let [predictor-str (->> item :original (omm/get-vec predictor-map)
+                        (map npda/pstr) (s/separate-str ", ") s/cutoff)]
     (str (npda/pstr item) (if (seq predictor-str) (str " | " predictor-str)))))
 
 (declare shift-item-set reduce-item-set item-set-reductions)

@@ -6,13 +6,11 @@
   A functional API and a macro DSL are provided.
  
   See the high-level docs for a further background and overview." 
-  (require [clojure string]
-           [clojure.pprint])
-  (use [clearley utils rules glr]))
+  (require [clojure string pprint]
+           [uncore.throw :as t])
+  (use [clearley rules glr]
+       [uncore.core]))
 ; Anything a programmer would need when requiring Clearley is here.
-; Because I like short files, other stuff is shuffled into various files.
-
-; TODO add execute
 
 (defn rule
   "Creates a context-free grammar rule. A rule has a required seq of clauses,
@@ -77,7 +75,7 @@
    (char-range min max identity))
   ([min max action]
   (if (not (and (char? min) (char? max)))
-    (TIAE "min and max should be chars"))
+    (t/IAE "min and max should be chars"))
   (let [intmin (int min)
         intmax (int max)]
     (scanner (fn [x]
@@ -168,7 +166,7 @@
                    therule
                    ; See what process-nonlist-clause has to say
                    (second (process-nonlist-clause therule)))])
-      (TIAE "Not a valid subrule: " clause))
+      (t/IAE "Not a valid subrule: " clause))
     (process-nonlist-clause clause)))
 
 ; Macro helper fn. Builds the `(rule ...) bodies for defrule.
@@ -180,7 +178,7 @@
                   (let [processed-clauses (map process-clause clauses)]
                     `(rule '~head [~@(map second processed-clauses)]
                            (fn [~@(map first processed-clauses)] ~@(rest impl))))
-                  (TIAE "Rule clauses must be seqable"))))
+                  (t/IAE "Rule clauses must be seqable"))))
             impls)))
 
 ; Macro helper fn. Builds the body for defrule and related macros.
@@ -191,7 +189,7 @@
           (build-defrule-rule-bodies head [(apply list first-form
                                                   (rest impl-or-impls))])
           (seq? first-form) (build-defrule-rule-bodies head impl-or-impls)
-          true (TIAE "Not a valid defrule; "
+          true (t/IAE "Not a valid defrule; "
                      "expected clause vector, string, or clause-body pairs"))))
 
 (defmacro defrule

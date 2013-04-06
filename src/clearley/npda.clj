@@ -2,8 +2,9 @@
   (:refer-clojure :exclude [reduce reductions peek pop])
   (require [clearley.collections.ordered-map :as om]
            [clearley.collections.ordered-set :as os]
+           [uncore.str :as s]
            [clojure.core :as core])
-  (use clearley.utils))
+  (use uncore.core))
 
 ; For use in print-charts &c.
 (defprotocol IPrinting
@@ -99,7 +100,8 @@
     (with-out-str
       (println "State" (hexhash (state-key self)))
       (print "Stack tops" (if (seq my-prevs)
-                            (separate-str " " (map (fn-> state-key hexhash) my-prevs))
+                            (s/separate-str " " (map (fn-> state-key hexhash)
+                                                     my-prevs))
                             "(none)"))
       (println)
       (print (pstr node)))))
@@ -134,7 +136,7 @@
     (with-out-str
       (println "===")
       (if (seq (states self))
-        (print (separate-str "---\n" (map pstr (states self))))
+        (print (s/separate-str "---\n" (map pstr (states self))))
         (print "(empty)\n"))
       (println "==="))))
 

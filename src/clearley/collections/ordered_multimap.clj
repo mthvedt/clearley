@@ -1,8 +1,7 @@
 (ns clearley.collections.ordered-multimap
   (:refer-clojure :exclude [get assoc empty])
   (require [clojure.core :as core])
-  (require [clearley.collections.ordered-set :as os])
-  (use clearley.utils))
+  (require [clearley.collections.ordered-set :as os]))
 
 ; Stuff for manipulating ordered multimaps. It's just here
 ; so it gets its own namespace.
