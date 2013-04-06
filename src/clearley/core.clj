@@ -34,9 +34,7 @@
   (scan [_ _] [])
   (is-complete? [_] done)
   (advance [self] (assoc self :done true))
-  (rule-str [_] (if done
-                  (str (clause-str subrule) " *")
-                  (clause-str subrule))))
+  (rule-str [_] (str (clause-str subrule) (if done " *" ""))))
 
 (defn one-or-more
   "Creates a rule that matches one or more of a clause. Its action returns a vector
@@ -56,9 +54,7 @@
       []))
   (is-complete? [_] scanned)
   (advance [self] (assoc self :scanned true))
-  (rule-str [_] (if scanned
-                  (str (clause-str rulefn) " *")
-                  (clause-str rulefn))))
+  (rule-str [_] (str (clause-str rulefn) (if scanned " *" ""))))
 
 (defn scanner
   "Creates a rule that accepts input tokens. For a token t, if (scanner-fn t)
@@ -78,9 +74,7 @@
     (t/IAE "min and max should be chars"))
   (let [intmin (int min)
         intmax (int max)]
-    (scanner (fn [x]
-               (let [intx (int x)]
-                 (and (<= intx intmax) (>= intx intmin))))
+    (scanner #(let [intx (int %)] (and (<= intx intmax) (>= intx intmin)))
              action))))
 
 (defprotocol Parser
@@ -143,8 +137,7 @@
 
 ; Macro helper fn. Dequalifies a stringable qualified sym or keyword
 (defn- dequalify [strable]
-  (let [dequalified (clojure.string/split (str strable) #"/")]
-    (symbol (nth dequalified (dec (count dequalified))))))
+  (-> strable str (clojure.string/split #"/") last symbol))
 
 ; Macro helper fn for def rule. Returns a pair of
 ; [appropriate-symbol-for-action-body, rule-or-rulename]

@@ -2,13 +2,13 @@
 
 Alpha:
 
-* Edge case examination.
+* Clean up rule records?
 
 Beta: 
 
+* Clean up defrule; add direct symbol references and binding forms.
 * Better error reporting for user parsers.
 * Grammar composition.
-* JSON example.
 * Clean up the software internals.
 * Work on defrule syntax. Eventually I want to make Clearley self-hosting--
 use a parser to define defrule, instead of about 90 lines of macros.
@@ -16,7 +16,9 @@ Would make a convincing POC for the 'parse any input' thesis!
 
 More:
 
-* EarleyItem protocol and polymorphism. Leverage the JVM for max speed and flexibility.
+* Redo NPDA.
+* EarleyItem protocol and polymorphism.
+Leverage the JVM for max speed and flexibility.
 * Expose EarleyItem protocol. Allow extension of the rule mechanism.
 Infinitely-generated context-free grammars in O(n^3) time. Noam Chomsky can eat it!
 The EarleyItem protocol must be defined with building a LR-NDFA in mind, leading to...

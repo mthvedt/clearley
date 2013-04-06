@@ -6,7 +6,7 @@ Parsing for Earthlings.
 
 lein:
 ```
-[clearley "0.1.2-SNAPSHOT"]
+[clearley "0.2.0-SNAPSHOT"]
 ```
 
 maven:
@@ -14,9 +14,15 @@ maven:
 <dependency>
   <groupId>clearley</groupId>
   <artifactId>clearley</artifactId>
-  <version>0.1.2-SNAPSHOT</version>
+  <version>0.2.0-SNAPSHOT</version>
 </dependency>
 ```
+
+## Overview
+
+Clearley is parsing for people who don't want to learn about parsing and just want to process input data.
+
+The idea is to make parsing and processing input as easy as writing Clojure functions. Clearley can handle strings, or any other stream of input, and will accept any set of parse rules and handle them in polynomial time.
 
 ## Crash course
 
@@ -54,16 +60,18 @@ More examples live in test/examples. For example, there's a fully valid JSON par
 ## Bullet points
 
 * Clearley is Clojure-oriented. The 'defrule' macro library works in a style like that of defn. Or you can manipulate grammars and rule records directly.
-* Clearley will parse any set of rules and will always parse a string when possible. Many CFG grammars (LL, *LR) have restrictions on the rules, and memoizing parsers (Packrat) may fail to find valid parses.
+* Clearley is designed to be intuitive and easy to use without sacrificing power or expressiveness.
+* Clearley will parse any set of rules and will always find a way to parse input whenever possible. Many CFG grammars (LL, *LR) have restrictions on the rules, and memoizing parsers (Packrat) may fail to find valid parses.
 * Combining grammars is easy, and adding new rules will never break existing parses.
-* Everything parses in polynomial time. Many real world grammars parse in O(n) time.
+* Clearley is designed with good asymptotic requirements in mind. Everything parses in polynomial time. Many real world grammars parse in O(n) time. Memory requirements are O(n^2) in the worst case and O(n) for almost all grammars. Stack requirements are O(1).
 
 ## Disadvantages
 
-Clearley is alpha software and has a few drawbacks:
+Clearley is beta software and has a few drawbacks:
 
 * Disambiguation is not supported. If input can be parsed in multiple ways, Clearley will silently pick one. This undesirable behavior will probably be changed in the future.
 * Clearley is not (yet) highly performant. Different libraries are available for this purpose, such as GNU Bison.
+* Performance is poor, but since the GLR algorithm underneath is fundementally fast, performance can be greatly increased in the future.
 * Error reporting is currently minimal.
 
 The API may also change a little over time. I'm pretty pleased with it but some rough edges could use polishing.
@@ -83,7 +91,7 @@ A rule contains a sequence of clauses. If a clause is a symbol, it can be used i
 
 A clause can be any of the following:
 
-* Any instance of Rule. Rules can be embedded in anonymous rules.
+* Any instance of Rule. This lets you embed 'anonymous' rules in other rules.
 * Any sequence or vector of clauses. This matches any one of those subclauses.
 * Any symbol. Symbols map to sequences of rules in a grammar. If you use symbols, you probably want to use build-grammar or build-parser. When building a grammar, a symbol must be resolvable to any clause.
 * Any other Object. Objects that don't match one of the above are interpreted as tokens. These Objects match a single input token using =.
@@ -124,10 +132,6 @@ user=> (print-match (parse my-calculator "1+2"))
              '2'
 ```
 
-You can also view parse charts:
-
-(TODO)
-
 ## Working with grammars and rule objects
 
 A grammar is a map from symbols to seqs of rules.
@@ -150,13 +154,11 @@ user=> (pprint *1)
 
 You can manipulate it as you'd manipulate any other map. For nondeterministic grammars, the order of rules might make a difference, but exact behavior is unspecified for now.
 
-## Parsing in detail
-
-(TODO)
-
 ## What's under the hood
 
 Currently Clearley is using a GLR parser with Earley-like charts. The code is designed such that new backends can be coded and plugged in. The rule API is seperate from the parser itself.
+
+If you want, you can look at the parser's parse charts directly, but note that the underlying algorithm and its textual representation is in flux.
 
 ## Next steps
 
@@ -166,8 +168,6 @@ Currently Clearley is using a GLR parser with Earley-like charts. The code is de
 
 Please open an issue if you find any issues. If you have any suggestions, ideas, or have written some fns/libs that might be useful, please let me know!
 
-## References
-
-# License
+## License
 
 Clearley is licesned under the EPL, the same as Clojure.

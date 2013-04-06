@@ -15,8 +15,9 @@
 ; Clojure doesn't support character arithmetic so we need a manual implementation.
 (defn char-to-num [char-start num-start]
   (let [char-start-int (int char-start)]
-    (fn [c] (+ num-start (- (int c) char-start-int)))))
+    #(+ num-start (- (int %) char-start-int))))
 
+; We need this for escaped characters. Notice they return a number not a char.
 (def digit (char-range \0 \9 (char-to-num \0 0)))
 (def hex-char [digit
                (char-range \a \f (char-to-num \a 10))
@@ -29,7 +30,7 @@
   ; an escaped char
   ([\\ (escaped-char [\" \\ \/ \b \f \n \r \t])] escaped-char)
   ; a unicode char, using a rule literal
-  ([\\ \u (hex (rule 'unicode-hex [hex-char hex-char hex-char hex-char]
+  ([\\ \u (hex (rule "unicode-hex" [hex-char hex-char hex-char hex-char]
                      ; hex-char returns an int... we turn that into Unicode char
                      (fn [& chars] (char (reduce (fn [a b] (+ (* 16 a) b)) chars)))))]
    hex)
@@ -46,7 +47,7 @@
 (def digit1-9 (char-range \1 \9 (char-to-num \1 1)))
 (def digits (one-or-more digit))
 (defn digits-to-number [digits]
-  (reduce (fn [a b] (+ (* 10 a) b)) 0 digits))
+  (reduce #(+ (* 10 %) %2) 0 digits))
 
 (defrule natnum
   ([\0] 0)
@@ -109,12 +110,11 @@
 (defrule object-value [string colon value] [(keyword string) value])
 (defrule object-values
   ([object-value] (let [[k v] object-value] {k v}))
-  ([object-values comma object-value] (let [[k v] object-value
-                                            o object-values]
-                                        (if (contains? o k)
-                                          (throw (RuntimeException.
-                                                   (str "Duplicate key: " o)))
-                                          (assoc o k v)))))
+  ([(o object-values) comma object-value] (let [[k v] object-value]
+                                            (if (contains? o k)
+                                              (throw (RuntimeException.
+                                                       (str "Duplicate key: " o)))
+                                              (assoc o k v)))))
 
 (defrule object
   ([object-begin object-end] {})

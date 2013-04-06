@@ -25,7 +25,8 @@
 (defrule number
   ([number digit] (+ (* 10 number) digit))
   ([digit] digit))
-(def digit (char-range \0 \9 (fn [c] (- (int c) (int \0)))))
+(def digit (char-range \0 \9
+                       #(- (int %) (int \0))))
 
 (def my-calculator (build-parser sum))
 

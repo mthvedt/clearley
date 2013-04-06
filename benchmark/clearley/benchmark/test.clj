@@ -35,6 +35,11 @@
 
 (defn -main [& args]
   (print-sep)
+
+  ; Test memory bounds
+  ; (println "Trying memory bounds")
+  ; (parse calc/my-calculator (cons \1 (apply concat (repeat (* 512 1000 1000) "+1"))))
+
   ; Start with some microbenchmarks
   (bench-str "Left-recursive calculator" calc/my-calculator "1+2+3+4+5+6+7+8")
   ; Should have linear growth

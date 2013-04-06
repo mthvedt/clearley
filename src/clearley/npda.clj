@@ -66,7 +66,7 @@
   (shift-state [self input-token input]
     (when-let [n (shift node input-token)]
       (AState. n (list input) (list self))))
-  ; TODO holy cow, this is ugly. there must be a more elegant way
+  ; TODO this is ugly
   (spin-state [self]
     (mapcat
       (fn [[item match-count]]
