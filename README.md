@@ -6,7 +6,7 @@ Parsing for Earthlings.
 
 lein:
 ```
-[clearley "0.2.0-SNAPSHOT"]
+[clearley "0.2.0"]
 ```
 
 maven:
@@ -14,15 +14,15 @@ maven:
 <dependency>
   <groupId>clearley</groupId>
   <artifactId>clearley</artifactId>
-  <version>0.2.0-SNAPSHOT</version>
+  <version>0.2.0</version>
 </dependency>
 ```
 
 ## Overview
 
-Clearley is parsing for people who don't want to learn about parsing and just want to process input data.
+The goal of Clearley is to make processing streams of structured input as easy as any other Clojure task.
 
-The idea is to make parsing and processing input as easy as writing Clojure functions. Clearley can handle strings, or any other stream of input, and will accept any set of parse rules and handle them in polynomial time.
+Clearley can handle strings or any other seq of input, and will accept any set of parse rules and handle them in polynomial time.
 
 ## Crash course
 
@@ -47,13 +47,25 @@ are defined together in a style similar to defn.
 ; Convert a char digit to a Clojure number
 (def digit
   (char-range \0 \9
-    (fn [c] (- (int c) (int \0)))))
+    #(- (int %) (int \0))))
 
 (def my-calculator (build-parser sum))
 
 user=> (execute my-calculator "1+1")
 2
 ```
+
+### Breaking it down
+
+The lines
+```
+(defrule term
+  ([term \* number] (* term number))
+```
+
+The first part of a defrule body is a vector of rules. This means that the rule ```term``` can match a ```term``` followed by a ```*``` character followed by a ```number```. When such a match is encountered, multiply the term by the number and return the result. That's all there is to it.
+
+Notice that rules can refer to rules that haven't been defined yet. For instance, ```number``` is defined after ```term```.
 
 More examples live in test/examples. For example, there's a fully valid JSON parser.
 
@@ -70,7 +82,7 @@ More examples live in test/examples. For example, there's a fully valid JSON par
 Clearley is beta software and has a few drawbacks:
 
 * Disambiguation is not supported. If input can be parsed in multiple ways, Clearley will silently pick one. This undesirable behavior will probably be changed in the future.
-* Clearley is not (yet) highly performant. Different libraries are available for this purpose, such as GNU Bison.
+* Clearley is not (yet) highly performant. Different libraries are available if you need very fast code.
 * Performance is poor, but since the GLR algorithm underneath is fundementally fast, performance can be greatly increased in the future.
 * Error reporting is currently minimal.
 
@@ -101,6 +113,17 @@ In a built grammar, rules map to sequences of other rules. A non-rule clause wil
 A rule is a record that implements an internal interface (RuleKernel). I might make them pure maps in the future, but this is how it is for now. Make sure that if you manipulate rule records, you get instances of the record back. Also, the structure of the record might change to something simpler.
 
 N.B.: The empty rule is not supported. This is usually easy to work around except you cannot parse the empty string.
+
+
+### Scanning rules
+
+Sometimes you want a fn that tells you if a token matches a rule. The fn ```clearley.core/scanner``` does this. For instance, this code
+
+```
+(scanner #(java.lang.Character/isWhitespace %))
+```
+
+matches any whitespace character and returns it.
 
 ## Working with match trees
 
@@ -156,7 +179,7 @@ You can manipulate it as you'd manipulate any other map. For nondeterministic gr
 
 ## What's under the hood
 
-Currently Clearley is using a GLR parser with Earley-like charts. The code is designed such that new backends can be coded and plugged in. The rule API is seperate from the parser itself.
+Currently Clearley is using a GLR parser with Earley-like charts. Eventually I want to convert this to an Earley automaton, or perhaps the newfangled GLL automaton (haven't looked into GLL yet). This is why I called it Clearley: Clojure + Earley plus 'clear' as a bonus. The code is designed such that new backends can be coded and plugged in. The rule API is seperate from the parser itself.
 
 If you want, you can look at the parser's parse charts directly, but note that the underlying algorithm and its textual representation is in flux.
 
@@ -165,6 +188,8 @@ If you want, you can look at the parser's parse charts directly, but note that t
 * Improve the rules API. Right now they are records that implement an interface.
 * Better ambiguity detection, error detection, and recovery.
 * Big-O performance improvements, such as using lookahead to parse right-recursive grammars in linear time.
+
+I'm also looking in to plugging Clearley's front end into the excellent Instaparse. I will have to dig into their code, since the Instaparse front-end is for text only.
 
 Please open an issue if you find any issues. If you have any suggestions, ideas, or have written some fns/libs that might be useful, please let me know!
 
