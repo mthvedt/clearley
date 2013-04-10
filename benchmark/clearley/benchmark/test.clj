@@ -2,29 +2,7 @@
   (require [clojure.java.io :as io]
            [clearley.examples.json :as json]
            [clearley.examples.calculator :as calc])
-  (use [clearley core]
-       [criterium core]))
-
-(def prefix "clearley/benchmark/")
-
-(defn print-sep []
-  (println (apply str (repeat 80 \=))))
-
-(defn bench-str [name parser str]
-  (println "Benchmark:" name)
-  (println "Input size:" (count str))
-  (if-let [r (parse parser str)]
-    (do
-      (println "Benchmarking")
-      (bench (parse parser str))
-      (print-sep))
-    (println "!!!!Failure to parse!!!!")))
-
-(defn bench-from-file [name parser filename]
-  (println "Loading" filename "into memory")
-  (let [loaded-file (-> (str prefix filename)
-                      io/resource io/reader slurp)]
-    (bench-str name parser loaded-file)))
+  (use clearley.core clearley.benchmark.core))
 
 (defrule S
   ([(s1 S) (s2 S)] (str s1 s2))
@@ -50,7 +28,7 @@
   (bench-str "Right-recursive calculator 2"
              calc/my-calculator "1^2^3^4^5^6^7^8^1^2^3^4^5^6^7^8")
   ; Snakes... why did it have to be snakes?
-  ; This is a quadratic grammar, but can incur O(n^4) parse time in some GLR impls. is a quadratic grammar, but can incur O(n^4) parse time in some GLR impls.
+  ; This is a quadratic grammar, but can incur O(n^4) parse time in some GLR impls.
   ; TODO: add a cubic grammar.
   (bench-str "Pathological grammar 1.1" pathological-parser-1 (repeat 20 \s)) 
   (bench-str "Pathological grammar 1.2" pathological-parser-1 (repeat 40 \s))
