@@ -11,6 +11,7 @@
   (pstr [obj]))
 
 (defprotocol Node
+  (node-key [self])
   (shift [self input])
   (reduce [self output])
   (reductions [self]))
@@ -56,7 +57,7 @@
 (defn popone [state]
   (first (pop state)))
 
-; node: the item set for this state
+; node: the node for this state
 ; my-rstream: the partial output associated with this state
 ; --a full (nondeterministic) output stream can be got by concating
 ;  all the rstreams on the stack, top to bottom, then reversing them
@@ -78,7 +79,7 @@
                   new-states)))
       (reductions node)))
   (state-key [self] 
-    (cons node (map state-key my-prevs)))
+    (cons (node-key node) (map state-key my-prevs)))
   (peek [_] node)
   (pop [_]
     (map (fn [my-prevs]

@@ -1,5 +1,5 @@
 (ns clearley.collections.ordered-multimap
-  (:refer-clojure :exclude [get assoc empty])
+  (:refer-clojure :exclude [get keys assoc empty])
   (require [clojure.core :as core])
   (require [clearley.collections.ordered-set :as os]))
 
@@ -10,6 +10,8 @@
 (def empty {})
 
 (defn get [mm k] (core/get mm k os/empty))
+
+(defn keys [mm] (core/keys mm))
 
 (defn assoc [mm k v]
   (core/assoc mm k (os/conj (get mm k) v)))

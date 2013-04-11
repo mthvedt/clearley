@@ -60,13 +60,13 @@
 
 ; TODO: predicting completed items seems to cause combinatorial explosion
 ; but only for some grammars (JSON)
-(defn close-item-set [item-set]
+(defn close-item-set [item-set grammar]
   (loop [c item-set, dot 0]
     (if-let [s (current-item c dot)]
       (recur (if (is-complete? (:rule s))
                c
                (reduce #(predict-into-item-set % %2 s)
-                       c (predict-item s (:grammar item-set))))
+                       c (predict-item s grammar)))
              (inc dot))
       c)))
 
@@ -75,17 +75,20 @@
 
 ; seed items don't go in predictor-map, closed items do
 (defn new-item-set [items grammar]
-  (let [seed-item-set {:items (vec items) :predictor-map omm/empty
-                       :grammar grammar}
-        {:keys [items predictor-map grammar] :as the-item-set}
-        (close-item-set seed-item-set)]
-; items: a vector of items
-; predictor-map: ordered multimap, items -> internal predicting items
+  (let [seed-item-set {:items (vec items) :predictor-map omm/empty}
+        {:keys [items predictor-map] :as the-item-set}
+        (close-item-set seed-item-set grammar)
+        shift-fn (memoize #(shift-item-set items grammar %))
+        reductions (item-set-reductions the-item-set)
+        reduces (memoize #(reduce-item-set predictor-map grammar %))]
+    ; items: a vector of items
+    ; predictor-map: ordered multimap, items -> internal predicting items
     (reify
       npda/Node
-      (npda/shift [_ input] (shift-item-set the-item-set input))
-      (npda/reduce [_ output] (reduce-item-set the-item-set output))
-      (npda/reductions [_] (item-set-reductions the-item-set))
+      (npda/node-key [_] items)
+      (npda/shift [_ input] (shift-fn input))
+      (npda/reduce [_ output] (reduces (:original output)))
+      (npda/reductions [_] reductions)
       GlrState
       (is-goal [_] (some (fn-> :name (= ::goal)) items))
       npda/IPrinting
@@ -94,15 +97,15 @@
           (runmap println (map #(pstr-item-set-item % predictor-map) items)))))))
 
 ; scans an input character, seeding a new state
-(defn shift-item-set [{:keys [items grammar] :as item-set} input-token]
+(defn shift-item-set [items grammar input-token]
   (when-let [r (seq (mapcat #(scan-item % input-token) items))]
     (new-item-set r grammar)))
 
 ; Reduces an item given a stack-top item-set
-(defn reduce-item-set [item-set {:keys [original]}]
+(defn reduce-item-set [predictor-map grammar original]
   (when-let [new-items
-             (seq (map advance-item (omm/get-vec (:predictor-map item-set) original)))]
-    [(new-item-set new-items (:grammar item-set))]))
+             (seq (map advance-item (omm/get-vec predictor-map original)))]
+    [(new-item-set new-items grammar)]))
 
 (defn item-set-reductions [{items :items}]
   (map (fn [{:keys [match-count] :as item}] [item match-count])
