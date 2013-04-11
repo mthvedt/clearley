@@ -1,5 +1,5 @@
 (ns clearley.test.core
-  (:use clearley.core clearley.test.utils lazytest.deftest))
+  (:use clearley.core clearley.defrule clearley.test.utils lazytest.deftest))
 
 (defn rulefn
   [name & clauses]

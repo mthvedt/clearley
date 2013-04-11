@@ -16,6 +16,18 @@
 ; is-complete?: is this rule fully matched
 ; advance: called when a predicted clause is matched
 ; rule-str: a short useful string representation of this rule
+;
+; TODO ELIMINATE ALL?
+;
+; Our problems are:
+; * Define self-referential rule builders.
+; * Allow custom rules.
+; * Yet keep things simple.
+; * An almost fanatical devotion to the pope, and nice red uniforms.
+;
+; Plan:
+; * Prefix lists. choice, &c
+; * Still some kind of prediction?
 (defprotocol RuleKernel
   (rule-deps [self])
   (predict [self])
