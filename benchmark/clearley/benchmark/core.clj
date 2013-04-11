@@ -1,5 +1,6 @@
 (ns clearley.benchmark.core
-  (require [clojure.java.io :as io])
+  (require [clojure.java.io :as io]
+           [uncore.throw :as t])
   (use clearley.core clearley.benchmark.core criterium.core))
 
 (def prefix "clearley/benchmark/")
@@ -17,9 +18,18 @@
       (print-sep))
     (println "!!!!Failure to parse!!!!")))
 
+(defn get-resource [filename]
+  (-> (str prefix filename)
+    io/resource io/reader))
+
+(defn sanity-check [parser parse-file clojure-file]
+  (let [test-parse (execute parser (slurp (get-resource parse-file)))
+        test-comparo (read (java.io.PushbackReader. (get-resource clojure-file)))]
+    (when-not (= test-parse test-comparo)
+      (t/thrownew RuntimeException (str "Parse for " parse-file " does not match "
+                                        clojure-file)))))
+
 (defn bench-from-file [name parser filename]
   (println "Loading" filename "into memory")
-  (let [loaded-file (-> (str prefix filename)
-                      io/resource io/reader slurp)]
+  (let [loaded-file (slurp (get-resource filename))]
     (bench-str name parser loaded-file)))
-
