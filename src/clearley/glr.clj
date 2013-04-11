@@ -48,18 +48,6 @@
 
 (declare shift-item-set reduce-item-set item-set-reductions)
 
-; items: a vector of items
-; predictor-map: ordered multimap, items -> internal predicting items
-(defrecord ItemSet [items predictor-map grammar]
-  npda/Node
-  (npda/shift [self input] (shift-item-set self input))
-  (npda/reduce [self output] (reduce-item-set self output))
-  (npda/reductions [self] (item-set-reductions self))
-  npda/IPrinting
-  (npda/pstr [self]
-    (with-out-str
-      (runmap println (map #(pstr-item-set-item % predictor-map) items)))))
-
 (defn predict-into-item-set [{:keys [items predictor-map] :as item-set}
                              {original :original :as item} predictor]
   (if (empty? (omm/get-vec predictor-map original))
@@ -82,9 +70,28 @@
              (inc dot))
       c)))
 
+(defprotocol GlrState
+  (is-goal [self]))
+
 ; seed items don't go in predictor-map, closed items do
 (defn new-item-set [items grammar]
-  (close-item-set (ItemSet. (vec items) omm/empty grammar)))
+  (let [seed-item-set {:items (vec items) :predictor-map omm/empty
+                       :grammar grammar}
+        {:keys [items predictor-map grammar] :as the-item-set}
+        (close-item-set seed-item-set)]
+; items: a vector of items
+; predictor-map: ordered multimap, items -> internal predicting items
+    (reify
+      npda/Node
+      (npda/shift [_ input] (shift-item-set the-item-set input))
+      (npda/reduce [_ output] (reduce-item-set the-item-set output))
+      (npda/reductions [_] (item-set-reductions the-item-set))
+      GlrState
+      (is-goal [_] (some (fn-> :name (= ::goal)) items))
+      npda/IPrinting
+      (npda/pstr [self]
+        (with-out-str
+          (runmap println (map #(pstr-item-set-item % predictor-map) items)))))))
 
 ; scans an input character, seeding a new state
 (defn shift-item-set [{:keys [items grammar] :as item-set} input-token]
@@ -104,9 +111,6 @@
 ; ===
 ; Using the automaton
 ; ===
-
-(defn is-goal [state]
-  (some (fn-> :name (= ::goal)) (-> state npda/peek :items)))
 
 ; Builds a rule match from the output stack and pushes the match to the top
 ; (think of a Forth operator reducing the top of a stack)
@@ -131,4 +135,4 @@
 ; Searches states for completed parse of the goal rule, returning all matches
 (defn scan-goal [chart]
   (map (fn-> npda/popone npda/stream reduce-ostream)
-       (filter is-goal (npda/states chart))))
+       (filter #(is-goal (npda/peek %)) (npda/states chart))))
