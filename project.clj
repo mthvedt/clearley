@@ -15,4 +15,4 @@
                                         [cheshire "5.1.0"]]
                          :source-paths ["benchmark" "test"]
                          :resource-paths ["benchmark"]
-                         :main clearley.benchmark.test}})
+                         :main clearley.benchmark.main}})

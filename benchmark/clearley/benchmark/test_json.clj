@@ -9,7 +9,8 @@
 (defn compariton [str subject]
   (println "Benchmarking for comparison:" str)
   (let [loaded-file (slurp (get-resource "small-test-formatted.json"))]
-    (bench (subject loaded-file))))
+    (bench (subject loaded-file)))
+  (print-sep))
 
 (defn -main []
   (sanity-check json/json-parser "small-test.json" "small-test-json.clj")

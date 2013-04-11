@@ -33,9 +33,8 @@
 
 (def pathological-parser-1 (build-parser S))
 
-(defn -main [& args]
+(defn -main []
   (print-sep)
-
   ; Test memory bounds
   ; (println "Trying memory bounds")
   ; (parse calc/my-calculator (cons \1 (apply concat (repeat (* 512 1000 1000) "+1"))))
@@ -54,5 +53,4 @@
   ; TODO: add a cubic grammar.
   (bench-str "Pathological grammar 1.1" pathological-parser-1 (repeat 20 \s)) 
   (bench-str "Pathological grammar 1.2" pathological-parser-1 (repeat 40 \s))
-  (bench-str "Pathological grammar 1.3" pathological-parser-1 (repeat 80 \s))
   )
