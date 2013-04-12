@@ -25,3 +25,8 @@ The EarleyItem protocol must be defined with building a LR-NDFA in mind, leading
 * Parser NDFA. This will be a huge performance win. See 'Practical Earley Parsing',
 Aycock & Horspool 2002, to see the performance compares favorably to standard automata.
 * Also test reliable disambiguity (LR vs LL in particular) when the above is implemented.
+
+# For defrule
+
+* Put symbol qualification in build-grammar?
+* Test external symbol references if so.

@@ -4,6 +4,13 @@
            [uncore.throw :as t]
            [uncore.str :as s]))
 
+(defn resolve-clause
+  "Resolves a clause to a uniform format, (tag & rules)."
+  [clause grammar]
+  (if (symbol? clause)
+    (cons :or (get grammar clause))
+    clause))
+
 ; TODO merge into core? simplify rule kernel?
 (defrecord Match [rule submatches])
 
@@ -74,60 +81,13 @@
                             "]")
     true (clojure.string/escape (str clause) cmap)))
 
-; Resolves a symbol to a seq of clauses
-(defn lookup-symbol [thesym thens theenv]
-  (if-let [resolved (ns-resolve thens theenv thesym)]
-    (let [resolved @resolved]
-      (if (or (vector? resolved) (seq? resolved))
-        resolved
-        [resolved]))
-    (t/IAE "Cannot resolve rule for head: " thesym)))
-
-; Rule-ifies the given clause, wrapping it in a one-clause rule if neccesary.
-(defn to-rule [clause]
-  (if (rule? clause)
-    clause
-    (context-free-rule (str "Anon@" (hash clause)) [clause] identity)))
-
-; Processes the clause re. a grammar. If clause is a symbol,
-; looks up the symbol, maps to-rule to the result, and adds it to the grammar.
-(defn update-grammar [grammar clause thens theenv]
-  (if (symbol? clause)
-    (assoc grammar clause (map to-rule (lookup-symbol clause thens theenv)))
-    grammar))
-
 ; Gets a seq of subrules from a clause
-(defn predict-clause [clause grammar]
+#_(defn predict-clause [clause grammar]
   (cond
     (rule? clause) [clause]
     (seq? clause) (map to-rule clause)
     (vector? clause) (map to-rule clause)
     true (get grammar clause [])))
-
-; All things this clause might point to, that we must resolve at grammar build time
-(defn clause-deps [x grammar]
-  (cond (rule? x) (rule-deps x)
-        true (predict-clause x grammar)))
-
-; ===
-; Here be dragons
-; ===
-
-(defn build-grammar-1 [goal thens theenv]
-  (loop [stack [goal] ; stack: clauses to resolve
-         breadcrumbs #{}
-         grammar {}] ; grammar: maps keyword clauses to rules
-    (if-let [current-clause (first stack)]
-      (if (contains? breadcrumbs current-clause)
-        ; have we already seen this? skip it entirely
-        (recur (rest stack) breadcrumbs grammar)
-        ; otherwise, process it
-        (let [grammar (update-grammar grammar current-clause thens theenv)
-              predictions (clause-deps current-clause grammar)] ; order is important
-          (recur (concat predictions (rest stack))
-                 (conj breadcrumbs current-clause)
-                 grammar)))
-      grammar)))
 
 ; ===
 ; Rules

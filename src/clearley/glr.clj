@@ -5,6 +5,20 @@
            [uncore.str :as s])
   (use uncore.core [clearley rules]))
 
+; TODO Stub to make things compile
+(def to-rule)
+(def predict-clause)
+
+; TODO work out format.
+; A symbol -> choice of rules
+; A tagged clause
+; Only two choices.
+
+; And each symbol is resolvable to a choice of rules
+; so there's only one.
+
+; Soooo... universial format: (tag & rules)
+
 ; ===
 ; Parse items
 ; An Item is a rule together with some instrumentation.
