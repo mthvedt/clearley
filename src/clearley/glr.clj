@@ -5,19 +5,10 @@
            [uncore.str :as s])
   (use uncore.core [clearley rules]))
 
-; TODO Stub to make things compile
-(def to-rule)
-(def predict-clause)
-
 ; TODO work out format.
 ; A symbol -> choice of rules
 ; A tagged clause
 ; Only two choices.
-
-; And each symbol is resolvable to a choice of rules
-; so there's only one.
-
-; Soooo... universial format: (tag & rules)
 
 ; ===
 ; Parse items
@@ -29,27 +20,26 @@
 ; should have a short str representation
 ; rule: the rule for this item
 ; original: the original (unadvanced) rule, used to populate matches
+; TODO should original be a cfg rule? or something more primitive
 ; match-count: the number of times this rule has been scanned or advanced
-(defrecord Item [name rule original match-count]
+; TODO kill ndpa/IPrinting?
+(defrecord Item [rule original match-count]
   npda/IPrinting
-  (npda/pstr [_]
-    (str name " -> " (rule-str rule))))
+  (npda/pstr [_] (rule-str rule)))
 
-(defn new-item [name clause]
-  (let [rule (to-rule clause)]
-    (Item. name rule rule 0)))
+(defn new-item [rule]
+  (Item. rule rule 0))
 
-(defn predict-item [item grammar]
-  (let [clause (predict (:rule item))]
-    (map #(new-item (clause-str clause) %)
-         (predict-clause clause grammar))))
-
-(defn scan-item [item input-token]
-  (map #(update (assoc item :rule %) :match-count inc)
-       (scan (:rule item) input-token)))
+(defn predict-item [item]
+  (map new-item (predict (:rule item))))
 
 (defn advance-item [item]
   (update-all item {:rule advance, :match-count inc}))
+
+(defn scan-item [item input-token]
+  (if-let [s (scanner item)]
+    (if (s input-token)
+      (advance-item item))))
 
 ; ===
 ; Item sets
@@ -119,6 +109,7 @@
 ; Using the automaton
 ; ===
 
+; TODO need goal rule
 (defn is-goal [state]
   (some (fn-> :name (= ::goal)) (-> state npda/peek :items)))
 

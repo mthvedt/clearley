@@ -238,6 +238,7 @@
   [goal thens]
   (build-grammar-1 [goal] thens {}))
 
+; TODO qualify symbols?
 (defmacro build-grammar
   "Builds a grammar in the current ns from the given goal clause.
   A grammar is a map from symbols to seqs of rules.
