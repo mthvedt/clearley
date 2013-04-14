@@ -2,8 +2,9 @@
   (require [clearley.collections.ordered-set :as os]
            [clearley.collections.ordered-multimap :as omm]
            [clearley.npda :as npda]
+           [clearley.rules :as rules]
            [uncore.str :as s])
-  (use uncore.core [clearley rules]))
+  (use uncore.core))
 
 ; TODO work out format.
 ; A symbol -> choice of rules
@@ -25,19 +26,19 @@
 ; TODO kill ndpa/IPrinting?
 (defrecord Item [rule original match-count]
   npda/IPrinting
-  (npda/pstr [_] (rule-str rule)))
+  (npda/pstr [_] (rules/rule-str rule)))
 
 (defn new-item [rule]
   (Item. rule rule 0))
 
 (defn predict-item [item]
-  (map new-item (predict (:rule item))))
+  (map new-item (rules/predict (:rule item))))
 
 (defn advance-item [item]
-  (update-all item {:rule advance, :match-count inc}))
+  (update-all item {:rule rules/advance, :match-count inc}))
 
 (defn scan-item [item input-token]
-  (if-let [s (scanner item)]
+  (if-let [s (rules/scanner (:rule item))]
     (if (s input-token)
       (advance-item item))))
 
@@ -79,10 +80,10 @@
 (defn close-item-set [item-set]
   (loop [c item-set, dot 0]
     (if-let [s (current-item c dot)]
-      (recur (if (is-complete? (:rule s))
+      (recur (if (rules/is-complete? (:rule s))
                c
                (reduce #(predict-into-item-set % %2 s)
-                       c (predict-item s (:grammar item-set))))
+                       c (predict-item s #_(:grammar item-set))))
              (inc dot))
       c)))
 
@@ -92,7 +93,7 @@
 
 ; scans an input character, seeding a new state
 (defn shift-item-set [{:keys [items grammar] :as item-set} input-token]
-  (when-let [r (seq (mapcat #(scan-item % input-token) items))]
+  (when-let [r (remove nil? (map #(scan-item % input-token) items))]
     (new-item-set r grammar)))
 
 ; Reduces an item given a stack-top item-set
@@ -103,7 +104,7 @@
 
 (defn item-set-reductions [{items :items}]
   (map (fn [{:keys [match-count] :as item}] [item match-count])
-       (filter (fn-> :rule is-complete?) items)))
+       (filter (fn-> :rule rules/is-complete?) items)))
 
 ; ===
 ; Using the automaton
@@ -119,15 +120,16 @@
 (defn reduce-ostream-helper [ostream item]
   (if (instance? clearley.glr.Item item)
     (let [{:keys [match-count original]} item]
-      (cons (match original (vec (reverse (take match-count ostream))))
+      (cons (rules/match original (vec (reverse (take match-count ostream))))
             (drop match-count ostream)))
-    (cons (match item []) ostream)))
+    (cons (rules/match item []) ostream)))
 
 (defn reduce-ostream [ostream]
   (first (reduce reduce-ostream-helper '() ostream)))
 
-(defn parse-charts [input-str grammar tokenizer goal]
-  (npda/run-automaton (new-item-set [(new-item ::goal goal)] grammar)
+(defn parse-charts [input-str grammar tokenizer goal] ; TODO
+  (npda/run-automaton (new-item-set [(new-item (rules/goal-rule goal grammar))]
+                                    grammar)
                       input-str tokenizer))
 
 (defn pstr-charts [charts]

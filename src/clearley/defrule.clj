@@ -28,7 +28,6 @@
 ; Resolves a symbol to a seq of clauses
 (defn lookup-symbol [thesym thens theenv]
   ; TODO kill ns-resolve and qualify syms
-  (println thesym)
   (if-let [resolved (ns-resolve thens theenv thesym)]
     (if [vector? @resolved]
       @resolved

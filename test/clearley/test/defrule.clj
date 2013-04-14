@@ -1,5 +1,5 @@
 (ns clearley.test.defrule
-  (:use clearley.defrule clearley.test.utils lazytest.deftest))
+  (:use clearley.core clearley.defrule clearley.test.utils lazytest.deftest))
 
 ; ===
 ; Defrule smoke test
@@ -28,3 +28,10 @@
   (is= (count (get grammar2 'sum)) 3))
 
 ; Testing the parser
+
+; TODO: build parser with grammar
+(def parser1 (build-parser sum))
+
+(deftest parser-smoke-test
+  ; First smoke test: just check out the charts
+  (is (with-out-str (print-charts parser1 "1+1"))))

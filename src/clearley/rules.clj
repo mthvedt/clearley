@@ -5,6 +5,8 @@
            [uncore.str :as s])
   (use uncore.core))
 
+; TODO maybe we can nuke this entirely; move it into GLR
+
 (declare predict-clause)
 
 ; TODO merge into core?
@@ -25,6 +27,8 @@
 ; * Yet keep things simple.
 ; * An almost fanatical devotion to the pope, and nice red uniforms.
 
+(def rule-action nil) ; TODO
+
 (defprotocol CfgRule
   (predict [self])
   (scanner [self]) ; Returns a fn that accepts/rejects input token
@@ -33,7 +37,12 @@
   (rule-name [self])
   (rule-str [self]))
 
+; TODO move grammar to glr?
 ; TODO: rename name to head?
+; TODO: rule names?
+;
+; TODO !!!!! make this even simpler--remove special treatment
+; for symbol lookups?
 (defrecord BasicCfgRule [name clauses dot grammar]
   CfgRule
   (predict [self]
@@ -47,14 +56,18 @@
     (= dot (count clauses)))
   (advance [self] (assoc self :dot (inc dot)))
   (rule-name [_] name)
-  (rule-str [_]
+  (rule-str [self]
     (let [clause-strs (map pr-str clauses)]
-      (s/separate-str " " (concat (take dot clause-strs)
+      (s/separate-str " " (concat [(rule-name self) "->"]
+                                  (take dot clause-strs)
                                   (if (zero? dot) [] ["*"])
                                   (drop dot clause-strs))))))
 
 (defn basic-cfg-rule [name rules grammar]
   (BasicCfgRule. name rules 0 grammar))
+
+(defn goal-rule [sym grammar]
+  (BasicCfgRule. ::goal [sym] 0 grammar))
 
 ; Turns a clause into some seq of anonymous rules
 (defn predict-tagged-clause [potential-name tagged-clause grammar]
@@ -64,8 +77,13 @@
     :and [(basic-cfg-rule potential-name clauses grammar)]
     :or (map #(predict-clause potential-name % grammar) clauses))))
 
+(defn defrule-to-cfgrule [head-sym {:keys [name value action] :as rule} grammar]
+  (if (= (first value) :seq)
+    (BasicCfgRule. head-sym (vec (rest value)) 0 grammar)
+    (BasicCfgRule. head-sym [value] 0 grammar)))
+
 (defn predict-symbol [sym grammar]
-  (map #(assoc % :name sym) (get grammar sym)))
+  (map #(defrule-to-cfgrule sym % grammar) (get grammar sym)))
 
 ; Clause -> seq of rules
 (defn predict-clause [potential-name clause grammar]
