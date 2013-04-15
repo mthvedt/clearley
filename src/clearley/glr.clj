@@ -31,16 +31,15 @@
 (defn new-item [rule]
   (Item. rule rule 0))
 
-(defn predict-item [item]
-  (map new-item (rules/predict (:rule item))))
+(defn predict-item [item grammar]
+  (map new-item (filter rules/rule? (rules/predict (:rule item) grammar))))
 
 (defn advance-item [item]
   (update-all item {:rule rules/advance, :match-count inc}))
 
-(defn scan-item [item input-token]
-  (if-let [s (rules/scanner (:rule item))]
-    (if (s input-token)
-      (advance-item item))))
+(defn scan-item [item input-token grammar]
+  (if (some #(% input-token) (remove rules/rule? (rules/predict (:rule item) grammar)))
+    (advance-item item)))
 
 ; ===
 ; Item sets
@@ -83,7 +82,7 @@
       (recur (if (rules/is-complete? (:rule s))
                c
                (reduce #(predict-into-item-set % %2 s)
-                       c (predict-item s #_(:grammar item-set))))
+                       c (predict-item s (:grammar item-set))))
              (inc dot))
       c)))
 
@@ -93,7 +92,7 @@
 
 ; scans an input character, seeding a new state
 (defn shift-item-set [{:keys [items grammar] :as item-set} input-token]
-  (when-let [r (remove nil? (map #(scan-item % input-token) items))]
+  (when-let [r (remove nil? (map #(scan-item % input-token grammar) items))]
     (new-item-set r grammar)))
 
 ; Reduces an item given a stack-top item-set
@@ -128,8 +127,7 @@
   (first (reduce reduce-ostream-helper '() ostream)))
 
 (defn parse-charts [input-str grammar tokenizer goal] ; TODO
-  (npda/run-automaton (new-item-set [(new-item (rules/goal-rule goal grammar))]
-                                    grammar)
+  (npda/run-automaton (new-item-set [(new-item (rules/goal-rule goal))] grammar)
                       input-str tokenizer))
 
 (defn pstr-charts [charts]

@@ -24,8 +24,8 @@
   (is (get grammar1 'times))
   (is (get grammar1 'digit))
 
-  (is= (count (get grammar1 'sum)) 2)
-  (is= (count (get grammar2 'sum)) 3))
+  (is= (count (get grammar1 'sum)) 3)
+  (is= (count (get grammar2 'sum)) 4))
 
 ; Testing the parser
 

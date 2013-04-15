@@ -64,6 +64,7 @@
   "Creates a context-free grammar rule. A rule has a required seq of clauses,
   an optional name, and an optional action.
   If not supplied, the default action bundles the args into a list."
+  ; TODO eliminate name?
   ([clauses] (rule nil clauses nil))
   ([clauses action] (rule nil clauses action))
   ([name clauses action] {:name name
@@ -214,15 +215,17 @@
   
   Symbols in the defrule bodies do not become qualified."
   [sym & impl-or-impls]
-  `(def ~sym ~(build-defrule-bodies sym impl-or-impls)))
+  `(def ~sym (list :defrule ~@(build-defrule-bodies sym impl-or-impls))))
 
 (defmacro extend-rule
+  ; TODO re-doc
   "Like defrule, but for an existing symbol with some rules bound to it,
   such as one defined by defrule."
   [sym & impl-or-impls]
-  `(def ~sym (vec (concat ~sym ~(build-defrule-bodies sym impl-or-impls)))))
+  `(def ~sym (concat ~sym (list ~@(build-defrule-bodies sym impl-or-impls)))))
 
 (defmacro add-rules
+  ; TODO re-doc
   "Adds some amount of additional rules to a symbol with rules bound to it,
   such as one defined by defrule. The given rules must be rule objects, not
   defrule-style definitions."
