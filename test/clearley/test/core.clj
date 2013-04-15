@@ -122,8 +122,6 @@
 
 ; Grammars... we will use this later
 (def incomplete-grammar (build-grammar sum))
-(def incomplete-sum (close-rule sum incomplete-grammar))
-(def incomplete-parser (build-parser incomplete-sum))
 
 ; Rule literals in defrule
 (def digits567 [(token \5 5) (token \6 6) (token \7 7)])
@@ -163,29 +161,6 @@
   (is-action 23 "0+1*2+3*4+9"))
 
 ;TODO tests on grammars alone
-
-(def closed-sum (close-rule sum full-grammar))
-(def closed-parser (build-parser closed-sum))
-
-(def digit (char-range \0 \3 (fn [c] (- (int c) (int \0)))))
-(def open-parser (build-parser sum))
-
-(deftest closure-test
-  (with-parser closed-parser
-    (is-action 6 "3+3")
-    (is-action 7 "3+4")
-    (is-action 19 "2*3+2*2+3*3")
-    (is-action 23 "0+1*2+3*4+9"))
-  (with-parser incomplete-parser
-    (is-action 6 "3+3")
-    (is-action 7 "3+4")
-    (isnt (parses? "2*3+2*2+3*3"))
-    (isnt (parses? "0+1*2+3*4+9")))
-  (with-parser open-parser
-    (is-action 6 "3+3")
-    (isnt (parses? "4+4"))
-    (is-action 19 "2*3+2*2+3*3")
-    (isnt (parses? "0+1*2+3*4+9"))))
 
 (def one-or-more-s (one-or-more \s))
 (def one-or-more-test-parser (build-parser one-or-more-s))

@@ -34,4 +34,11 @@
 
 (deftest parser-smoke-test
   ; First smoke test: just check out the charts
-  (is (with-out-str (print-charts parser1 "1+1"))))
+  (is (with-out-str (print-charts parser1 "3+3"))))
+
+(deftest defrule-test-1
+  (with-parser parser1
+    (is-parsing "3+3")
+    (not-parsing "4+4")
+    (is-ast [[[\3]]] "3")
+    (is-action 6 "3+3")))

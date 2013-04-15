@@ -50,7 +50,8 @@
 (defn rule? [x]
   (instance? clearley.rules.CfgRule x))
 
-(defn action [rule] nil)
+(defn action [rule]
+  (get rule :action #(quote nil)))
 
 (defn clause-type [clause]
   (cond (map? clause) ::map

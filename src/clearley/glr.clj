@@ -121,7 +121,8 @@
 (defn reduce-ostream-helper [ostream item]
   (if (instance? clearley.glr.Item item)
     (let [{:keys [match-count original]} item]
-      (cons (rules/match original (vec (reverse (take match-count ostream))))
+      (cons (rules/match (:original original)
+                         (vec (reverse (take match-count ostream))))
             (drop match-count ostream)))
     (cons (rules/match item []) ostream)))
 

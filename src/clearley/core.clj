@@ -45,10 +45,10 @@
   "Pretty-prints a match tree to *out*."
   [match]
   ((fn f [{:keys [rule submatches]} depth]
-     (println (apply str (repeat depth " ")) (pr-str rule))
-     (domap #(f % (+ depth 2)) submatches))
+     (println (apply str (repeat depth " ")) (rules/rule-str rule))
+     (runmap #(f % (+ depth 2)) submatches))
      match 0)
-  nil) ; don't return a tree full of nils
+  nil)
 
 (defn take-action
   "Executes the parse actions for a parser match."
