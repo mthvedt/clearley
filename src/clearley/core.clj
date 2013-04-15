@@ -7,8 +7,10 @@
  
   See the high-level docs for a further background and overview." 
   (require [clojure string pprint]
+           [clearley.rules :as rules]
+           [clearley.glr :as glr]
            [uncore.throw :as t])
-  (use [clearley defrule rules glr]
+  (use [clearley defrule]
        uncore.core))
 
 (defprotocol Parser
@@ -16,6 +18,7 @@
                         yielding a match tree."))
 
 (defprotocol ChartParser
+  (charts [parser input]) ; Yields raw charts. Not for human consumption
   (print-charts [parser input] "Prints this parser's charts to *out*.
                                Format is not fixed. A good explanation of parse charts
                                (for an Earley parser, but same idea) is at
@@ -29,12 +32,14 @@
   ([goal tokenizer rules]
    (reify
      Parser
-     (parse [parser input]
+     (parse [_ input]
        ; For now, only return first match. If failure, last chart will be empty
-       (-> (parse-charts input rules tokenizer goal) last scan-goal first))
+       (-> (glr/parse-charts input rules tokenizer goal) last glr/scan-goal first))
      ChartParser
-     (print-charts [parser input]
-       (pstr-charts (parse-charts input rules tokenizer goal))))))
+     (charts [_ input]
+       (glr/parse-charts input rules tokenizer goal))
+     (print-charts [_ input]
+       (glr/pstr-charts (glr/parse-charts input rules tokenizer goal))))))
 
 (defn print-match
   "Pretty-prints a match tree to *out*."
@@ -52,12 +57,12 @@
     (throw (RuntimeException. "Failure to parse"))
     (let [{:keys [rule submatches]} match
           subactions (map take-action submatches)
-          action (rule-action rule)]
+          action (rules/action rule)]
       (try
         (apply action subactions)
         (catch clojure.lang.ArityException e
           (throw (RuntimeException. (str "Wrong # of params taking action for rule "
-                                         (rule-str rule) ", "
+                                         (rules/rule-str rule) ", "
                                          "was given " (count subactions))
                                     e)))))))
 

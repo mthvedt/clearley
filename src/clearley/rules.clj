@@ -16,10 +16,13 @@
 ; Core abstraction:
 ; * Rule. Looks like this: clause-name -> clause. Can be advanced multiple times.
 ; * Clause. The atoms. Predicts a seq of [rule | scanner].
-; Some clauses can be predicted inline; others must be turned into rules.
-
-; for symbol lookups?
-(defrecord CfgRule [name type clauses dot])
+; Some clauses can be predicted clauseable; others must be turned into rules.
+; TODO action
+; TODO passthrough matches?
+;
+; Iron rule of clauses: One clause -> one match.
+; They're all just combinators.
+(defrecord CfgRule [name type clauses dot toplevel? original])
 
 (defn rule-str [{:keys [name clauses dot]}]
   (let [clause-strs (map pr-str clauses)]
@@ -32,18 +35,22 @@
   (update cfg-rule :dot inc))
 
 (defn basic-cfg-rule [name tagged-clause]
-  (CfgRule. name (first tagged-clause) (vec (rest tagged-clause)) 0))
+  (CfgRule. name (first tagged-clause) (vec (rest tagged-clause)) 0
+            false tagged-clause))
 
 (defn cfg-from-defrule [name {:keys [value action] :as rule}]
-  (CfgRule. name (first value) (vec (rest value)) 0))
+  (CfgRule. name (first value) (vec (rest value)) 0 true rule))
 
 (defn goal-rule [sym]
-  (CfgRule. ::goal :seq [sym] 0))
+  (CfgRule. ::goal :seq [sym] 0 false sym))
+
+(defn goal? [rule]
+  (= (:name rule) ::goal))
 
 (defn rule? [x]
   (instance? clearley.rules.CfgRule x))
 
-(def rule-action nil) ; TODO
+(defn action [rule] nil)
 
 (defn clause-type [clause]
   (cond (map? clause) ::map
@@ -55,11 +62,11 @@
   `(-> (make-hierarchy) ~@(map #(cons derive %) derivations)))
 
 (def cfg-hierarchy (hierarchy 
-                     ; A no-inline clause must become a new rule upon prediction
-                     ; An inline clause can be predicted from within another rule
-                     (::no-inline ::any) (::inline ::any)
-                     (:or ::inline) (::token ::inline) (::symbol ::inline)
-                     (:seq ::no-inline) (::map ::no-inline)))
+                     ; A rule-only clause must become a new rule upon prediction
+                     ; An clauseable clause can be predicted from within another rule
+                     (::rule-only ::any) (::clauseable ::any)
+                     (:or ::clauseable) (::token ::clauseable) (::symbol ::clauseable)
+                     (:seq ::rule-only) (::map ::rule-only)))
 
 ; TODO consider clause 
 ; Returns a seq, [rule | fn]. if fn, is a scanner.
@@ -78,11 +85,11 @@
   (map #(basic-cfg-rule "anon-or" %) (rest clause)))
 (defmethod predict-clause ::map [clause _]
   [(cfg-from-defrule "anon" clause)])
-(defmethod predict-clause ::no-inline [clause _]
+(defmethod predict-clause ::rule-only [clause _]
   [(basic-cfg-rule "anon" clause)])
 
 (defmulti predict (fn [rule _] (:type rule)) :hierarchy #'cfg-hierarchy)
-(defmethod predict ::inline [{:keys [type clauses]} grammar]
+(defmethod predict ::clauseable [{:keys [type clauses]} grammar]
   (predict-clause (cons type clauses) grammar))
 (defmethod predict :seq [{:keys [clauses dot]} grammar]
   (predict-clause (get clauses dot) grammar))

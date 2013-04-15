@@ -98,7 +98,8 @@
 ; Reduces an item given a stack-top item-set
 (defn reduce-item-set [item-set {:keys [original]}]
   (when-let [new-items
-             (seq (map advance-item (omm/get-vec (:predictor-map item-set) original)))]
+             (seq (map advance-item
+                       (omm/get-vec (:predictor-map item-set) original)))]
     [(new-item-set new-items (:grammar item-set))]))
 
 (defn item-set-reductions [{items :items}]
@@ -109,10 +110,11 @@
 ; Using the automaton
 ; ===
 
-; TODO need goal rule
-(defn is-goal [state]
-  (some (fn-> :name (= ::goal)) (-> state npda/peek :items)))
+; TODO matches and goals, matches and goals
+(defn goal? [state]
+  (some #(rules/goal? (:rule %)) (-> state npda/peek :items)))
 
+; TODO need goal rule
 ; Builds a rule match from the output stack and pushes the match to the top
 ; (think of a Forth operator reducing the top of a stack)
 ; Final output (for a valid parse) will be a singleton list
@@ -136,4 +138,4 @@
 ; Searches states for completed parse of the goal rule, returning all matches
 (defn scan-goal [chart]
   (map (fn-> npda/popone npda/stream reduce-ostream)
-       (filter is-goal (npda/states chart))))
+       (filter goal? (npda/states chart))))
