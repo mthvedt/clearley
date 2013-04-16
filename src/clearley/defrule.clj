@@ -34,15 +34,12 @@
       (t/IAE "Clause symbol " thesym " must point to a vector"))
     (t/IAE "Cannot resolve rule: " thesym)))
 
-(defn clause-deps [clause]
-  (cond (seq? clause) (mapcat clause-deps (rest clause))
+(defn deps [clause]
+  (cond (map? clause) (deps (:value clause))
+        (seq? clause) (mapcat deps (rest clause))
         ; TODO what to do here?
         (symbol? clause) [clause]
         true []))
-
-; TODO tag rule values?
-(defn deps [{:keys [value] :as rule}]
-  (mapcat clause-deps (rest value)))
 
 ; goal: a seq of syms
 (defn build-grammar-1 [goal thens theenv]

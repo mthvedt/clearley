@@ -88,31 +88,6 @@
     (is-parsing "acd")
     (not-parsing "abcd"))
 
-; Test of defrule
-(defrule sum
-  ([sum \+ times] (+ sum times))
-  ([times] times))
-(defrule times
-  ([times \* digit] (* times digit))
-  ([digit] digit))
-(defrule digit [\3] 3)
-
-(def parser2 (build-parser sum))
-
-(def-parser-test build-parser-test parser2
-  (is-action 3 "3")
-  (is-action 9 "3*3")
-  (is-action 6 "3+3")
-  (is-action 15 "3+3*3+3"))
-
-; Extending rules
-(extend-rule digit [\4] 4)
-(def parser3 (build-parser sum))
-
-(def-parser-test extend-rule-test parser3
-  (is-action 7 "3+4")
-  (is-action 12 "3*4"))
-
 ; Rule aliasing
 (extend-rule sum [sum \- (foo times)] (- sum foo))
 (def parser4 (build-parser sum))

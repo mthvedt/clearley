@@ -56,11 +56,9 @@
   (is-parsing "1+2*3+4")
   (is-parsing "1*2+3*4")
   (is-parsing "1+55*3+2*55")
-  ;(is-parsing "777") ; test string (seq of chars) literals
   (isnt (parses? "44"))
   (isnt (parses? "55*23"))
   (isnt (parses? "1+2a"))
-  ;(isnt (parses? "7777"))
   (is-parsing "1+55*2*55+3+55*4")
   (is-ast [[[\1]]] "1")
   (is-ast [[[[\2]]] \+ [[[\3]] \* [\4]]] "2+3*4")
@@ -77,9 +75,10 @@
   (is-action 6 "3+3"))
 
 ; Rule literals
-(def digits67 '(:or \6 \7))
+(def digits67 '(:or \6 (:seq \7 \7)))
 (extend-rule digit [digits67] digits67)
 (def literal-parser (build-parser sum))
 
-#_(def-parser-test rule-literals literal-parser
-  (is-action 2 "7-5"))
+(def-parser-test rule-literals literal-parser
+  (is-ast [[[[\2]]] \+ [[[\3]] \* [[[\6]]]]] "2+3*6")
+  (is-ast [[[[\2]]] \+ [[[\3]] \* [[[\7 \7]]]]] "2+3*77"))
