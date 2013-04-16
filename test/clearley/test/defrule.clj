@@ -51,7 +51,7 @@
 (defrule digit ([\1] 1) ([\2] 2) ([\3] 3) ([\4] 4) ([\5 \5] 55))
 (def parser2 (build-parser sum))
 
-(def-parser-test basic-parser-test parser2
+(def-parser-test basic parser2
   (is-parsing "1+2")
   (is-parsing "1+2*3+4")
   (is-parsing "1*2+3*4")
@@ -82,3 +82,12 @@
 (def-parser-test rule-literals literal-parser
   (is-ast [[[[\2]]] \+ [[[\3]] \* [[[\6]]]]] "2+3*6")
   (is-ast [[[[\2]]] \+ [[[\3]] \* [[[\7 \7]]]]] "2+3*77"))
+
+; Scanner test
+(def digit (char-range \0 \9 #(- (int %) (int \0))))
+(def scanner-parser (build-parser sum))
+
+(def-parser-test scanners scanner-parser
+  (is-action 6 "1+2+3"))
+
+;TODO tests on grammars alone

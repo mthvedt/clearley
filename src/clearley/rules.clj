@@ -16,7 +16,7 @@
 ; Core abstraction:
 ; * Rule. Looks like this: clause-name -> clause. Can be advanced multiple times.
 ; * Clause. The atoms. Predicts a seq of [rule | scanner].
-; Some clauses can be predicted clauseable; others must be turned into rules.
+; Some clauses can be predicted inline; others must be turned into rules.
 ; TODO action
 ; TODO passthrough matches?
 ;
@@ -46,20 +46,21 @@
   (instance? clearley.rules.CfgRule x))
 
 (defn action [rule]
-  (get rule :action #(quote nil)))
+  (get rule :action (fn [] rule)))
 
 (defmacro hierarchy [& derivations]
   `(-> (make-hierarchy) ~@(map #(cons derive %) derivations)))
 
 (def cfg-hierarchy (hierarchy 
                      ; A rule-only clause must become a new rule upon prediction
-                     (::rule-only ::any) (::clauseable ::any) (::singleton ::any)
-                     ; An clauseable clause can be predicted from within another rule
-                     (:or ::clauseable)
+                     (::rule-only ::any) (::inline ::any) (::singleton ::any)
+                     ; An inline clause can be predicted from within another rule
+                     (:or ::inline) (:scanner ::inline)
                      ; A singleton can be predicted from within another rule
                      ; and must always be on its own within a rule.
+                     ; TODO diff between inline and singleton?
                      (::token ::singleton) (::symbol ::singleton)
-                     (:seq ::rule-only) (::map ::rule-only)))
+                     (:seq ::rule-only) (::map ::rule-only) (:plus ::rule-only)))
 
 ; TODO this whole multimethod stuff is awkward, and needs work.
 
@@ -88,6 +89,8 @@
       [(to-rule (str clause) (get grammar clause))])))
 (defmethod predict-clause ::token [clause _]
   [#(= % clause)])
+(defmethod predict-clause :scanner [clause _]
+  [(second clause)])
 (defmethod predict-clause :or [clause _]
   (map #(to-rule "anon-or" %) (rest clause)))
 (defmethod predict-clause ::map [clause _]
@@ -96,13 +99,16 @@
   [(to-rule "anon" clause)])
 
 ; Predicts a rule, returning a seq [rule | fn] as in predict-clause
+; TODO: we should wrap-rule properly, not have this ::singleton hack
 (defmulti predict (fn [rule _] (:type rule)) :hierarchy #'cfg-hierarchy)
 (defmethod predict ::singleton [{:keys [clauses]} grammar]
   (predict-clause (first clauses) grammar))
-(defmethod predict ::clauseable [{:keys [type clauses]} grammar]
+(defmethod predict ::inline [{:keys [type clauses]} grammar]
   (predict-clause (cons type clauses) grammar))
 (defmethod predict :seq [{:keys [clauses dot]} grammar]
-  (predict-clause (get clauses dot) grammar))
+  (if (empty? clauses)
+    (t/RE "Cannot have an empty :seq")
+    (predict-clause (get clauses dot) grammar)))
 
 ; Is this rule complete?
 (defmulti is-complete? :type :hierarchy #'cfg-hierarchy)
@@ -117,6 +123,7 @@
             (if (zero? dot) [] ["*"])
             (drop dot clause-strs))))
 
+; TODO rule-str for paren'd rules is wrong, dot should be outside parens
 (defmulti rule-str :type :hierarchy #'cfg-hierarchy)
 (defmethod rule-str :seq [{:keys [name clauses dot]}]
   (s/separate-str " " (concat [name "->"] (clause-strs clauses dot))))

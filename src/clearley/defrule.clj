@@ -92,26 +92,15 @@
   ([name clause]
    (merge (OneOrMoreImpl. clause false) {:name name, :action identity})))
 
-#_(defrecord Scanner [rulefn scanned]
-  RuleKernel
-  (rule-deps [_] [])
-  (predict [self] [])
-  (scan [self input-token]
-    (if (and (not (is-complete? self)) (rulefn input-token))
-      [(advance self)]
-      []))
-  (is-complete? [_] scanned)
-  (advance [self] (assoc self :scanned true))
-  (rule-str [_] (str (clause-str rulefn) (if scanned " *" ""))))
-
-#_(defn scanner
+(defn scanner
   "Creates a rule that accepts input tokens. For a token t, if (scanner-fn t)
-  is logical true, this rule matches that token. The default action returns the token."
+  is logical true, this rule matches that token.
+  The default action returns the token."
   ([scanner-fn] (scanner scanner-fn identity))
   ([scanner-fn action]
-   (wrap-kernel (Scanner. scanner-fn false) nil action)))
+   {:action action, :value `(:scanner ~scanner-fn)}))
 
-#_(defn char-range
+(defn char-range
   "Creates a rule that accepts any one character within a given range
   given by min and max, inclusive. min and max should be chars. The default
   action is the identity."
@@ -128,11 +117,6 @@
 ; ===
 ; Defrule
 ; ===
-
-#_(defn qualify [sym]
-  (if (-> sym str (clojure.string/split #"/") (= 1)) ; unqualified
-    (symbol *ns* sym)
-    sym))
 
 ; Macro helper fn for def rule. Returns a pair of
 ; [appropriate-symbol-for-action-body, rule-or-rulename]

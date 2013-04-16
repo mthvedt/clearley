@@ -1,5 +1,5 @@
 (ns clearley.test.core
-  (:use clearley.core clearley.defrule clearley.test.utils lazytest.deftest))
+  (:use clearley.core clearley.test.utils lazytest.deftest))
 
 (defn rulefn
   [name & clauses]
@@ -95,21 +95,6 @@
 (def-parser-test rule-aliasing-test parser4
   (is-action 0 "3-3"))
 
-; Grammars... we will use this later
-(def incomplete-grammar (build-grammar sum))
-
-; Rule literals in defrule
-(def digits567 [(token \5 5) (token \6 6) (token \7 7)])
-(extend-rule digit
-             ([digits567] digits567)
-             ([(a-digit [(token \8 8) (token \9 9)])] a-digit))
-(def parser5 (build-parser sum))
-
-(def-parser-test rule-literal-test parser5
-  (is-action 2 "7-5")
-  (is-action 1 "9-8")
-  (is-action 4 "9-5"))
-
 ; Chart str format isn't fixed... just test not nil for now
 (deftest print-charts-test
   (is (with-out-str
@@ -134,8 +119,6 @@
   (is-action 1 "1")
   (is-action 3 "1+2")
   (is-action 23 "0+1*2+3*4+9"))
-
-;TODO tests on grammars alone
 
 (def one-or-more-s (one-or-more \s))
 (def one-or-more-test-parser (build-parser one-or-more-s))
