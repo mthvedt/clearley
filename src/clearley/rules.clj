@@ -53,16 +53,14 @@
 
 (def cfg-hierarchy (hierarchy 
                      ; A rule-only clause must become a new rule upon prediction
-                     (::rule-only ::any) (::inline ::any) (::singleton ::any)
-                     ; An inline clause can be predicted from within another rule
-                     (:or ::inline) (:scanner ::inline)
+                     (::rule-only ::any) (::singleton ::any)
+                     (::sequential ::rule-only) (::map ::rule-only)
                      ; A singleton can be predicted from within another rule
                      ; and must always be on its own within a rule.
-                     ; TODO diff between inline and singleton?
-                     (::token ::singleton) (::symbol ::singleton)
-                     (:seq ::rule-only) (::map ::rule-only) (:plus ::rule-only)))
-
-; TODO this whole multimethod stuff is awkward, and needs work.
+                     (:or ::singleton) (:scanner ::singleton)
+                     (::untagged-singleton ::singleton)
+                     (::token ::untagged-singleton) (::symbol ::untagged-singleton)
+                     (:seq ::sequential) (:plus ::sequential)))
 
 ; Makes a clause into a rule
 (defmulti to-rule (fn [_ x] (clause-type x)) :hierarchy #'cfg-hierarchy)
@@ -74,6 +72,9 @@
 (defmethod to-rule ::token [name clause]
   (CfgRule. name (clause-type clause) (vector clause) 0 false
             {:clauses (vector clause) :action (fn [& args] clause)}))
+(defmethod to-rule ::sequential [name tagged-clause]
+  (CfgRule. name (first tagged-clause) (vec (rest tagged-clause)) 0
+            false {:clauses tagged-clause :action (fn [& args] args)}))
 (defmethod to-rule ::any [name tagged-clause]
   (CfgRule. name (first tagged-clause) (vec (rest tagged-clause)) 0
             false {:clauses tagged-clause :action identity}))
@@ -100,18 +101,28 @@
 
 ; Predicts a rule, returning a seq [rule | fn] as in predict-clause
 ; TODO: we should wrap-rule properly, not have this ::singleton hack
+; TODO names in clauses
 (defmulti predict (fn [rule _] (:type rule)) :hierarchy #'cfg-hierarchy)
-(defmethod predict ::singleton [{:keys [clauses]} grammar]
-  (predict-clause (first clauses) grammar))
-(defmethod predict ::inline [{:keys [type clauses]} grammar]
-  (predict-clause (cons type clauses) grammar))
+(defmethod predict ::untagged-singleton [{:keys [clauses dot]} grammar]
+  (if (= dot 1) []
+    (predict-clause (first clauses) grammar)))
+(defmethod predict ::singleton [{:keys [dot type clauses]} grammar]
+  (if (= dot 1) []
+    (predict-clause (cons type clauses) grammar)))
 (defmethod predict :seq [{:keys [clauses dot]} grammar]
   (if (empty? clauses)
     (t/RE "Cannot have an empty :seq")
-    (predict-clause (get clauses dot) grammar)))
+    (if (= dot (count clauses)) []
+      (predict-clause (get clauses dot) grammar))))
+(defmethod predict :plus [{:keys [clauses dot]} grammar]
+  (if (= (count clauses) 1)
+    (predict-clause (first clauses) grammar)
+    (t/IAE ":plus accepts only one rule"))) ; TODO
 
 ; Is this rule complete?
 (defmulti is-complete? :type :hierarchy #'cfg-hierarchy)
+(defmethod is-complete? :plus [{:keys [dot]}]
+  (> dot 0))
 (defmethod is-complete? :seq [{:keys [clauses dot]}]
   (= dot (count clauses)))
 (defmethod is-complete? ::any [{:keys [dot]}]

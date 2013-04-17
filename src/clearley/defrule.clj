@@ -68,30 +68,6 @@
                           :value (cons :seq clauses)
                           :action action}))
 
-#_(defn token
-  "Creates a rule that matches a single given token.
-  Its action returns the given value if supplied, or the token if not."
-  ([a-token] (token a-token a-token))
-  ([a-token value] (rule nil [a-token] (fn [_] value))))
-
-#_(defrecord OneOrMoreImpl [subrule done]
-  RuleKernel
-  (predict [self] [(rule nil [subrule] vector)
-                   (rule nil [self subrule] conj)])
-  (rule-deps [self] [subrule])
-  (scan [_ _] [])
-  (is-complete? [_] done)
-  (advance [self] (assoc self :done true))
-  (rule-str [_] (str (clause-str subrule) (if done " *" ""))))
-
-#_(defn one-or-more
-  "Creates a rule that matches one or more of a clause. Its action returns a vector
-  of the matches."
-  ([clause]
-   (one-or-more (str (clause-str clause) "+") clause))
-  ([name clause]
-   (merge (OneOrMoreImpl. clause false) {:name name, :action identity})))
-
 (defn scanner
   "Creates a rule that accepts input tokens. For a token t, if (scanner-fn t)
   is logical true, this rule matches that token.

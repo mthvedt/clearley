@@ -90,4 +90,18 @@
 (def-parser-test scanners scanner-parser
   (is-action 6 "1+2+3"))
 
+; Plus test
+(defrule number [(digits '(:plus digit))]
+  (reduce #(+ % (* %2 10)) digits))
+(defrule times
+  ([times \* number] (* times number))
+  ([number] number))
+
+(def plus-parser (build-parser sum))
+
+(def-parser-test plus plus-parser
+  (is-action 2 "1+1")
+  (is-action 22 "11+11")
+  (is-action 771 "1+22*33+44"))
+
 ;TODO tests on grammars alone

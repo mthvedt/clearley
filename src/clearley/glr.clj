@@ -79,10 +79,8 @@
 (defn close-item-set [item-set]
   (loop [c item-set, dot 0]
     (if-let [s (current-item c dot)]
-      (recur (if (rules/is-complete? (:rule s))
-               c
-               (reduce #(predict-into-item-set % %2 s)
-                       c (predict-item s (:grammar item-set))))
+      (recur (reduce #(predict-into-item-set % %2 s)
+                     c (predict-item s (:grammar item-set)))
              (inc dot))
       c)))
 
@@ -140,3 +138,5 @@
 (defn scan-goal [chart]
   (map (fn-> npda/popone npda/stream reduce-ostream)
        (filter goal? (npda/states chart))))
+
+; TODO eliminate extra charts
