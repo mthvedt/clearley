@@ -25,10 +25,10 @@
 (defrecord CfgRule [name type clauses dot toplevel? original])
 
 (defn clause-type [clause]
-  (cond (map? clause) ::map
+  (cond (map? clause) :rule-map
         (seq? clause) (first clause)
-        (symbol? clause) ::symbol
-        true ::token))
+        (symbol? clause) :symbol
+        true :token))
 
 (defn advance [cfg-rule]
   (update cfg-rule :dot inc))
@@ -54,22 +54,22 @@
 (def cfg-hierarchy (hierarchy 
                      ; A rule-only clause must become a new rule upon prediction
                      (::rule-only ::any) (::singleton ::any)
-                     (::sequential ::rule-only) (::map ::rule-only)
+                     (::sequential ::rule-only) (:rule-map ::rule-only)
                      ; A singleton can be predicted from within another rule
                      ; and must always be on its own within a rule.
                      (:or ::singleton) (:scanner ::singleton)
                      (::untagged-singleton ::singleton)
-                     (::token ::untagged-singleton) (::symbol ::untagged-singleton)
+                     (:token ::untagged-singleton) (:symbol ::untagged-singleton)
                      (:seq ::sequential) (:plus ::sequential)))
 
 ; Makes a clause into a rule
 (defmulti to-rule (fn [_ x] (clause-type x)) :hierarchy #'cfg-hierarchy)
-(defmethod to-rule ::map [name clause]
+(defmethod to-rule :rule-map [name clause]
   (cfg-from-defrule name clause))
-(defmethod to-rule ::symbol [name clause]
+(defmethod to-rule :symbol [name clause]
   (CfgRule. name (clause-type clause) (vector clause) 0 false
             {:clauses (vector clause) :action identity}))
-(defmethod to-rule ::token [name clause]
+(defmethod to-rule :token [name clause]
   (CfgRule. name (clause-type clause) (vector clause) 0 false
             {:clauses (vector clause) :action (fn [& args] clause)}))
 (defmethod to-rule ::sequential [name tagged-clause]
@@ -82,19 +82,19 @@
 ; Returns a seq, [rule | fn]. if fn, is a scanner.
 (defmulti predict-clause (fn [clause _] (clause-type clause))
    :hierarchy #'cfg-hierarchy)
-(defmethod predict-clause ::symbol [clause grammar]
+(defmethod predict-clause :symbol [clause grammar]
   (let [got (get grammar clause)
         type (first got)]
     (if (= type :defrule) ; Special type used only by defrule
       (map #(cfg-from-defrule (str clause) %) (rest got))
       [(to-rule (str clause) (get grammar clause))])))
-(defmethod predict-clause ::token [clause _]
+(defmethod predict-clause :token [clause _]
   [#(= % clause)])
 (defmethod predict-clause :scanner [clause _]
   [(second clause)])
 (defmethod predict-clause :or [clause _]
   (map #(to-rule "anon-or" %) (rest clause)))
-(defmethod predict-clause ::map [clause _]
+(defmethod predict-clause :rule-map [clause _]
   [(cfg-from-defrule "anon" clause)])
 (defmethod predict-clause ::rule-only [clause _]
   [(to-rule "anon" clause)])

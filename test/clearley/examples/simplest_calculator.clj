@@ -1,5 +1,5 @@
 (ns clearley.examples.simplest-calculator
-  (use clearley.core))
+  (use clearley.defrule))
 
 (defrule sum
   ([sum \+ term] (+ sum term)) ; left associative
@@ -17,7 +17,7 @@
 (def digit (char-range \0 \9
                        #(- (int %) (int \0))))
 
-(def my-calculator (build-parser sum))
+(def my-calculator (clearley.core/build-parser sum))
 
 (use 'lazytest.deftest 'clearley.test.utils)
 

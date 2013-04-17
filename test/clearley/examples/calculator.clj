@@ -1,6 +1,5 @@
 (ns clearley.examples.calculator
-  (use clearley.core
-       clojure.math.numeric-tower))
+  (use clearley.defrule clojure.math.numeric-tower))
 
 (defrule sum
   ([sum \+ term] (+ sum term))
@@ -25,10 +24,9 @@
 (defrule number
   ([number digit] (+ (* 10 number) digit))
   ([digit] digit))
-(def digit (char-range \0 \9
-                       #(- (int %) (int \0))))
+(def digit (char-range \0 \9 #(- (int %) (int \0))))
 
-(def my-calculator (build-parser sum))
+(def my-calculator (clearley.core/build-parser sum))
 
 (use 'lazytest.deftest 'clearley.test.utils)
 

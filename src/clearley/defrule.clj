@@ -54,14 +54,15 @@
       grammar)))
 
 ; ===
-; Defrule
+; Common rules
 ; ===
 
+; TODO rename to seq?
+; Figure out what to do with "double named" rules
 (defn rule
   "Creates a context-free grammar rule. A rule has a required seq of clauses,
   an optional name, and an optional action.
   If not supplied, the default action bundles the args into a list."
-  ; TODO eliminate name?
   ([clauses] (rule nil clauses nil))
   ([clauses action] (rule nil clauses action))
   ([name clauses action] {:name name
@@ -89,6 +90,13 @@
         intmax (int max)]
     (scanner #(let [intx (int %)] (and (<= intx intmax) (>= intx intmin)))
              action))))
+
+; TODO keep this?
+(defn string-rule
+  "Creates a rule that matches some string."
+  ([str] (string-rule str (fn [] str)))
+  ([str action]
+   {:action action, :value `(:seq ~@str)}))
 
 ; ===
 ; Defrule
