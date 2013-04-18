@@ -17,11 +17,7 @@
 ; * Rule. Looks like this: clause-name -> clause. Can be advanced multiple times.
 ; * Clause. The atoms. Predicts a seq of [rule | scanner].
 ; Some clauses can be predicted inline; others must be turned into rules.
-; TODO action
-; TODO passthrough matches?
-;
-; Iron rule of clauses: One clause -> one match.
-; They're all just combinators.
+
 (defrecord CfgRule [name type clauses dot toplevel? original])
 
 (defn clause-type [clause]
@@ -60,7 +56,7 @@
                      (:or ::singleton) (:scanner ::singleton)
                      (::untagged-singleton ::singleton)
                      (:token ::untagged-singleton) (:symbol ::untagged-singleton)
-                     (:seq ::sequential) (:plus ::sequential)))
+                     (:seq ::sequential) (:star ::sequential)))
 
 ; Makes a clause into a rule
 (defmulti to-rule (fn [_ x] (clause-type x)) :hierarchy #'cfg-hierarchy)
@@ -100,7 +96,6 @@
   [(to-rule "anon" clause)])
 
 ; Predicts a rule, returning a seq [rule | fn] as in predict-clause
-; TODO: we should wrap-rule properly, not have this ::singleton hack
 ; TODO names in clauses
 (defmulti predict (fn [rule _] (:type rule)) :hierarchy #'cfg-hierarchy)
 (defmethod predict ::untagged-singleton [{:keys [clauses dot]} grammar]
@@ -110,19 +105,16 @@
   (if (= dot 1) []
     (predict-clause (cons type clauses) grammar)))
 (defmethod predict :seq [{:keys [clauses dot]} grammar]
-  (if (empty? clauses)
-    (t/RE "Cannot have an empty :seq")
-    (if (= dot (count clauses)) []
-      (predict-clause (get clauses dot) grammar))))
-(defmethod predict :plus [{:keys [clauses dot]} grammar]
+  (if (= dot (count clauses)) []
+    (predict-clause (get clauses dot) grammar)))
+(defmethod predict :star [{:keys [clauses dot]} grammar]
   (if (= (count clauses) 1)
     (predict-clause (first clauses) grammar)
-    (t/IAE ":plus accepts only one rule"))) ; TODO
+    (t/IAE ":star accepts only one rule")))
 
 ; Is this rule complete?
 (defmulti is-complete? :type :hierarchy #'cfg-hierarchy)
-(defmethod is-complete? :plus [{:keys [dot]}]
-  (> dot 0))
+(defmethod is-complete? :star [{:keys [dot]}] true)
 (defmethod is-complete? :seq [{:keys [clauses dot]}]
   (= dot (count clauses)))
 (defmethod is-complete? ::any [{:keys [dot]}]

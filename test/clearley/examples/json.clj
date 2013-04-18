@@ -5,25 +5,32 @@
 ; JSON spec:
 ; https://www.ietf.org/rfc/rfc4627.txt?number=4627
 
+; Start with whitepsace. JSON's whitespace is different from Java.
+; At the end, we will define a JSON value as 'value, surrounded by whitespace.
+(def whitespace-char '(:or \u0020 \u0009 \u000A \u000D))
+(def whitespace '(:star whitespace-char))
+
 ; JSON recognizes 7 types of value. Three are represented by keywords.
 (defrule true-token "true" true)
 (defrule false-token "false" false)
 (defrule null-token "null" nil)
 
 ; Fourth is the string.
-
+; First we need to parse digits and hex numbers.
 ; Clojure doesn't support character arithmetic so we need a manual implementation.
-(defn char-to-num [char-start num-start]
+(defn char-to-digit [char-start num-start]
   (let [char-start-int (int char-start)]
     #(+ num-start (- (int %) char-start-int))))
 
 ; We need this for escaped characters. Notice they return a number not a char.
-(def digit (char-range \0 \9 (char-to-num \0 0)))
+(def digit (char-range \0 \9 (char-to-digit \0 0)))
 (def hex-char `(:or digit
-                    ~(char-range \a \f (char-to-num \a 10))
-                    ~(char-range \A \F (char-to-num \A 10))))
+                    ~(char-range \a \f (char-to-digit \a 10))
+                    ~(char-range \A \F (char-to-digit \A 10))))
 
-(def string-char-scanner
+; TODO control characters
+; Scas any non-escaped char.
+(def char-scanner
   (scanner (fn [c] (and (char? c) (not (= \\ c)) (not (= \" c))))))
 
 (defrule string-char
@@ -34,98 +41,76 @@
                      ; hex-char returns an int... we turn that into Unicode char
                      (fn [& chars] (char (reduce (fn [a b] (+ (* 16 a) b)) chars)))))]
    hex)
-  ([string-char-scanner] string-char-scanner))
-
-(def string-body '(:plus string-char))
+  ([char-scanner] char-scanner))
 
 (defrule string
-  ([\" \"] "")
-  ([\" string-body \"] (java.lang.String. (char-array string-body))))
+  ([\" (string-body '(:star string-char)) \"]
+   (java.lang.String. (char-array string-body))))
 
 ; Fifth, the Number, the most complex.
-
-(def digit1-9 (char-range \1 \9 (char-to-num \1 1)))
-(def digits '(:plus digit))
-(defn digits-to-number [digits]
+(def digit1-9 (char-range \1 \9 (char-to-digit \1 1)))
+; TODO plus
+(def digits '(:star digit))
+(defn make-num [digits]
   (reduce #(+ (* 10 %) %2) 0 digits))
 
 (defrule natnum
   ([\0] 0)
-  ([digit1-9] digit1-9)
-  ([digit1-9 digits] (digits-to-number (cons digit1-9 digits))))
+  ([digit1-9 digits] (make-num (cons digit1-9 digits))))
 
-(defrule fraction
+(defrule decimal
   ([natnum] natnum)
-  ([natnum \. digits] (+ natnum (/ (digits-to-number digits)
+  ([natnum \. digits] (+ natnum (/ (make-num digits)
                                      (expt 10 (count digits))))))
 
 (defrule mantissa
-  ([\+ digits] (digits-to-number digits))
-  ([digits] (digits-to-number digits))
-  ([\- digits] (- (digits-to-number digits))))
+  ([(_ (opt \+)) digits] (make-num digits))
+  ([\- digits] (- (make-num digits))))
 
 ; It appears JSON numbers are exact although JS numbers are double floats.
 (defrule posnum
-  ([fraction] fraction)
-  ([fraction '(:or \e \E) mantissa] (* fraction (expt 10 mantissa))))
+  ([decimal] decimal)
+  ([decimal '(:or \e \E) mantissa] (* decimal (expt 10 mantissa))))
 
 (defrule number
   ([posnum] posnum)
   ([\- posnum] (- posnum)))
 
 ; The sixth type is the array.
-
-; First we need to define some structural tokens. These can contain whitespace.
-; JSON recognizes fewer whitespace chars than Java. These are they.
-(def whitespace-char '(:or \u0020 \u0009 \u000A \u000D))
-
-(def whitespace '(:plus #_"whitespace" whitespace-char))
-
-; Returns a seq of rules representing the given token
-; surrounded by any amount of insignificant whitespace
-(defn whitespaced-rule [clause]
-  `(:or ~(rule nil [clause] identity)
-        ~(rule nil [whitespace clause] (fn [_ x] x))
-        ~(rule nil [clause whitespace] (fn [x _] x))
-        ~(rule nil [whitespace clause whitespace] (fn [_ x _] x))))
-
-(def array-begin (whitespaced-rule \[))
-(def array-end (whitespaced-rule \]))
-(def comma (whitespaced-rule \,))
-
 (defrule array-values
   ([value] [value])
-  ([array-values comma value] (conj array-values value)))
+  ([array-values \, value] (conj array-values value)))
 
 (defrule array
-  ([array-begin array-end] [])
-  ([array-begin array-values array-end] array-values))
+  ([\[ whitespace \]] [])
+  ([\[ array-values \]] array-values))
 
 ; and the seventh (and also the goal type): Object.
+(defrule pair [whitespace string whitespace \: value]
+  [(keyword string) value])
 
-(def object-begin (whitespaced-rule \{))
-(def object-end (whitespaced-rule \}))
-(def colon (whitespaced-rule \:))
-
-(defrule object-value [string colon value] [(keyword string) value])
-(defrule object-values
-  ([object-value] (let [[k v] object-value] {k v}))
-  ([(o object-values) comma object-value] (let [[k v] object-value]
-                                            (if (contains? o k)
-                                              (throw (RuntimeException.
-                                                       (str "Duplicate key: " o)))
-                                              (assoc o k v)))))
+; TODO duplicate keys are actually allowed in JSON.
+(defrule pairs
+  ([pair] (let [[k v] pair] {k v}))
+  ([(o pairs) \, pair]
+   (let [[k v] pair]
+     (if (contains? o k)
+       (throw (RuntimeException.
+                (str "Duplicate key: " o))) ; Duplicate keeys not allowed in JSON
+       (assoc o k v)))))
 
 (defrule object
-  ([object-begin object-end] {})
-  ([object-begin object-values object-end] object-values))
+  ([\{ whitespace \}] {})
+  ([\{ pairs \}] pairs))
+(defrule whitespace-object [whitespace object whitespace] object)
 
 ; Put it all together...
-(def value '(:or true-token false-token null-token
+(def value* '(:or true-token false-token null-token
                  string number array object))
+(defrule value [whitespace value* whitespace] value*)
 
 ; And we are done
-(def json-parser (clearley.core/build-parser object))
+(def json-parser (clearley.core/build-parser whitespace-object))
 
 ; Let's prove that it works
 (use 'clearley.test.utils 'lazytest.deftest)

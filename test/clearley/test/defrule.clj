@@ -90,18 +90,27 @@
 (def-parser-test scanners scanner-parser
   (is-action 6 "1+2+3"))
 
-; Plus test
-(defrule number [(digits '(:plus digit))]
+; star test
+(defrule number [(digits (plus 'digit))]
   (reduce #(+ % (* %2 10)) digits))
 (defrule times
   ([times \* number] (* times number))
   ([number] number))
 
-(def plus-parser (build-parser sum))
+(def star-parser (build-parser sum))
 
-(def-parser-test plus plus-parser
+(def-parser-test star star-parser
   (is-action 2 "1+1")
   (is-action 22 "11+11")
   (is-action 771 "1+22*33+44"))
+
+; opt test
+(def foo `(:star (:seq \x ~(opt \y))))
+(def foo-parser (build-parser foo))
+
+(def-parser-test opt-test foo-parser
+  (is-action [[\x nil] [\x nil]] "xx")
+  (is-action [[\x nil] [\x \y]] "xxy")
+  (not-parsing "xyy"))
 
 ;TODO tests on grammars alone

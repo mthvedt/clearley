@@ -142,9 +142,6 @@
 
 (def empty-chart (AChart. om/empty))
 
-(defn initial-chart [node]
-  (add-state empty-chart (state node)))
-
 ; process states for a single chart
 (defn reduce-chart [chart]
   (loop [c chart, dot 0]
@@ -176,6 +173,9 @@
 (defn process-chart [chart token input]
   (reduce-chart (shift-chart chart token input)))
 
+(defn initial-chart [node]
+  (reduce-chart (add-state empty-chart (state node))))
+
 ; Laziness knocks the big-O down a notch
 ; but doesn't get us to best-case O(n^2)--O(1) for CLR(k) grammars
 ; because we store matches in the chart. Push parsing could be added in the future
@@ -187,7 +187,7 @@
             (let [next-chart (process-chart current-chart (tokenizer thechar) thechar)]
               (if (seq (states next-chart))
                 (run-automaton-helper (rest input) next-chart tokenizer)
-                (list next-chart))))))) ; Puts an empty chart at the end
+                (list next-chart))))))) ; Puts the empty chart at the end
 
 ; Runs the automaton, returning a sequence of charts
 (defn run-automaton [initial-node input tokenizer]

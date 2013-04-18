@@ -6,11 +6,6 @@
            [uncore.str :as s])
   (use uncore.core))
 
-; TODO work out format.
-; A symbol -> choice of rules
-; A tagged clause
-; Only two choices.
-
 ; ===
 ; Parse items
 ; An Item is a rule together with some instrumentation.
@@ -74,8 +69,6 @@
 (defn current-item [{items :items} dot]
   (when-not (>= dot (count items)) (get items dot)))
 
-; TODO: predicting completed items seems to cause combinatorial explosion
-; but only for some grammars (JSON)
 (defn close-item-set [item-set]
   (loop [c item-set, dot 0]
     (if-let [s (current-item c dot)]
@@ -108,11 +101,9 @@
 ; Using the automaton
 ; ===
 
-; TODO matches and goals, matches and goals
 (defn goal? [state]
   (some #(rules/goal? (:rule %)) (-> state npda/peek :items)))
 
-; TODO need goal rule
 ; Builds a rule match from the output stack and pushes the match to the top
 ; (think of a Forth operator reducing the top of a stack)
 ; Final output (for a valid parse) will be a singleton list
@@ -127,7 +118,7 @@
 (defn reduce-ostream [ostream]
   (first (reduce reduce-ostream-helper '() ostream)))
 
-(defn parse-charts [input-str grammar tokenizer goal] ; TODO
+(defn parse-charts [input-str grammar tokenizer goal]
   (npda/run-automaton (new-item-set [(new-item (rules/goal-rule goal))] grammar)
                       input-str tokenizer))
 
