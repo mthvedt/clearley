@@ -12,17 +12,12 @@
 
 (def grammar1 (build-grammar sum))
 
-(extend-rule sum [sum \- times] (- sum times))
-(def grammar2 (build-grammar sum))
-
 (deftest build-grammar-smoke-test
   (is grammar1 true)
   (is (get grammar1 'sum))
   (is (get grammar1 'times))
   (is (get grammar1 'digit))
-
-  (is= (count (get grammar1 'sum)) 3)
-  (is= (count (get grammar2 'sum)) 4))
+  (is= (count (get grammar1 'sum)) 3))
 
 ; Testing the parser
 (def parser1 (build-parser sum))
@@ -39,15 +34,14 @@
     (is-ast [[[\3]]] "3")
     (is-ast [[[[\3]]] \+ [[[\3]] \* [\3]]] "3+3*3"))
 
-(def-parser-test defrule1 parser1
+(def-parser-test defrule-test parser1
   (with-parser parser1
-    (is-action 0 "3-3")
     (is-action 6 "3+3")
     (is-action 9 "3*3")
     (is-action 15 "3+3*3+3")))
 
-; A little more invovled; also testing build from grammar
-; TODO build from grammar
+; A little more invovled
+; TODO test build from grammar
 (defrule digit ([\1] 1) ([\2] 2) ([\3] 3) ([\4] 4) ([\5 \5] 55))
 (def parser2 (build-parser sum))
 
@@ -75,8 +69,9 @@
   (is-action 6 "3+3"))
 
 ; Rule literals
+; TODO have :defrule?
 (def digits67 '(:or \6 (:seq \7 \7)))
-(extend-rule digit [digits67] digits67)
+(defrule digit ([\1] 1) ([\2] 2) ([\3] 3) ([\4] 4) ([\5 \5] 55) ([digits67] digits67))
 (def literal-parser (build-parser sum))
 
 (def-parser-test rule-literals literal-parser

@@ -28,10 +28,11 @@
                     ~(char-range \a \f (char-to-digit \a 10))
                     ~(char-range \A \F (char-to-digit \A 10))))
 
-; TODO control characters
-; Scas any non-escaped char.
+; Accepts any non-escaped character. Rejected are \\, \",
+; and all JSON control characters (which are not the same as in Unicode!)
 (def char-scanner
-  (scanner (fn [c] (and (char? c) (not (= \\ c)) (not (= \" c))))))
+  (scanner (fn [c] (and (char? c) (> (int c) 0x1f)
+                        (not (= \\ c)) (not (= \" c))))))
 
 (defrule string-char
   ; an escaped char
@@ -49,13 +50,13 @@
 
 ; Fifth, the Number, the most complex.
 (def digit1-9 (char-range \1 \9 (char-to-digit \1 1)))
-; TODO plus
-(def digits '(:star digit))
+(def digits (plus 'digit))
 (defn make-num [digits]
   (reduce #(+ (* 10 %) %2) 0 digits))
 
 (defrule natnum
   ([\0] 0)
+  ([digit1-9] digit1-9)
   ([digit1-9 digits] (make-num (cons digit1-9 digits))))
 
 (defrule decimal
@@ -89,15 +90,9 @@
 (defrule pair [whitespace string whitespace \: value]
   [(keyword string) value])
 
-; TODO duplicate keys are actually allowed in JSON.
 (defrule pairs
-  ([pair] (let [[k v] pair] {k v}))
-  ([(o pairs) \, pair]
-   (let [[k v] pair]
-     (if (contains? o k)
-       (throw (RuntimeException.
-                (str "Duplicate key: " o))) ; Duplicate keeys not allowed in JSON
-       (assoc o k v)))))
+  ([pair] (apply hash-map pair))
+  ([pairs \, pair] (conj pairs pair)))
 
 (defrule object
   ([\{ whitespace \}] {})
@@ -178,7 +173,7 @@
   (is-action {:a 1} "{\"a\" : 1}")
   (is-action {} "{}")
   (is-parsing "{\"a\" : 1, \"a\" : 2}")
-  (action-throws RuntimeException "{\"a\" : 1, \"a\" : 2}")
+  ;(action-throws RuntimeException "{\"a\" : 1, \"a\" : 2}")
   (not-parsing "{a : 1}")
   (not-parsing "{\"a\" : 1 \"b\" : 2}")
   (is-action {:a 1 :b 2} "{\"a\" : 1, \"b\" : 2}")

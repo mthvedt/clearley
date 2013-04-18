@@ -34,23 +34,22 @@
       (t/IAE "Clause symbol " thesym " must point to a vector"))
     (t/IAE "Cannot resolve rule: " thesym)))
 
-(defn deps [clause]
-  (cond (map? clause) (deps (:value clause))
-        (seq? clause) (mapcat deps (rest clause))
-        ; TODO what to do here?
-        (symbol? clause) [clause]
+(defn deps [rule]
+  (cond (map? rule) (deps (:value rule))
+        (seq? rule) (mapcat deps (rest rule))
+        (symbol? rule) [rule]
         true []))
 
-; goal: a seq of syms
-(defn build-grammar-1 [goal thens theenv]
-  (loop [syms goal ; syms to resolve
+; seed: a seqable of syms
+(defn build-grammar-1 [seed thens theenv]
+  (loop [syms seed ; syms to resolve
          grammar {}] ; grammar: maps symbols to rules
     (if-let [sym (first syms)]
       (if (contains? grammar sym) ; have we already seen this?
         (recur (rest syms) grammar)
-        (let [rulevec (lookup-symbol sym thens theenv)]
-          (recur (apply concat (rest syms) (map deps rulevec))
-                 (assoc grammar sym rulevec))))
+        (let [resolved (lookup-symbol sym thens theenv)]
+          (recur (concat (rest syms) (deps resolved))
+                 (assoc grammar sym resolved))))
       grammar)))
 
 ; ===
@@ -181,21 +180,6 @@
   Symbols in the defrule bodies do not become qualified."
   [sym & impl-or-impls]
   `(def ~sym (list :defrule ~@(build-defrule-bodies sym impl-or-impls))))
-
-(defmacro extend-rule
-  ; TODO re-doc
-  "Like defrule, but for an existing symbol with some rules bound to it,
-  such as one defined by defrule."
-  [sym & impl-or-impls]
-  `(def ~sym (concat ~sym (list ~@(build-defrule-bodies sym impl-or-impls)))))
-
-(defmacro add-rules
-  ; TODO re-doc
-  "Adds some amount of additional rules to a symbol with rules bound to it,
-  such as one defined by defrule. The given rules must be rule objects, not
-  defrule-style definitions."
-  [sym & rules]
-  `(def ~sym (vec (concat ~sym [~@rules]))))
 
 ; In the future, we might bind &env to theenv
 ; The form of &env is not fixed by Clojure authors so don't do it now
