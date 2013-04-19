@@ -50,14 +50,9 @@
   (bench-str "Right-recursive calculator 2"
              calc/my-calculator "1^2^3^4^5^6^7^8^1^2^3^4^5^6^7^8")
   ; Snakes... why did it have to be snakes?
-  ; This is a quadratic grammar, but can incur O(n^4) parse time in some GLR impls. is a quadratic grammar, but can incur O(n^4) parse time in some GLR impls.
+  ; This is a quadratic grammar, but can incur O(n^4) parse time in some GLR impls.
   ; TODO: add a cubic grammar.
   (bench-str "Pathological grammar 1.1" pathological-parser-1 (repeat 20 \s)) 
   (bench-str "Pathological grammar 1.2" pathological-parser-1 (repeat 40 \s))
   (bench-str "Pathological grammar 1.3" pathological-parser-1 (repeat 80 \s))
-
-  ; JSON grammar is relatively complex--LR parsers should tend to do well
-  (bench-from-file "JSON" json/json-parser "small-test.json")
-  ; With no lookahead, each consecutive space adds O(1) ambiguity
-  (bench-from-file "Formatted JSON" json/json-parser "small-test-formatted.json")
   )

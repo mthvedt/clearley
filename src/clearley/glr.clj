@@ -47,18 +47,6 @@
 
 (declare shift-item-set reduce-item-set item-set-reductions)
 
-; items: a vector of items
-; predictor-map: ordered multimap, items -> internal predicting items
-(defrecord ItemSet [items predictor-map grammar]
-  npda/Node
-  (npda/shift [self input] (shift-item-set self input))
-  (npda/reduce [self output] (reduce-item-set self output))
-  (npda/reductions [self] (item-set-reductions self))
-  npda/IPrinting
-  (npda/pstr [self]
-    (with-out-str
-      (runmap println (map #(pstr-item-set-item % predictor-map) items)))))
-
 (defn predict-into-item-set [{:keys [items predictor-map] :as item-set}
                              {original :original :as item} predictor]
   (if (empty? (omm/get-vec predictor-map original))
@@ -69,29 +57,52 @@
 (defn current-item [{items :items} dot]
   (when-not (>= dot (count items)) (get items dot)))
 
-(defn close-item-set [item-set]
+; TODO: predicting completed items seems to cause combinatorial explosion
+; but only for some grammars (JSON)
+(defn close-item-set [item-set grammar]
   (loop [c item-set, dot 0]
     (if-let [s (current-item c dot)]
       (recur (reduce #(predict-into-item-set % %2 s)
-                     c (predict-item s (:grammar item-set)))
+                       c (predict-item s grammar))
              (inc dot))
       c)))
 
+(defprotocol GlrState
+  (is-goal [self]))
+
 ; seed items don't go in predictor-map, closed items do
 (defn new-item-set [items grammar]
-  (close-item-set (ItemSet. (vec items) omm/empty grammar)))
+  (let [seed-item-set {:items (vec items) :predictor-map omm/empty}
+        {:keys [items predictor-map] :as the-item-set}
+        (close-item-set seed-item-set grammar)
+        shift-fn (memoize #(shift-item-set items grammar %))
+        reductions (item-set-reductions the-item-set)
+        reduces (memoize #(reduce-item-set predictor-map grammar %))]
+    ; items: a vector of items
+    ; predictor-map: ordered multimap, items -> internal predicting items
+    (reify
+      npda/Node
+      (npda/node-key [_] items)
+      (npda/shift [_ input] (shift-fn input))
+      (npda/reduce [_ output] (reduces (:original output)))
+      (npda/reductions [_] reductions)
+      GlrState
+      (is-goal [_] (some #(rules/goal? (:rule %)) items))
+      npda/IPrinting
+      (npda/pstr [self]
+        (with-out-str
+          (runmap println (map #(pstr-item-set-item % predictor-map) items)))))))
 
 ; scans an input character, seeding a new state
-(defn shift-item-set [{:keys [items grammar] :as item-set} input-token]
+(defn shift-item-set [items grammar input-token]
   (when-let [r (remove nil? (map #(scan-item % input-token grammar) items))]
     (new-item-set r grammar)))
 
 ; Reduces an item given a stack-top item-set
-(defn reduce-item-set [item-set {:keys [original]}]
+(defn reduce-item-set [predictor-map grammar original]
   (when-let [new-items
-             (seq (map advance-item
-                       (omm/get-vec (:predictor-map item-set) original)))]
-    [(new-item-set new-items (:grammar item-set))]))
+             (seq (map advance-item (omm/get-vec predictor-map original)))]
+    [(new-item-set new-items grammar)]))
 
 (defn item-set-reductions [{items :items}]
   (map (fn [{:keys [match-count] :as item}] [item match-count])
@@ -100,9 +111,6 @@
 ; ===
 ; Using the automaton
 ; ===
-
-(defn goal? [state]
-  (some #(rules/goal? (:rule %)) (-> state npda/peek :items)))
 
 ; Builds a rule match from the output stack and pushes the match to the top
 ; (think of a Forth operator reducing the top of a stack)
@@ -128,6 +136,4 @@
 ; Searches states for completed parse of the goal rule, returning all matches
 (defn scan-goal [chart]
   (map (fn-> npda/popone npda/stream reduce-ostream)
-       (filter goal? (npda/states chart))))
-
-; TODO eliminate extra charts
+       (filter #(is-goal (npda/peek %)) (npda/states chart))))
