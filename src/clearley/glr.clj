@@ -71,38 +71,47 @@
   (is-goal [self]))
 
 ; seed items don't go in predictor-map, closed items do
-(defn new-item-set [items grammar]
-  (let [seed-item-set {:items (vec items) :predictor-map omm/empty}
-        {:keys [items predictor-map] :as the-item-set}
-        (close-item-set seed-item-set grammar)
-        shift-fn (memoize #(shift-item-set items grammar %))
-        reductions (item-set-reductions the-item-set)
-        reduces (memoize #(reduce-item-set predictor-map grammar %))]
-    ; items: a vector of items
-    ; predictor-map: ordered multimap, items -> internal predicting items
-    (reify
-      npda/Node
-      (npda/node-key [_] items)
-      (npda/shift [_ input] (shift-fn input))
-      (npda/reduce [_ output] (reduces (:original output)))
-      (npda/reductions [_] reductions)
-      GlrState
-      (is-goal [_] (some #(rules/goal? (:rule %)) items))
-      npda/IPrinting
-      (npda/pstr [self]
-        (with-out-str
-          (runmap println (map #(pstr-item-set-item % predictor-map) items)))))))
+(defn new-item-set [items grammar mem-atom]
+  (if-let [r (get @mem-atom items)]
+    r
+    (let [r (let [item-set-num (count @mem-atom) ; assumes single thread
+                  seed-item-set {:items (vec items) :predictor-map omm/empty}
+                  {:keys [items predictor-map]
+                   :as the-item-set} (close-item-set seed-item-set grammar)
+                  shift-fn (memoize #(shift-item-set items grammar % mem-atom))
+                  reductions (item-set-reductions the-item-set)
+                  reduces (memoize #(reduce-item-set predictor-map grammar
+                                                     % mem-atom))]
+              ; items: a vector of items
+              ; predictor-map: ordered multimap, items -> internal predicting items
+              (reify
+                npda/Node
+                (npda/node-key [_] item-set-num)
+                (npda/shift [_ input] (shift-fn input))
+                (npda/reduce [_ output] (reduces (:original output)))
+                (npda/reductions [_] reductions)
+                GlrState
+                (is-goal [_] (some #(rules/goal? (:rule %)) items))
+                npda/IPrinting
+                (npda/pstr [self]
+                  (with-out-str
+                    (runmap println (map #(pstr-item-set-item % predictor-map)
+                                         items))))))]
+      (swap! mem-atom #(assoc % items r))
+      r)))
+
 
 ; scans an input character, seeding a new state
-(defn shift-item-set [items grammar input-token]
-  (when-let [r (remove nil? (map #(scan-item % input-token grammar) items))]
-    (new-item-set r grammar)))
+(defn shift-item-set [items grammar input-token mem-atom]
+  (let [r (remove nil? (map #(scan-item % input-token grammar) items))]
+    (if (seq r)
+      (new-item-set r grammar mem-atom))))
 
 ; Reduces an item given a stack-top item-set
-(defn reduce-item-set [predictor-map grammar original]
+(defn reduce-item-set [predictor-map grammar original mem-atom]
   (when-let [new-items
              (seq (map advance-item (omm/get-vec predictor-map original)))]
-    [(new-item-set new-items grammar)]))
+    [(new-item-set new-items grammar mem-atom)]))
 
 (defn item-set-reductions [{items :items}]
   (map (fn [{:keys [match-count] :as item}] [item match-count])
@@ -126,8 +135,10 @@
 (defn reduce-ostream [ostream]
   (first (reduce reduce-ostream-helper '() ostream)))
 
-(defn parse-charts [input-str grammar tokenizer goal]
-  (npda/run-automaton (new-item-set [(new-item (rules/goal-rule goal))] grammar)
+; mem-atom: [map: seed items -> item-set]
+(defn parse-charts [input-str grammar tokenizer goal mem-atom]
+  (npda/run-automaton (new-item-set [(new-item (rules/goal-rule goal))]
+                                    grammar mem-atom)
                       input-str tokenizer))
 
 (defn pstr-charts [charts]

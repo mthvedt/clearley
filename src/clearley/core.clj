@@ -30,16 +30,18 @@
   ([goal rules]
    (parser goal identity rules))
   ([goal tokenizer rules]
+   ; This mem-atom will help us lazily build our parser,
+   ; and keep the results in memory
+   (let [mem-atom (atom {})
+         parse-fn #(glr/parse-charts % rules tokenizer goal mem-atom)]
    (reify
      Parser
      (parse [_ input]
        ; For now, only return first match. If failure, last chart will be empty
-       (-> (glr/parse-charts input rules tokenizer goal) last glr/scan-goal first))
+       (-> (parse-fn input) last glr/scan-goal first))
      ChartParser
-     (charts [_ input]
-       (glr/parse-charts input rules tokenizer goal))
-     (print-charts [_ input]
-       (glr/pstr-charts (glr/parse-charts input rules tokenizer goal))))))
+     (charts [_ input] (parse-fn input))
+     (print-charts [_ input] (glr/pstr-charts (parse-fn input)))))))
 
 (defn print-match
   "Pretty-prints a match tree to *out*."
