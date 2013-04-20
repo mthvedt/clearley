@@ -59,8 +59,8 @@
 
 ; TODO: predicting completed items seems to cause combinatorial explosion
 ; but only for some grammars (JSON)
-(defn close-item-set [item-set grammar]
-  (loop [c item-set, dot 0]
+(defn close-item-set [seed-items grammar]
+  (loop [c {:items (vec seed-items), :predictor-map omm/empty}, dot 0]
     (if-let [s (current-item c dot)]
       (recur (reduce #(predict-into-item-set % %2 s)
                        c (predict-item s grammar))
@@ -71,35 +71,41 @@
   (is-goal [self]))
 
 ; seed items don't go in predictor-map, closed items do
-(defn new-item-set [items grammar mem-atom]
-  (if-let [r (get @mem-atom items)]
+(defn new-item-set [seed-items grammar mem-atom]
+  (if-let [r (get @mem-atom seed-items)]
     r
-    (let [r (let [item-set-num (count @mem-atom) ; assumes single thread
-                  seed-item-set {:items (vec items) :predictor-map omm/empty}
-                  {:keys [items predictor-map]
-                   :as the-item-set} (close-item-set seed-item-set grammar)
-                  shift-fn (memoize #(shift-item-set items grammar % mem-atom))
-                  reductions (item-set-reductions the-item-set)
-                  reduces (memoize #(reduce-item-set predictor-map grammar
-                                                     % mem-atom))]
-              ; items: a vector of items
-              ; predictor-map: ordered multimap, items -> internal predicting items
-              (reify
-                npda/Node
-                (npda/node-key [_] item-set-num)
-                (npda/shift [_ input] (shift-fn input))
-                (npda/reduce [_ output] (reduces (:original output)))
-                (npda/reductions [_] reductions)
-                GlrState
-                (is-goal [_] (some #(rules/goal? (:rule %)) items))
-                npda/IPrinting
-                (npda/pstr [self]
-                  (with-out-str
-                    (runmap println (map #(pstr-item-set-item % predictor-map)
-                                         items))))))]
-      (swap! mem-atom #(assoc % items r))
-      r)))
-
+    (let [; items: a vector of items
+          ; predictor-map: ordered multimap, items -> internal predicting items
+          {all-items :items, :keys [predictor-map]} (close-item-set
+                                                      seed-items grammar)
+          shift-fn (memoize #(shift-item-set all-items grammar % mem-atom))
+          ; TODO seed-items
+          reductions (item-set-reductions all-items)
+          reduces (memoize #(reduce-item-set predictor-map grammar
+                                             % mem-atom))]
+      (loop []
+        ; Compare-and-set spin lock, in case of multithreaded parsing
+        ; because (count @mem-atom) may change
+        (let [old-atom @mem-atom
+              item-set-num (count old-atom)
+              r (reify
+                  npda/Node
+                  (npda/node-key [_] item-set-num)
+                  (npda/shift [_ input] (shift-fn input))
+                  (npda/reduce [_ output] (reduces (:original output)))
+                  (npda/reductions [_] reductions)
+                  GlrState
+                  (is-goal [_] (some #(rules/goal? (:rule %)) all-items))
+                  npda/IPrinting
+                  (npda/pstr [self]
+                    (with-out-str
+                      (runmap println (map #(pstr-item-set-item % predictor-map)
+                                           all-items)))))]
+          (if-let [r2 (get old-atom seed-items)] ; Don't duplicate work
+            r2
+            (if (compare-and-set! mem-atom old-atom (assoc old-atom seed-items r))
+              r
+              (recur))))))))
 
 ; scans an input character, seeding a new state
 (defn shift-item-set [items grammar input-token mem-atom]
@@ -113,7 +119,7 @@
              (seq (map advance-item (omm/get-vec predictor-map original)))]
     [(new-item-set new-items grammar mem-atom)]))
 
-(defn item-set-reductions [{items :items}]
+(defn item-set-reductions [items]
   (map (fn [{:keys [match-count] :as item}] [item match-count])
        (filter (fn-> :rule rules/is-complete?) items)))
 
