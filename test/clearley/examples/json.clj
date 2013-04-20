@@ -88,7 +88,7 @@
 
 ; and the seventh (and also the goal type): Object.
 (defrule pair [whitespace string whitespace \: value]
-  [(keyword string) value])
+  [string value])
 
 (defrule pairs
   ([pair] (apply hash-map pair))
@@ -166,15 +166,16 @@
 
 ; Only Objects are valid json parses.
 (def-parser-test json-test json-parser
+  (is (compare-to-file json-parser "clearley/examples/json_test.json"
+                   "clearley/examples/json_test.edn"))
   (not-parsing "1")
   (not-parsing "true")
   (not-parsing "\"a\"")
   (not-parsing "[1]")
-  (is-action {:a 1} "{\"a\" : 1}")
+  (is-action {"a" 1} "{\"a\" : 1}")
   (is-action {} "{}")
   (is-parsing "{\"a\" : 1, \"a\" : 2}")
-  ;(action-throws RuntimeException "{\"a\" : 1, \"a\" : 2}")
   (not-parsing "{a : 1}")
   (not-parsing "{\"a\" : 1 \"b\" : 2}")
-  (is-action {:a 1 :b 2} "{\"a\" : 1, \"b\" : 2}")
-  (is-action {:a 1 :b true :c "3"} "{\"a\" : 1, \"b\" : true, \"c\" : \"3\"}"))
+  (is-action {"a" 1 "b" 2} "{\"a\" : 1, \"b\" : 2}")
+  (is-action {"a" 1 "b" true "c" "3"} "{\"a\" : 1, \"b\" : true, \"c\" : \"3\"}"))

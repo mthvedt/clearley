@@ -1,0 +1,54 @@
+{"value"
+ ["JSON Test Pattern pass1"
+  {"object with 1 member" ["array with 1 element"]}
+  {}
+  []
+  -42
+  true
+  false
+  nil
+  {""
+   23456789012000000000000000000000000000000000000000000000000000000000000000000N,
+   "false" false,
+   "compact" [1 2 3 4 5 6 7],
+   "E" 12345678900000000000000000000000000N,
+   "e" 123456789/1000000000000000000000,
+   "0123456789" "digit",
+   "space" " ",
+   "one" 1,
+   "/\\\"쫾몾ꮘﳞ볚bfnrt`1~!@#$%^&*()_+-=[]{}|;:',./<>?"
+   "A key can be any string",
+   "null" nil,
+   "zero" 0,
+   "# -- --> */" " ",
+   "digit" "0123456789",
+   "true" true,
+   "url" "http://www.JSON.org/",
+   " s p a c e d " [1 2 3 4 5 6 7],
+   "address" "50 St. James Street",
+   "jsontext" "{\"object with 1 member\":[\"array with 1 element\"]}",
+   "backslash" "\\",
+   "controls" "bfnrt",
+   "quotes" "&#34; \" %22 0x22 034 &#x22;",
+   "special" "`1~!@#$%^&*()_+-={':[,]}|;.</>?",
+   "array" [],
+   "hex" "ģ䕧覫췯ꯍ",
+   "quote" "\"",
+   "slash" "/ & /",
+   "integer" 1234567890,
+   "ALPHA" "ABCDEFGHIJKLMNOPQRSTUVWYZ",
+   "alpha" "abcdefghijklmnopqrstuvwyz",
+   "real" -987654321/100000,
+   "comment" "// /* <!-- --",
+   "object" {}}
+  1/2
+  493/5
+  2486/25
+  1066
+  10
+  1N
+  1/10
+  1
+  2
+  2
+  "rosebud"]}

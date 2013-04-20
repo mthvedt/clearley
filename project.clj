@@ -3,6 +3,7 @@
   :dependencies [[org.clojure/clojure "1.5.1"]
                  [eightnotrump/uncore "0.1.0"]]
   :plugins [[eightnotrump/lein-lazytest "1.0.5"]]
+  :test-resource-paths ["test"]
   :profiles {:dev {:repositories {"stuartsierra-releases"
                                   "http://stuartsierra.com/maven2",
                                   "stuartsierra-snapshots"

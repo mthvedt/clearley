@@ -1,4 +1,6 @@
 (ns clearley.test.utils
+  (require [clojure.java.io :as io]
+           [uncore.throw :as t])
   (:use clearley.core lazytest.deftest))
 
 (defmacro is= [& forms]
@@ -79,3 +81,11 @@
 
 (defmacro is-action [expected testval]
   `(is= ~expected (take-action (parse local-parser ~testval))))
+
+(defn get-resource [filename]
+  (-> filename io/resource io/reader))
+
+(defn compare-to-file [parser parse-file clojure-file]
+  (let [test-parse (execute parser (slurp (get-resource parse-file)))
+        test-comparo (read (java.io.PushbackReader. (get-resource clojure-file)))]
+    (= test-parse test-comparo)))
