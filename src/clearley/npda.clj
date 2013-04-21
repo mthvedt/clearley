@@ -17,7 +17,7 @@
 (defprotocol Node
   (node-key [self])
   (shift [self input]) ; Accept input and put a new state ont stack
-  (goto [self input]) ; Accept input but change the state in place
+  ;(goto [self input]) ; Accept input but change the state in place
   (continue [self output]) ; Accept a return value
   (return [self])) ; This state is ready to return
 
@@ -27,8 +27,8 @@
 ; that state was on the stack.
 ;
 ; The input stream is the same for all active states. Each node may 'shift'
-; by consuming input and returning a new node. This node is placed
-; on the stack for the new state.
+; by consuming input and returning a seq of nodes which are then
+; placed on the stack.
 ; Two states that shift into the same state will have their stacks
 ; unified--the stack becomes a directed acyclic graph instead of a tree.
 ; The output streams remain unambiguous, though fragments are shared
@@ -37,20 +37,19 @@
 ; A set of all states processed for a given input token is called a 'chart'.
 ; The automaton works by repeatedly processing charts.
 ;
-; Each node may also return some number of 'reductions'.
-; A reduction is a (output-state: state, pop-count: int) pair.
-; The stack is popped pop-count times,
-; revealing some number of underlying states. The output-state is written to out,
-; and (reduce % output-state) is called on the underlying states. The new state
-; (reduced state) is returned and pushed to the stack. This new state
-; may itself have some number of reductions. During the reduce step,
+; Each node may also return a return value. For return value, 
+; the stack is popped, revealing some number of underlying states,
+; and (continue % output-state) is called on the underlying states.
+; Continue produces a new state that is substituted onto the stack.
+; may itself have some number of reductions. During the return step,
 ; if any (state, stack) pair is already present in the current chart,
 ; it is discarded entirely--
 ; ambiguous output streams are not supported.
 
 (defprotocol State
   (shift-state [self input-token input]) ; Simultaneously push a node and emit output.
-  (spin-state [self]) ; Emits a seq of reduced states
+  (spin-state [self]) ; Emits a seq of new states
+  (accept-return [self rvalue])
   (state-key [self]) ; Only one state with a given state-key may be present in a chart
   (peek [self])
   (pop [self]) ; Returns a seq of states
@@ -72,19 +71,15 @@
   (shift-state [self input-token input]
     (when-let [n (shift node input-token)]
       (AState. n (list input) (list self))))
-  ; TODO this is ugly
   (spin-state [self]
-    (mapcat
-      (fn [[item match-count]]
-        (let [new-states (nth (iterate #(mapcat pop %) [self]) match-count)]
-          (mapcat (fn [new-state]
-                    (map (fn [node]
-                           (AState. node (list item) (list new-state)))
-                         (continue (peek new-state) item)))
-                  new-states)))
-      (return node)))
+    (mapcat (fn [return-value]
+              (map #(accept-return % return-value)
+                   (pop self)))
+            (return node)))
   (state-key [self] 
     (cons (node-key node) (map state-key my-prevs)))
+  (accept-return [_ r-value]
+    (AState. (continue node r-value) (cons r-value my-rstream) my-prevs))
   (peek [_] node)
   (pop [_]
     (map (fn [my-prevs]
@@ -98,9 +93,9 @@
   (unify [self ostate]
     (let [on (peek ostate)
           op (prevs ostate)]
-      ; doall prevents lazy my-prevs explosions with very large numbers of states
+      ; doall prevents lazy explosions with very large numbers of states
       ; for some reason
-      (AState. node my-rstream (doall (concat my-prevs op)))));)
+      (AState. node my-rstream (doall (concat my-prevs op)))))
   IPrinting
   (pstr [self]
     (with-out-str
