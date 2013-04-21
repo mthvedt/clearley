@@ -45,7 +45,7 @@
                         (map npda/pstr) (s/separate-str ", ") s/cutoff)]
     (str (npda/pstr item) (if (seq predictor-str) (str " | " predictor-str)))))
 
-(declare shift-item-set reduce-item-set item-set-reductions)
+(declare shift-item-set reduce-item-set item-set-return)
 
 (defn predict-into-item-set [{:keys [items predictor-map] :as item-set}
                              {original :original :as item} predictor]
@@ -80,7 +80,7 @@
                                                       seed-items grammar)
           shift-fn (memoize #(shift-item-set all-items grammar % mem-atom))
           ; TODO seed-items
-          reductions (item-set-reductions all-items)
+          return (item-set-return all-items)
           reduces (memoize #(reduce-item-set predictor-map grammar
                                              % mem-atom))]
       (loop []
@@ -92,8 +92,9 @@
                   npda/Node
                   (npda/node-key [_] item-set-num)
                   (npda/shift [_ input] (shift-fn input))
-                  (npda/reduce [_ output] (reduces (:original output)))
-                  (npda/reductions [_] reductions)
+                  (npda/goto [_ _] [])
+                  (npda/continue [_ output] (reduces (:original output)))
+                  (npda/return [_] return)
                   GlrState
                   (is-goal [_] (some #(rules/goal? (:rule %)) all-items))
                   npda/IPrinting
@@ -119,7 +120,7 @@
              (seq (map advance-item (omm/get-vec predictor-map original)))]
     [(new-item-set new-items grammar mem-atom)]))
 
-(defn item-set-reductions [items]
+(defn item-set-return [items]
   (map (fn [{:keys [match-count] :as item}] [item match-count])
        (filter (fn-> :rule rules/is-complete?) items)))
 

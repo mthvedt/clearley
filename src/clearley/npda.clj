@@ -1,5 +1,5 @@
 (ns clearley.npda
-  (:refer-clojure :exclude [reduce reductions peek pop])
+  (:refer-clojure :exclude [peek pop])
   (require [clearley.collections.ordered-map :as om]
            [clearley.collections.ordered-set :as os]
            [uncore.str :as s]
@@ -10,11 +10,16 @@
 (defprotocol IPrinting
   (pstr [obj]))
 
+; The NPDA is a nondeterministic stack machine.
+; A node may: shift (call a subnode), goto (return a new subnode in place),
+; return (return a value and pop this node), or continue (accept a return value
+; from a shift). Only return may be a vector (TODO).
 (defprotocol Node
   (node-key [self])
-  (shift [self input])
-  (reduce [self output])
-  (reductions [self]))
+  (shift [self input]) ; Accept input and put a new state ont stack
+  (goto [self input]) ; Accept input but change the state in place
+  (continue [self output]) ; Accept a return value
+  (return [self])) ; This state is ready to return
 
 ; Things for a non-deterministic pushdown automaton (an NPDA).
 ; An NDPA state is a (node, stack, output-stream) tuple.
@@ -75,9 +80,9 @@
           (mapcat (fn [new-state]
                     (map (fn [node]
                            (AState. node (list item) (list new-state)))
-                         (reduce (peek new-state) item)))
+                         (continue (peek new-state) item)))
                   new-states)))
-      (reductions node)))
+      (return node)))
   (state-key [self] 
     (cons (node-key node) (map state-key my-prevs)))
   (peek [_] node)
@@ -144,38 +149,38 @@
 (def empty-chart (AChart. om/empty))
 
 ; process states for a single chart
-(defn reduce-chart [chart]
+(defn spin-chart [chart]
   (loop [c chart, dot 0]
     (if-let [set (get-state c dot)]
       (do
-        (recur (core/reduce #(add-state % %2) c (spin-state set))
+        (recur (reduce #(add-state % %2) c (spin-state set))
                (inc dot)))
       c)))
 
 ; consume input and shift to the next chart
 (defn shift-chart [chart thetoken thechar]
-  (core/reduce add-state empty-chart
-               (loop [stack->state om/empty
+  (reduce add-state empty-chart
+               (loop [stack-top->state om/empty
                       states (states chart)]
                  (if-let [old-state (first states)]
                    (recur
                      (if-let [new-state (shift-state old-state thetoken thechar)]
                        (let [stack-top (peek new-state)]
-                         (om/assoc stack->state stack-top
+                         (om/assoc stack-top->state stack-top
                                    (if-let [old-new-state
-                                            (om/get stack->state stack-top)]
+                                            (om/get stack-top->state stack-top)]
                                      (unify old-new-state new-state)
                                      new-state)))
-                       stack->state)
+                       stack-top->state)
                 (rest states))
-              (om/vals stack->state)))))
+              (om/vals stack-top->state)))))
 
 ; get the chart for an input
 (defn process-chart [chart token input]
-  (reduce-chart (shift-chart chart token input)))
+  (spin-chart (shift-chart chart token input)))
 
 (defn initial-chart [node]
-  (reduce-chart (add-state empty-chart (state node))))
+  (spin-chart (add-state empty-chart (state node))))
 
 ; Laziness knocks the big-O down a notch
 ; but doesn't get us to best-case O(n^2)--O(1) for CLR(k) grammars

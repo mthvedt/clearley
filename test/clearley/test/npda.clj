@@ -8,9 +8,10 @@
   npda/Node
   (npda/shift [self input]
     (ANode. input))
-  (npda/reduce [self input]
+  (npda/goto [_ _] [])
+  (npda/continue [self input]
     [(ANode. (dec value))])
-  (npda/reductions [self]
+  (npda/return [self]
     [[(inc value) 2]]))
 
 (deftest da-test
