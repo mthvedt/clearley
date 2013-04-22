@@ -17,7 +17,6 @@
 (defprotocol Node
   (node-key [self])
   (shift [self input]) ; Accept input and put a new state ont stack
-  ;(goto [self input]) ; Accept input but change the state in place
   (bounce [self input])
   (continue [self output]) ; Accept a return value
   (return [self])) ; This state is ready to return
@@ -111,6 +110,7 @@
   (pstr [self]
     (with-out-str
       (println "State" (hexhash (state-key self)))
+      (println "Node" (node-key node))
       (print "Stack tops" (if (seq my-prevs)
                             (s/separate-str " " (map (fn-> state-key hexhash)
                                                      my-prevs))

@@ -76,29 +76,26 @@
 
 ; seed items don't go in predictor-map, closed items do
 (defn new-item-set [seed-items grammar mem-atom]
-  (if-let [r (get @mem-atom seed-items)]
-    r
-    (let [; items: a vector of items
-          ; predictor-map: ordered multimap, items -> internal predicting items
-          {all-items :items, :keys [predictor-map]} (close-item-set
-                                                      seed-items grammar)
-          shift-fn (memoize #(shift-item-set all-items grammar % mem-atom))
-          returns (item-set-returns seed-items)
-          bounces (memoize #(advance-item-set predictor-map grammar
-                                                    % false mem-atom))
-          continuations (memoize #(advance-item-set predictor-map grammar
-                                                    % true mem-atom))]
-      (loop []
-        ; Compare-and-set spin lock, in case of multithreaded parsing
-        ; because (count @mem-atom) may change
-        (let [old-atom @mem-atom
-              item-set-num (count old-atom)
+  (loop []
+    (let [old-atom @mem-atom]
+      (if-let [r (get old-atom seed-items)]
+        r
+        (let [item-set-num (count old-atom)
+              ; items: a vector of items
+              ; predictor-map: ordered multimap, items -> internal predicting items
+              {all-items :items, :keys [predictor-map]} (close-item-set
+                                                          seed-items grammar)
+              shift-fn (memoize #(shift-item-set all-items grammar % mem-atom))
+              returns (item-set-returns all-items)
+              continues (memoize #(advance-item-set predictor-map grammar
+                                                    % true mem-atom))
+              bounces (memoize #(advance-item-set predictor-map grammar
+                                                  % false mem-atom)) 
               r (reify
                   npda/Node
                   (npda/node-key [_] item-set-num)
                   (npda/shift [_ input] (shift-fn input))
-                  ;(npda/goto [_ _] [])
-                  (npda/continue [_ output] (continuations (:original output)))
+                  (npda/continue [_ output] (continues (:original output)))
                   (npda/bounce [_ output] (bounces (:original output)))
                   (npda/return [_] returns)
                   GlrState
@@ -108,11 +105,9 @@
                     (with-out-str
                       (runmap println (map #(pstr-item-set-item % predictor-map)
                                            all-items)))))]
-          (if-let [r2 (get old-atom seed-items)] ; Don't duplicate work
-            r2
-            (if (compare-and-set! mem-atom old-atom (assoc old-atom seed-items r))
-              r
-              (recur))))))))
+          (if (compare-and-set! mem-atom old-atom (assoc old-atom seed-items r))
+            r
+            (recur)))))))
 
 ; scans an input character, seeding a new state
 (defn shift-item-set [items grammar input-token mem-atom]
@@ -141,7 +136,7 @@
 (defn reduce-ostream-helper [ostream item]
   (if (instance? clearley.glr.Item item)
     (let [{:keys [match-count original]} item]
-      (cons (rules/match (:original original)
+      (cons (rules/match (rules/get-original original)
                          (vec (reverse (take match-count ostream))))
             (drop match-count ostream)))
     (cons (rules/match item []) ostream)))

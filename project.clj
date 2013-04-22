@@ -1,7 +1,7 @@
 (defproject clearley "0.3.0-SNAPSHOT"
   :description "Parsing for Earthlings"
   :dependencies [[org.clojure/clojure "1.5.1"]
-                 [eightnotrump/uncore "0.1.0"]]
+                 [eightnotrump/uncore "0.2.0-SNAPSHOT"]]
   :plugins [[eightnotrump/lein-lazytest "1.0.5"]]
   :test-resource-paths ["test"]
   :profiles {:dev {:repositories {"stuartsierra-releases"

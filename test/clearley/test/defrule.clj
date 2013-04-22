@@ -113,4 +113,16 @@
   (is-action [[\x nil] [\x \y]] "xxy")
   (not-parsing "xyy"))
 
+; hidden left recursion test
+(defrule alpha
+  ([beta alpha mu] (str beta alpha mu))
+  ("w" "w"))
+(defrule mu "y" "y")
+(def beta
+  `(:or \x (:seq)))
+(def hidden-left-recursion-parser (build-parser alpha))
+(def-parser-test hidden-left-recursion hidden-left-recursion-parser 
+  (is-action "xxwyy" "xxwyy")
+  (is-action "wyy" "wyy"))
+
 ;TODO tests on grammars alone
