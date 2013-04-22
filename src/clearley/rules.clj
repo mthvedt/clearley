@@ -50,13 +50,14 @@
 (def cfg-hierarchy (hierarchy 
                      ; A rule-only clause must become a new rule upon prediction
                      (::rule-only ::any) (::singleton ::any)
+                     (:token ::rule-only) (:scanner ::rule-only)
                      (::sequential ::rule-only) (:rule-map ::rule-only)
+                     (:seq ::sequential) (:star ::sequential)
                      ; A singleton can be predicted from within another rule
                      ; and must always be on its own within a rule.
                      (:or ::singleton) (:scanner ::singleton)
-                     (::untagged-singleton ::singleton)
-                     (:token ::untagged-singleton) (:symbol ::untagged-singleton)
-                     (:seq ::sequential) (:star ::sequential)))
+                     (::untagged-singleton ::singleton)))
+                     ;(:token ::untagged-singleton) (:symbol ::untagged-singleton)))
 
 ; Makes a clause into a rule
 (defmulti to-rule (fn [_ x] (clause-type x)) :hierarchy #'cfg-hierarchy)
@@ -84,10 +85,6 @@
     (if (= type :defrule) ; Special type used only by defrule
       (map #(cfg-from-defrule (str clause) %) (rest got))
       [(to-rule (str clause) (get grammar clause))])))
-(defmethod predict-clause :token [clause _]
-  [#(= % clause)])
-(defmethod predict-clause :scanner [clause _]
-  [(second clause)])
 (defmethod predict-clause :or [clause _]
   (map #(to-rule "anon-or" %) (rest clause)))
 (defmethod predict-clause :rule-map [clause _]
@@ -111,6 +108,11 @@
   (if (= (count clauses) 1)
     (predict-clause (first clauses) grammar)
     (t/IAE ":star accepts only one rule")))
+; TODO are these changes neccesary?
+(defmethod predict :scanner [{:keys [clauses]} _]
+  [(first clauses)])
+(defmethod predict :token [{:keys [clauses]} _]
+  [#(= % (first clauses))]) ; TODO make this a record
 
 ; Is this rule complete?
 (defmulti is-complete? :type :hierarchy #'cfg-hierarchy)

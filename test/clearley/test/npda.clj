@@ -6,9 +6,9 @@
   npda/Node
   (npda/shift [self input]
     (ANode. input))
-  ;(npda/goto [_ _] [])
   (npda/continue [self input]
     (ANode. (+ (dec input) (dec value))))
+  (npda/bounce [self input] nil) ; TODO test
   (npda/return [self]
     [(inc value)]))
 

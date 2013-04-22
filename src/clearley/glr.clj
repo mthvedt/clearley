@@ -19,21 +19,25 @@
 ; TODO should original be a cfg rule? or something more primitive
 ; match-count: the number of times this rule has been scanned or advanced
 ; TODO kill ndpa/IPrinting?
-(defrecord Item [rule original match-count]
+(defrecord Item [rule original match-count seed?]
   npda/IPrinting
-  (npda/pstr [_] (rules/rule-str rule)))
+  (npda/pstr [_] (str (if seed? "- " "+ ") (rules/rule-str rule))))
 
-(defn new-item [rule]
-  (Item. rule rule 0))
+(defn new-item [rule seed?]
+  (Item. rule rule 0 seed?))
 
+; no predicted item is a seed
 (defn predict-item [item grammar]
-  (map new-item (filter rules/rule? (rules/predict (:rule item) grammar))))
+  (map #(new-item % false)
+       (filter rules/rule? (rules/predict (:rule item) grammar))))
 
 (defn advance-item [item]
-  (update-all item {:rule rules/advance, :match-count inc}))
+  (update-all item {:rule rules/advance, :match-count inc,
+                    :seed? (constantly true)}))
 
 (defn scan-item [item input-token grammar]
-  (if (some #(% input-token) (remove rules/rule? (rules/predict (:rule item) grammar)))
+  (if (some #(% input-token)
+            (remove rules/rule? (rules/predict (:rule item) grammar)))
     (advance-item item)))
 
 ; ===
@@ -45,7 +49,7 @@
                         (map npda/pstr) (s/separate-str ", ") s/cutoff)]
     (str (npda/pstr item) (if (seq predictor-str) (str " | " predictor-str)))))
 
-(declare shift-item-set reduce-item-set item-set-return)
+(declare shift-item-set advance-item-set item-set-returns)
 
 (defn predict-into-item-set [{:keys [items predictor-map] :as item-set}
                              {original :original :as item} predictor]
@@ -63,7 +67,7 @@
   (loop [c {:items (vec seed-items), :predictor-map omm/empty}, dot 0]
     (if-let [s (current-item c dot)]
       (recur (reduce #(predict-into-item-set % %2 s)
-                       c (predict-item s grammar))
+                     c (predict-item s grammar))
              (inc dot))
       c)))
 
@@ -79,10 +83,11 @@
           {all-items :items, :keys [predictor-map]} (close-item-set
                                                       seed-items grammar)
           shift-fn (memoize #(shift-item-set all-items grammar % mem-atom))
-          ; TODO seed-items
-          return (item-set-return all-items)
-          reduces (memoize #(reduce-item-set predictor-map grammar
-                                             % mem-atom))]
+          returns (item-set-returns seed-items)
+          bounces (memoize #(advance-item-set predictor-map grammar
+                                                    % false mem-atom))
+          continuations (memoize #(advance-item-set predictor-map grammar
+                                                    % true mem-atom))]
       (loop []
         ; Compare-and-set spin lock, in case of multithreaded parsing
         ; because (count @mem-atom) may change
@@ -92,9 +97,10 @@
                   npda/Node
                   (npda/node-key [_] item-set-num)
                   (npda/shift [_ input] (shift-fn input))
-                  (npda/goto [_ _] [])
-                  (npda/continue [_ output] (reduces (:original output)))
-                  (npda/return [_] return)
+                  ;(npda/goto [_ _] [])
+                  (npda/continue [_ output] (continuations (:original output)))
+                  (npda/bounce [_ output] (bounces (:original output)))
+                  (npda/return [_] returns)
                   GlrState
                   (is-goal [_] (some #(rules/goal? (:rule %)) all-items))
                   npda/IPrinting
@@ -114,15 +120,16 @@
     (if (seq r)
       (new-item-set r grammar mem-atom))))
 
-; Reduces an item given a stack-top item-set
-(defn reduce-item-set [predictor-map grammar original mem-atom]
+; continuations an item given a stack-top item-set
+(defn advance-item-set [predictor-map grammar original seed? mem-atom]
   (when-let [new-items
-             (seq (map advance-item (omm/get-vec predictor-map original)))]
-    [(new-item-set new-items grammar mem-atom)]))
+             (seq (map advance-item 
+                       (filter #(= seed? (:seed? %))
+                               (omm/get-vec predictor-map original))))]
+    (new-item-set new-items grammar mem-atom)))
 
-(defn item-set-return [items]
-  (map (fn [{:keys [match-count] :as item}] [item match-count])
-       (filter (fn-> :rule rules/is-complete?) items)))
+(defn item-set-returns [items]
+  (filter (fn-> :rule rules/is-complete?) items))
 
 ; ===
 ; Using the automaton
@@ -144,7 +151,7 @@
 
 ; mem-atom: [map: seed items -> item-set]
 (defn parse-charts [input-str grammar tokenizer goal mem-atom]
-  (npda/run-automaton (new-item-set [(new-item (rules/goal-rule goal))]
+  (npda/run-automaton (new-item-set [(new-item (rules/goal-rule goal) true)]
                                     grammar mem-atom)
                       input-str tokenizer))
 
@@ -153,5 +160,5 @@
 
 ; Searches states for completed parse of the goal rule, returning all matches
 (defn scan-goal [chart]
-  (map (fn-> npda/popone npda/stream reduce-ostream)
+  (map (fn-> #_npda/popone npda/stream reduce-ostream)
        (filter #(is-goal (npda/peek %)) (npda/states chart))))

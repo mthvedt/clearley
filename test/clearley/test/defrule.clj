@@ -26,11 +26,12 @@
   (is (with-out-str (print-charts parser1 "3+3"))))
 
 ; === Test the basics ===
+; TODO don't test asts
 (def-parser-test parsing1 parser1
     (is-parsing "3+3")
     (not-parsing "4+4"))
 
-(def-parser-test match1 parser1
+#_(def-parser-test match1 parser1
     (is-ast [[[\3]]] "3")
     (is-ast [[[[\3]]] \+ [[[\3]] \* [\3]]] "3+3*3"))
 
@@ -53,11 +54,11 @@
   (isnt (parses? "44"))
   (isnt (parses? "55*23"))
   (isnt (parses? "1+2a"))
-  (is-parsing "1+55*2*55+3+55*4")
-  (is-ast [[[\1]]] "1")
-  (is-ast [[[[\2]]] \+ [[[\3]] \* [\4]]] "2+3*4")
-  (is-ast [[[[[\1]]] \+ [[[\2]] \* [\3]]] \+ [[[\4]] \* [\1]]] "1+2*3+4*1")
-  (is-ast [[[\5 \5]]] "55"))
+  (is-parsing "1+55*2*55+3+55*4"))
+  ;(is-ast [[[\1]]] "1")
+  ;(is-ast [[[[\2]]] \+ [[[\3]] \* [\4]]] "2+3*4")
+  ;(is-ast [[[[[\1]]] \+ [[[\2]] \* [\3]]] \+ [[[\4]] \* [\1]]] "1+2*3+4*1")
+  ;(is-ast [[[\5 \5]]] "55"))
 
 ; Rule aliasing
 (defrule sum
@@ -71,12 +72,16 @@
 ; Rule literals
 ; TODO have :defrule?
 (def digits67 '(:or \6 (:seq \7 \7)))
-(defrule digit ([\1] 1) ([\2] 2) ([\3] 3) ([\4] 4) ([\5 \5] 55) ([digits67] digits67))
+(defrule digits67* [digits67] 10) ; ok, maybe this is bad practice
+(defrule digit ([\1] 1) ([\2] 2) ([\3] 3) ([\4] 4) ([\5 \5] 55)
+  ([digits67*] digits67*))
 (def literal-parser (build-parser sum))
 
 (def-parser-test rule-literals literal-parser
-  (is-ast [[[[\2]]] \+ [[[\3]] \* [[[\6]]]]] "2+3*6")
-  (is-ast [[[[\2]]] \+ [[[\3]] \* [[[\7 \7]]]]] "2+3*77"))
+  (is-action 15 "2+3+6")
+  (is-action 15 "2+3+77"))
+  ;(is-ast [[[[\2]]] \+ [[[\3]] \* [[[\6]]]]] "2+3*6")
+  ;(is-ast [[[[\2]]] \+ [[[\3]] \* [[[\7 \7]]]]] "2+3*77"))
 
 ; Scanner test
 (def digit (char-range \0 \9 #(- (int %) (int \0))))

@@ -18,6 +18,7 @@
   (node-key [self])
   (shift [self input]) ; Accept input and put a new state ont stack
   ;(goto [self input]) ; Accept input but change the state in place
+  (bounce [self input])
   (continue [self output]) ; Accept a return value
   (return [self])) ; This state is ready to return
 
@@ -72,19 +73,29 @@
     (when-let [n (shift node input-token)]
       (AState. n (list input) (list self))))
   (spin-state [self]
-    (mapcat (fn [return-value]
-              (map #(accept-return % return-value)
-                   (pop self)))
-            (return node)))
+    (let [returns (return node)
+          underlyings (pop self)]
+      (remove nil? (concat (mapcat (fn [return-value]
+                                     (map #(accept-return % return-value)
+                                          underlyings))
+                                   returns)
+                           (mapcat (fn [return-value]
+                                     (map #(when-let [new-node (bounce (peek %)
+                                                                       return-value)]
+                                             (AState. new-node
+                                                      (list return-value) (list %)))
+                                          underlyings))
+                                   returns)))))
   (state-key [self] 
     (cons (node-key node) (map state-key my-prevs)))
   (accept-return [_ r-value]
-    (AState. (continue node r-value) (cons r-value my-rstream) my-prevs))
+    (when-let [continuation (continue node r-value)]
+      (AState. continuation (cons r-value my-rstream) my-prevs)))
   (peek [_] node)
   (pop [_]
     (map (fn [my-prevs]
            (AState. (peek my-prevs)
-                    (concat my-rstream (rstream my-prevs))
+                    (doall (concat my-rstream (rstream my-prevs)))
                     (prevs my-prevs)))
          my-prevs))
   (stream [self] (reverse my-rstream))
@@ -147,9 +158,8 @@
 (defn spin-chart [chart]
   (loop [c chart, dot 0]
     (if-let [set (get-state c dot)]
-      (do
-        (recur (reduce #(add-state % %2) c (spin-state set))
-               (inc dot)))
+      (recur (reduce #(add-state % %2) c (spin-state set))
+             (inc dot))
       c)))
 
 ; consume input and shift to the next chart
