@@ -125,4 +125,6 @@
   (is-action "xxwyy" "xxwyy")
   (is-action "wyy" "wyy"))
 
+; TODO 'practical earley parsing' test
+
 ;TODO tests on grammars alone

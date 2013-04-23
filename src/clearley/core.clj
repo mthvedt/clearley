@@ -55,12 +55,12 @@
 (defn take-action
   "Executes the parse actions for a parser match."
   [match]
-  (rules/take-action match))
+  (rules/take-action* match))
 
 (defn execute
   "Parses some input and executes the parse actions."
   [parser input]
-  (rules/take-action (parse parser input)))
+  (rules/take-action* (parse parser input)))
 
 (defmacro build-parser
   "Build a parser in the current ns from the given goal rule and an

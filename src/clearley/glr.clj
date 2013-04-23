@@ -15,31 +15,35 @@
 ; name: an object representing the clause that predicted this item
 ; should have a short str representation
 ; rule: the rule for this item
+; TODO: is original used?
 ; original: the original (unadvanced) rule, used to populate matches
+; backlink: the item as it first appeared in an Earley set
 ; TODO should original be a cfg rule? or something more primitive
 ; match-count: the number of times this rule has been scanned or advanced
 ; TODO kill ndpa/IPrinting?
-; TODO rename original
-(defrecord Item [rule original match-count seed?]
+(defrecord Item [rule original backlink match-count seed?]
   npda/IPrinting
   (npda/pstr [_] (str (if seed? "- " "+ ") (rules/rule-str rule))))
 
 (defn new-item [rule seed?]
-  (Item. rule rule 0 seed?))
+  (Item. rule rule rule 0 seed?))
 
-(defn add-eager-advance [item grammar]
-  (if-let [r2 (rules/eager-advance (:rule item) grammar)]
-    [item (new-item r2 false)]
-    [item]))
+(defn eager-advance [item grammar prediction?]
+  (if item
+    (if-let [rule2 (rules/eager-advance (:rule item) grammar)]
+      (if prediction?
+        (merge item {:rule rule2, :backlink rule2})
+        (assoc item :rule rule2)))))
 
-; no predicted item is a seed
+(defn eager-advances [item grammar prediction?]
+  (take-while identity (iterate #(eager-advance % grammar prediction?) item)))
+
 (defn predict-item [item grammar]
-  (mapcat #(add-eager-advance (new-item % false) grammar)
+  (mapcat #(eager-advances (new-item % false) grammar true)
           (filter rules/rule? (rules/predict (:rule item) grammar))))
 
 (defn advance-item [item]
-  (update-all item {:rule rules/advance, :match-count inc,
-                    :seed? (constantly true)}))
+  (assoc (update-all item {:rule rules/advance, :match-count inc}) :seed? true))
 
 (defn scan-item [item input-token grammar]
   (if (some #(% input-token)
@@ -50,19 +54,19 @@
 ; Item sets
 ; ===
 
-(defn pstr-item-set-item [item predictor-map]
-  (let [predictor-str (->> item :original (omm/get-vec predictor-map)
+(defn pstr-item-set-item [item backlink-map]
+  (let [predictor-str (->> item :original (omm/get-vec backlink-map)
                         (map npda/pstr) (s/separate-str ", ") s/cutoff)]
     (str (npda/pstr item) (if (seq predictor-str) (str " | " predictor-str)))))
 
 (declare shift-item-set advance-item-set item-set-returns)
 
-(defn predict-into-item-set [{:keys [items predictor-map] :as item-set}
-                             {original :original :as item} predictor]
-  (if (empty? (omm/get-vec predictor-map original))
+(defn predict-into-item-set [{:keys [items backlink-map] :as item-set}
+                             {backlink :backlink :as item} predictor]
+  (if (empty? (omm/get-vec backlink-map backlink))
     (update-all item-set {:items #(conj % item)
-                          :predictor-map #(omm/assoc % original predictor)})
-    (update item-set :predictor-map #(omm/assoc % original predictor))))
+                          :backlink-map #(omm/assoc % backlink predictor)})
+    (update item-set :backlink-map #(omm/assoc % backlink predictor))))
 
 (defn current-item [{items :items} dot]
   (when-not (>= dot (count items)) (get items dot)))
@@ -70,7 +74,7 @@
 ; TODO: predicting completed items seems to cause combinatorial explosion
 ; but only for some grammars (JSON)
 (defn close-item-set [seed-items grammar]
-  (loop [c {:items (vec seed-items), :predictor-map omm/empty}, dot 0]
+  (loop [c {:items (vec seed-items), :backlink-map omm/empty}, dot 0]
     (if-let [s (current-item c dot)]
       (recur (reduce #(predict-into-item-set % %2 s)
                      c (predict-item s grammar))
@@ -80,36 +84,37 @@
 (defprotocol GlrState
   (is-goal [self]))
 
-; seed items don't go in predictor-map, closed items do
+; seed items don't go in backlink-map, closed items do
 (defn new-item-set [seed-items grammar mem-atom]
   (loop []
     (let [old-atom @mem-atom]
       (if-let [r (get old-atom seed-items)]
         r
-        (let [item-set-num (count old-atom)
+        (let [more-seed-items (mapcat #(eager-advances % grammar false) seed-items)
+              item-set-num (count old-atom)
               ; items: a vector of items
-              ; predictor-map: ordered multimap, items -> internal predicting items
-              {all-items :items, :keys [predictor-map]} (close-item-set
-                                                          seed-items grammar)
+              ; backlink-map: ordered multimap, items -> internal predicting items
+              {all-items :items, :keys [backlink-map]} (close-item-set
+                                                         more-seed-items grammar)
               shift-fn (memoize #(shift-item-set all-items grammar % mem-atom))
-              returns (item-set-returns all-items)
-              continues (memoize #(advance-item-set predictor-map grammar
+              returns (item-set-returns more-seed-items)
+              continues (memoize #(advance-item-set backlink-map grammar
                                                     % true mem-atom))
-              bounces (memoize #(advance-item-set predictor-map grammar
+              bounces (memoize #(advance-item-set backlink-map grammar
                                                   % false mem-atom)) 
               r (reify
                   npda/Node
                   (npda/node-key [_] item-set-num)
                   (npda/shift [_ input] (shift-fn input))
-                  (npda/continue [_ output] (continues (:original output)))
-                  (npda/bounce [_ output] (bounces (:original output)))
+                  (npda/continue [_ output] (continues (:backlink output)))
+                  (npda/bounce [_ output] (bounces (:backlink output)))
                   (npda/return [_] returns)
                   GlrState
                   (is-goal [_] (some #(rules/goal? (:rule %)) all-items))
                   npda/IPrinting
                   (npda/pstr [self]
                     (with-out-str
-                      (runmap println (map #(pstr-item-set-item % predictor-map)
+                      (runmap println (map #(pstr-item-set-item % backlink-map)
                                            all-items)))))]
           (if (compare-and-set! mem-atom old-atom (assoc old-atom seed-items r))
             r
@@ -122,11 +127,11 @@
       (new-item-set r grammar mem-atom))))
 
 ; continuations an item given a stack-top item-set
-(defn advance-item-set [predictor-map grammar original seed? mem-atom]
+(defn advance-item-set [backlink-map grammar backlink seed? mem-atom]
   (when-let [new-items
              (seq (map advance-item 
                        (filter #(= seed? (:seed? %))
-                               (omm/get-vec predictor-map original))))]
+                               (omm/get-vec backlink-map backlink))))]
     (new-item-set new-items grammar mem-atom)))
 
 (defn item-set-returns [items]
@@ -139,13 +144,26 @@
 ; Builds a rule match from the output stack and pushes the match to the top
 ; (think of a Forth operator reducing the top of a stack)
 ; Final output (for a valid parse) will be a singleton list
-(defn reduce-ostream-helper [ostream item]
-  (if (instance? clearley.glr.Item item)
-    (let [{:keys [match-count original]} item]
-      (cons (rules/match (rules/get-original original)
+(defn ostream-str [val]
+  (if (instance? clearley.rules.Match val)
+    ;(pr-str (-> val :rule))
+    (pr-str (rules/take-action* val))
+    (pr-str val)))
+(defn reduce-ostream-helper [ostream val]
+  (if (instance? clearley.glr.Item val)
+    (let [{:keys [rule match-count]} val]
+      ;(prn rule "|" match-count)
+      ;(println (map ostream-str ostream))
+      ;(println rule)
+      ;(clojure.pprint/pprint ostream)
+      (cons (rules/match (rules/get-original rule)
                          (vec (reverse (take match-count ostream))))
             (drop match-count ostream)))
-    (cons (rules/match item []) ostream)))
+    (do
+      ;(prn val)
+      ;(println (map ostream-str ostream))
+      ;(println val)
+      (cons (rules/match val []) ostream))))
 
 (defn reduce-ostream [ostream]
   (first (reduce reduce-ostream-helper '() ostream)))
@@ -161,5 +179,5 @@
 
 ; Searches states for completed parse of the goal rule, returning all matches
 (defn scan-goal [chart]
-  (map (fn-> #_npda/popone npda/stream reduce-ostream)
+  (map (fn-> npda/stream reduce-ostream)
        (filter #(is-goal (npda/peek %)) (npda/states chart))))

@@ -94,6 +94,8 @@
   (pop [_]
     (map (fn [my-prevs]
            (AState. (peek my-prevs)
+                    ; doall prevents lazy explosions with very large numbers of states
+                    ; for some reason
                     (doall (concat my-rstream (rstream my-prevs)))
                     (prevs my-prevs)))
          my-prevs))
@@ -103,9 +105,7 @@
   (unify [self ostate]
     (let [on (peek ostate)
           op (prevs ostate)]
-      ; doall prevents lazy explosions with very large numbers of states
-      ; for some reason
-      (AState. node my-rstream (doall (concat my-prevs op)))))
+      (AState. node my-rstream (concat my-prevs op))))
   IPrinting
   (pstr [self]
     (with-out-str
@@ -136,13 +136,13 @@
 ; present at a position n should be O(n^2), but haven't proven it.
 ; There's also the correspondence between GLR and Earley states
 ; (which are O(n^2) at position n).
-(defrecord AChart [my-states]
+(defrecord AChart [key->state]
   Chart
   (get-state [_ index]
-    (om/get-index my-states index))
-  (add-state [_ new-state]
-    (AChart. (om/assoc my-states (state-key new-state) new-state)))
-  (states [_] (om/vals my-states))
+    (om/get-index key->state index))
+  (add-state [self new-state]
+    (AChart. (om/assoc key->state (state-key new-state) new-state)))
+  (states [_] (om/vals key->state))
   IPrinting
   (pstr [self]
     (with-out-str
@@ -165,18 +165,18 @@
 ; consume input and shift to the next chart
 (defn shift-chart [chart thetoken thechar]
   (reduce add-state empty-chart
-               (loop [stack-top->state om/empty
-                      states (states chart)]
-                 (if-let [old-state (first states)]
-                   (recur
-                     (if-let [new-state (shift-state old-state thetoken thechar)]
-                       (let [stack-top (peek new-state)]
-                         (om/assoc stack-top->state stack-top
-                                   (if-let [old-new-state
-                                            (om/get stack-top->state stack-top)]
-                                     (unify old-new-state new-state)
-                                     new-state)))
-                       stack-top->state)
+          (loop [stack-top->state om/empty
+                 states (states chart)]
+            (if-let [old-state (first states)]
+              (recur
+                (if-let [new-state (shift-state old-state thetoken thechar)]
+                  (let [stack-top (peek new-state)]
+                    (om/assoc stack-top->state stack-top
+                              (if-let [old-new-state
+                                       (om/get stack-top->state stack-top)]
+                                (unify old-new-state new-state)
+                                new-state)))
+                  stack-top->state)
                 (rest states))
               (om/vals stack-top->state)))))
 
@@ -195,7 +195,8 @@
   (cons current-chart
         (lazy-seq
           (when-let [thechar (first input)]
-            (let [next-chart (process-chart current-chart (tokenizer thechar) thechar)]
+            (let [next-chart (process-chart current-chart
+                                            (tokenizer thechar) thechar)]
               (if (seq (states next-chart))
                 (run-automaton-helper (rest input) next-chart tokenizer)
                 (list next-chart))))))) ; Puts the empty chart at the end

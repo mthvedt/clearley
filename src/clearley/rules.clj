@@ -86,6 +86,7 @@
                      (:seq ::sequential) (:star ::sequential)))
 
 ; Makes a clause into a rule
+; TODO impl for defrule?
 (defmulti to-rule (fn [_ x] (clause-type x)) :hierarchy #'cfg-hierarchy)
 (defmethod to-rule :rule-map [name clause]
   (cfg-from-defrule name clause))
@@ -193,21 +194,23 @@
   (binding [*breadcrumbs* {}]
     (null-result* rule grammar)))
 
-(defn take-action [match]
+(defn take-action* [match]
   (if (nil? match)
     (throw (RuntimeException. "Failure to parse"))
     (let [{:keys [rule submatches]} match
-          subactions (map take-action submatches)
+          subactions (map take-action* submatches)
           action (action rule)]
       (try
         (apply action subactions)
         (catch clojure.lang.ArityException e
           (throw (RuntimeException. (str "Wrong # of params taking action for rule "
-                                         (rule-str rule) ", "
+                                         (if (rule? rule)
+                                           (rule-str rule)
+                                           (pr-str rule)) ", "
                                          "was given " (count subactions))
                                     e)))))))
 
 (defn eager-advance [rule grammar]
   (if-let [eager-match (some identity (map #(null-result % grammar)
                                            (predict rule grammar)))]
-    (null-advance rule (take-action eager-match))))
+    (null-advance rule (take-action* eager-match))))
