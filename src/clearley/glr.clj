@@ -27,10 +27,15 @@
 (defn new-item [rule seed?]
   (Item. rule rule 0 seed?))
 
+(defn add-eager-advance [item grammar]
+  (if-let [r2 (rules/eager-advance (:rule item) grammar)]
+    [item (new-item r2 false)]
+    [item]))
+
 ; no predicted item is a seed
 (defn predict-item [item grammar]
-  (map #(new-item % false)
-       (filter rules/rule? (rules/predict (:rule item) grammar))))
+  (mapcat #(add-eager-advance (new-item % false) grammar)
+          (filter rules/rule? (rules/predict (:rule item) grammar))))
 
 (defn advance-item [item]
   (update-all item {:rule rules/advance, :match-count inc,

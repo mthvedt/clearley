@@ -55,23 +55,12 @@
 (defn take-action
   "Executes the parse actions for a parser match."
   [match]
-  (if (nil? match)
-    (throw (RuntimeException. "Failure to parse"))
-    (let [{:keys [rule submatches]} match
-          subactions (map take-action submatches)
-          action (rules/action rule)]
-      (try
-        (apply action subactions)
-        (catch clojure.lang.ArityException e
-          (throw (RuntimeException. (str "Wrong # of params taking action for rule "
-                                         (rules/rule-str rule) ", "
-                                         "was given " (count subactions))
-                                    e)))))))
+  (rules/take-action match))
 
 (defn execute
   "Parses some input and executes the parse actions."
   [parser input]
-  (take-action (parse parser input)))
+  (rules/take-action (parse parser input)))
 
 (defmacro build-parser
   "Build a parser in the current ns from the given goal rule and an

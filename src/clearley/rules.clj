@@ -153,31 +153,6 @@
 (defmethod is-complete? ::any [{:keys [dot]}]
   (= 1 dot))
 
-(def ^:dynamic *breadcrumbs*)
-; Basically, this does an LL match on the empty string
-(defn null-result* [rule grammar]
-  (if (contains? *breadcrumbs* rule)
-    (get *breadcrumbs* rule)
-    (do
-      (set! *breadcrumbs* (assoc *breadcrumbs* rule nil))
-      (let [r (if (is-complete? rule)
-                (match (:original rule) [])
-                (if-let [r (some identity (map #(null-result* % grammar)
-                                               (predict rule grammar)))]
-                  (if-let [r2 (null-result* (advance rule) grammar)]
-                    (match (:original rule)
-                           (apply vector r (:submatches r2))))))]
-        (set! *breadcrumbs* (assoc *breadcrumbs* rule r))
-        r))))
-(defn null-result [rule grammar]
-  (binding [*breadcrumbs* {}]
-    (null-result* rule grammar)))
-
-(defn eager-advance [rule grammar]
-  (if-let [eager-match (some identity (map #(null-result % grammar)
-                                           (predict rule grammar)))]
-    (null-advance rule (take-action eager-match))))
-
 (defn clause-strs
   ([clauses] (clause-strs clauses 0))
   ([clauses dot]
@@ -195,3 +170,44 @@
        (s/separate-str " " (cons type (clause-strs clauses)))
        ")"
        (if (zero? dot) "" " *")))
+
+(def ^:dynamic *breadcrumbs*)
+; Basically, this does an LL match on the empty string
+(defn null-result* [rule grammar]
+  (if (rule? rule)
+    (if (contains? *breadcrumbs* rule)
+      (get *breadcrumbs* rule)
+      (do
+        (set! *breadcrumbs* (assoc *breadcrumbs* rule nil))
+        (let [r (if (is-complete? rule)
+                  (match (:original rule) [])
+                  (if-let [r (some identity (map #(null-result* % grammar)
+                                                 (predict rule grammar)))]
+                    (if-let [r2 (null-result* (advance rule) grammar)]
+                      (match (:original rule)
+                             (apply vector r (:submatches r2))))))]
+          (set! *breadcrumbs* (assoc *breadcrumbs* rule r))
+          r)))
+    nil))
+(defn null-result [rule grammar]
+  (binding [*breadcrumbs* {}]
+    (null-result* rule grammar)))
+
+(defn take-action [match]
+  (if (nil? match)
+    (throw (RuntimeException. "Failure to parse"))
+    (let [{:keys [rule submatches]} match
+          subactions (map take-action submatches)
+          action (action rule)]
+      (try
+        (apply action subactions)
+        (catch clojure.lang.ArityException e
+          (throw (RuntimeException. (str "Wrong # of params taking action for rule "
+                                         (rule-str rule) ", "
+                                         "was given " (count subactions))
+                                    e)))))))
+
+(defn eager-advance [rule grammar]
+  (if-let [eager-match (some identity (map #(null-result % grammar)
+                                           (predict rule grammar)))]
+    (null-advance rule (take-action eager-match))))
