@@ -173,6 +173,11 @@
   (binding [*breadcrumbs* {}]
     (null-result* rule grammar)))
 
+(defn eager-advance [rule grammar]
+  (if-let [eager-match (some identity (map #(null-result % grammar)
+                                           (predict rule grammar)))]
+    (null-advance rule (take-action eager-match))))
+
 (defn clause-strs
   ([clauses] (clause-strs clauses 0))
   ([clauses dot]
