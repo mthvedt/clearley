@@ -66,59 +66,64 @@
 ; --a full (nondeterministic) output stream can be got by concating
 ;  all the rstreams on the stack, top to bottom, then reversing them
 ; my-prevs: the previous state on the stack (will be null for the seed item at index 0)
-(defrecord AState [node my-rstream my-prevs]
+(defrecord AState [node my-rstream node->prevs]
   State
   (shift-state [self input-token input]
     (when-let [n (shift node input-token)]
-      (AState. n (list input) (list self))))
+      (AState. n (list input) (om/assoc om/empty node self))))
   (spin-state [self]
     (let [returns (return node)
           underlyings (pop self)]
-      (remove nil? (concat (mapcat (fn [return-value]
-                                     (map #(accept-return % return-value)
-                                          underlyings))
-                                   returns)
-                           (mapcat (fn [return-value]
-                                     (map #(when-let [new-node (bounce (peek %)
-                                                                       return-value)]
-                                             (AState. new-node
-                                                      (list return-value) (list %)))
-                                          underlyings))
-                                   returns)))))
+      (remove nil? (concat
+                     (mapcat (fn [return-value]
+                               (map #(accept-return % return-value) underlyings))
+                             returns)
+                     (mapcat (fn [return-value]
+                               (map #(when-let [new-node (bounce (peek %)
+                                                                 return-value)]
+                                       (AState. new-node (list return-value)
+                                                (om/assoc om/empty (peek %) %)))
+                                    underlyings))
+                             returns)))))
   (state-key [self] 
-    (cons (node-key node) (map state-key my-prevs)))
+    (cons :key (cons (node-key node) (map state-key (om/vals node->prevs)))))
   (accept-return [_ r-value]
     (when-let [continuation (continue node r-value)]
-      (AState. continuation (cons r-value my-rstream) my-prevs)))
+      (AState. continuation (cons r-value my-rstream) node->prevs)))
   (peek [_] node)
   (pop [_]
-    (map (fn [my-prevs]
-           (AState. (peek my-prevs)
-                    ; doall prevents lazy explosions with very large numbers of states
+    (map (fn [my-prev]
+           (AState. (peek my-prev)
+                    ; prevents lazy explosions with very large numbers of states
                     ; for some reason
-                    (doall (concat my-rstream (rstream my-prevs)))
-                    (prevs my-prevs)))
-         my-prevs))
+                    (concat my-rstream (rstream my-prev))
+                    (prevs my-prev)))
+         (om/vals node->prevs)))
   (stream [self] (reverse my-rstream))
   (rstream [_] my-rstream)
-  (prevs [_] my-prevs)
+  (prevs [_] node->prevs)
   (unify [self ostate]
     (let [on (peek ostate)
-          op (prevs ostate)]
-      (AState. node my-rstream (concat my-prevs op))))
+          op (prevs ostate)
+          new-prevs (reduce #(let [old-node (peek %2)]
+                               (if-let [old-prev (om/get % (peek %2))]
+                                 (om/assoc % old-node (unify old-prev %2))
+                                 %))
+                            node->prevs (om/vals op))]
+      (AState. node my-rstream new-prevs)))
   IPrinting
   (pstr [self]
     (with-out-str
       (println "State" (hexhash (state-key self)))
       (println "Node" (node-key node))
-      (print "Stack tops" (if (seq my-prevs)
+      (print "Stack tops" (if (seq (om/vals node->prevs))
                             (s/separate-str " " (map (fn-> state-key hexhash)
-                                                     my-prevs))
+                                                     (om/vals node->prevs)))
                             "(none)"))
       (println)
       (print (pstr node)))))
 
-(defn state [node] (AState. node [] '()))
+(defn state [node] (AState. node [] om/empty))
 
 ; ===
 ; Charts
@@ -130,29 +135,23 @@
   (add-state [self state])
   (states [self]))
 
-; states: an ordered map state-key->state
-; Dropping duplicate states by state key makes the algo polynomial time
-; I strongly suspect it makes it O(n^3)--intuitively the number of stacks
-; present at a position n should be O(n^2), but haven't proven it.
-; There's also the correspondence between GLR and Earley states
-; (which are O(n^2) at position n).
-(defrecord AChart [key->state]
+(defrecord AChart [states]
   Chart
   (get-state [_ index]
-    (om/get-index key->state index))
-  (add-state [self new-state]
-    (AChart. (om/assoc key->state (state-key new-state) new-state)))
-  (states [_] (om/vals key->state))
+    (get states index))
+  (add-state [_ new-state]
+    (AChart. (conj states new-state)))
+  (states [_] states)
   IPrinting
   (pstr [self]
     (with-out-str
       (println "===")
-      (if (seq (states self))
-        (print (s/separate-str "---\n" (map pstr (states self))))
+      (if (seq states)
+        (print (s/separate-str "---\n" (map pstr states)))
         (print "(empty)\n"))
       (println "==="))))
 
-(def empty-chart (AChart. om/empty))
+(def empty-chart (AChart. []))
 
 ; process states for a single chart
 (defn spin-chart [chart]

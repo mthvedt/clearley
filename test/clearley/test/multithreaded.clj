@@ -19,4 +19,4 @@
         input-string (slurp (get-resource "clearley/examples/json_test.json"))]
     (is= test-map (execute json-parser input-string))
     (is (reduce #(or % %2) (doall (pmap #(= test-map (execute json-parser-parallel %))
-                                        (repeat 100 input-string)))))))
+                                        (repeat 10 input-string)))))))

@@ -35,7 +35,8 @@
     (is= (npda/stream n2b) [2 3 4 5 7])))
 
 ; This is a little complicated
-(deftest nda-test
+; Set this aside while we work on perf
+#_(deftest nda-test
   (let [n1 (-> (npda/state (ANode. 1))
              (npda/shift-state 1 1)
              (npda/shift-state 2 2)

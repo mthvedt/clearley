@@ -1,0 +1,100 @@
+Performing task 'run' with profile(s): 'dev,benchmark'
+================================================================================
+Benchmark: Left-recursive calculator
+Input size: 15
+Benchmarking
+Evaluation count : 145320 in 60 samples of 2422 calls.
+             Execution time mean : 412.586492 us
+    Execution time std-deviation : 2.232709 us
+   Execution time lower quantile : 410.142444 us ( 2.5%)
+   Execution time upper quantile : 417.458908 us (97.5%)
+
+Found 6 outliers in 60 samples (10.0000 %)
+	low-severe	 5 (8.3333 %)
+	low-mild	 1 (1.6667 %)
+ Variance from outliers : 1.6389 % Variance is slightly inflated by outliers
+================================================================================
+Benchmark: Left-recursive calculator 2
+Input size: 31
+Benchmarking
+Evaluation count : 68940 in 60 samples of 1149 calls.
+             Execution time mean : 874.075486 us
+    Execution time std-deviation : 3.099587 us
+   Execution time lower quantile : 869.525674 us ( 2.5%)
+   Execution time upper quantile : 879.642298 us (97.5%)
+
+Found 1 outliers in 60 samples (1.6667 %)
+	low-severe	 1 (1.6667 %)
+ Variance from outliers : 1.6389 % Variance is slightly inflated by outliers
+================================================================================
+Benchmark: Right-recursive calculator
+Input size: 15
+Benchmarking
+Evaluation count : 90360 in 60 samples of 1506 calls.
+             Execution time mean : 671.800266 us
+    Execution time std-deviation : 30.579796 us
+   Execution time lower quantile : 663.389774 us ( 2.5%)
+   Execution time upper quantile : 678.946265 us (97.5%)
+
+Found 3 outliers in 60 samples (5.0000 %)
+	low-severe	 1 (1.6667 %)
+	low-mild	 2 (3.3333 %)
+ Variance from outliers : 31.9368 % Variance is moderately inflated by outliers
+================================================================================
+Benchmark: Right-recursive calculator 2
+Input size: 31
+Benchmarking
+Evaluation count : 29220 in 60 samples of 487 calls.
+             Execution time mean : 2.076251 ms
+    Execution time std-deviation : 23.795506 us
+   Execution time lower quantile : 2.056632 ms ( 2.5%)
+   Execution time upper quantile : 2.130283 ms (97.5%)
+
+Found 6 outliers in 60 samples (10.0000 %)
+	low-severe	 2 (3.3333 %)
+	low-mild	 4 (6.6667 %)
+ Variance from outliers : 1.6389 % Variance is slightly inflated by outliers
+================================================================================
+Benchmark: Pathological grammar 1.1
+Input size: 20
+Benchmarking
+Evaluation count : 38400 in 60 samples of 640 calls.
+             Execution time mean : 1.559796 ms
+    Execution time std-deviation : 7.008224 us
+   Execution time lower quantile : 1.551161 ms ( 2.5%)
+   Execution time upper quantile : 1.578531 ms (97.5%)
+
+Found 5 outliers in 60 samples (8.3333 %)
+	low-severe	 5 (8.3333 %)
+ Variance from outliers : 1.6389 % Variance is slightly inflated by outliers
+================================================================================
+Benchmark: Pathological grammar 1.2
+Input size: 40
+Benchmarking
+Evaluation count : 8580 in 60 samples of 143 calls.
+             Execution time mean : 7.058440 ms
+    Execution time std-deviation : 366.632442 us
+   Execution time lower quantile : 6.967839 ms ( 2.5%)
+   Execution time upper quantile : 7.172215 ms (97.5%)
+
+Found 4 outliers in 60 samples (6.6667 %)
+	low-severe	 1 (1.6667 %)
+	low-mild	 3 (5.0000 %)
+ Variance from outliers : 38.4557 % Variance is moderately inflated by outliers
+================================================================================
+================================================================================
+Loading small-test-formatted.json into memory
+Benchmark: Formatted JSON
+Input size: 2610
+Benchmarking
+Evaluation count : 420 in 60 samples of 7 calls.
+             Execution time mean : 150.842060 ms
+    Execution time std-deviation : 4.576186 ms
+   Execution time lower quantile : 147.743611 ms ( 2.5%)
+   Execution time upper quantile : 161.890579 ms (97.5%)
+
+Found 9 outliers in 60 samples (15.0000 %)
+	low-severe	 2 (3.3333 %)
+	low-mild	 7 (11.6667 %)
+ Variance from outliers : 17.3823 % Variance is moderately inflated by outliers
+================================================================================

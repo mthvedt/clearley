@@ -146,23 +146,15 @@
 ; Final output (for a valid parse) will be a singleton list
 (defn ostream-str [val]
   (if (instance? clearley.rules.Match val)
-    ;(pr-str (-> val :rule))
     (pr-str (rules/take-action* val))
     (pr-str val)))
 (defn reduce-ostream-helper [ostream val]
   (if (instance? clearley.glr.Item val)
     (let [{:keys [rule match-count]} val]
-      ;(prn rule "|" match-count)
-      ;(println (map ostream-str ostream))
-      ;(println rule)
-      ;(clojure.pprint/pprint ostream)
       (cons (rules/match (rules/get-original rule)
                          (vec (reverse (take match-count ostream))))
             (drop match-count ostream)))
     (do
-      ;(prn val)
-      ;(println (map ostream-str ostream))
-      ;(println val)
       (cons (rules/match val []) ostream))))
 
 (defn reduce-ostream [ostream]
