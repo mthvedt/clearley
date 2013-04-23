@@ -63,7 +63,6 @@
       (try
         (apply action subactions)
         (catch clojure.lang.ArityException e
-          (prn rule)
           (throw (RuntimeException. (str "Wrong # of params taking action for rule "
                                          (rules/rule-str rule) ", "
                                          "was given " (count subactions))

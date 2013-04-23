@@ -21,7 +21,7 @@
 ; * Clause. The atoms. Predicts a seq of [rule | scanner].
 ; Some clauses can be predicted inline; others must be turned into rules.
 
-(defrecord CfgRule [name type clauses dot toplevel? original null-matches])
+(defrecord CfgRule [name type clauses dot toplevel? original null-results])
 
 (defn clause-type [clause]
   (cond (map? clause) :rule-map
@@ -64,20 +64,24 @@
     rule
     {:value rule}))
 
-(defn get-original [{:keys [null-matches original] :as cfg-rule}]
+(defn get-original [{:keys [null-results original] :as cfg-rule}]
   (let [a (action original)]
-    (if (seq null-matches)
+    (if (seq null-results)
       (assoc (wrap-rule original)
              :action
-             (uncore.rpartial/gen-rpartial a null-matches))
+             (uncore.rpartial/gen-rpartial a null-results))
       original)))
+
+(defn null-advance [rule result]
+  (let [dot (:dot rule)]
+    (update-all rule {:dot inc, :null-results #(assoc % dot result)})))
 
 (defmacro hierarchy [& derivations]
   `(-> (make-hierarchy) ~@(map #(cons derive %) derivations)))
 
 (def cfg-hierarchy (hierarchy 
                      (:or ::any) (:token ::any) (:scanner ::any)
-                     (::sequential ::any) (:rule-map ::any)
+                     (:symbol ::any) (::sequential ::any) (:rule-map ::any)
                      ; Special handling here
                      (:seq ::sequential) (:star ::sequential)))
 
@@ -117,6 +121,10 @@
 ; Predicts a rule, returning a seq [rule | fn] as in predict-clause
 ; TODO names in clauses
 (defmulti predict (fn [rule _] (:type rule)) :hierarchy #'cfg-hierarchy)
+; TODO unify with star
+(defmethod predict :symbol [{:keys [dot type clauses]} grammar]
+  (if (= dot 1) []
+    (predict-clause (first clauses) grammar)))
 (defmethod predict :or [{:keys [dot type clauses]} grammar]
   (if (= dot 1) []
     (predict-clause (cons type clauses) grammar)))
@@ -144,6 +152,26 @@
   (= dot (count clauses)))
 (defmethod is-complete? ::any [{:keys [dot]}]
   (= 1 dot))
+
+(def ^:dynamic *breadcrumbs*)
+; Basically, this does an LL match on the empty string
+(defn null-result* [rule grammar]
+  (if (contains? *breadcrumbs* rule)
+    (get *breadcrumbs* rule)
+    (do
+      (set! *breadcrumbs* (assoc *breadcrumbs* rule nil))
+      (let [r (if (is-complete? rule)
+                (match (:original rule) [])
+                (if-let [r (some identity (map #(null-result* % grammar)
+                                               (predict rule grammar)))]
+                  (if-let [r2 (null-result* (advance rule) grammar)]
+                    (match (:original rule)
+                           (apply vector r (:submatches r2))))))]
+        (set! *breadcrumbs* (assoc *breadcrumbs* rule r))
+        r))))
+(defn null-result [rule grammar]
+  (binding [*breadcrumbs* {}]
+    (null-result* rule grammar)))
 
 (defn clause-strs
   ([clauses] (clause-strs clauses 0))

@@ -19,6 +19,7 @@
 ; TODO should original be a cfg rule? or something more primitive
 ; match-count: the number of times this rule has been scanned or advanced
 ; TODO kill ndpa/IPrinting?
+; TODO rename original
 (defrecord Item [rule original match-count seed?]
   npda/IPrinting
   (npda/pstr [_] (str (if seed? "- " "+ ") (rules/rule-str rule))))
