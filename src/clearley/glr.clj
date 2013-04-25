@@ -2,6 +2,7 @@
   (require [uncore.collections.worm-ordered-set :as os]
            [uncore.collections.worm-ordered-multimap :as omm]
            [clearley.npda :as npda]
+           [clearley.defrule]
            [clearley.rules :as rules]
            [uncore.str :as s])
   (use uncore.core))
@@ -21,6 +22,7 @@
 ; TODO should original be a cfg rule? or something more primitive
 ; match-count: the number of times this rule has been scanned or advanced
 ; TODO kill ndpa/IPrinting?
+; TODO: original, bakclink, and cfg original duplicate information
 (defrecord Item [rule original backlink match-count seed?]
   npda/IPrinting
   (npda/pstr [_] (str (if seed? "- " "+ ") (rules/rule-str rule))))
@@ -28,6 +30,7 @@
 (defn new-item [rule seed?]
   (Item. rule rule rule 0 seed?))
 
+; TODO don't eager advance nullables
 (defn eager-advance [item grammar prediction?]
   (if item
     (if-let [rule2 (rules/eager-advance (:rule item) grammar)]
@@ -50,16 +53,12 @@
             (remove rules/rule? (rules/predict (:rule item) grammar)))
     (advance-item item)))
 
-; ===
-; Item sets
-; ===
+; === Item sets ===
 
 (defn pstr-item-set-item [item backlink-map]
-  (let [predictor-str (->> item :original (omm/get-vec backlink-map)
+  (let [predictor-str (->> item :backlink (omm/get-vec backlink-map)
                         (map npda/pstr) (s/separate-str ", ") s/cutoff)]
     (str (npda/pstr item) (if (seq predictor-str) (str " | " predictor-str)))))
-
-(declare shift-item-set advance-item-set item-set-returns)
 
 (defn predict-into-item-set [{:keys [items backlink-map] :as item-set}
                              {backlink :backlink :as item} predictor]
@@ -71,8 +70,6 @@
 (defn current-item [{items :items} dot]
   (when-not (>= dot (count items)) (get items dot)))
 
-; TODO: predicting completed items seems to cause combinatorial explosion
-; but only for some grammars (JSON)
 (defn close-item-set [seed-items grammar]
   (loop [c {:items (vec seed-items), :backlink-map omm/empty}, dot 0]
     (if-let [s (current-item c dot)]
@@ -81,10 +78,27 @@
              (inc dot))
       c)))
 
-(defprotocol GlrState
-  (is-goal [self]))
+(declare new-item-set)
 
-; seed items don't go in backlink-map, closed items do
+(defn shift-item-set [items grammar input-token mem-atom]
+  (let [r (remove nil? (map #(scan-item % input-token grammar) items))]
+    (if (seq r)
+      (new-item-set r grammar mem-atom))))
+
+; continuations an item given a stack-top item-set
+(defn advance-item-set [backlink-map grammar backlink seed? mem-atom]
+  (when-let [new-items
+             (seq (map advance-item 
+                       (filter #(= seed? (:seed? %))
+                               (omm/get-vec backlink-map backlink))))]
+    (new-item-set new-items grammar mem-atom)))
+
+(defn item-set-returns [items]
+  (filter (fn-> :rule rules/is-complete?) items))
+
+
+(defprotocol GlrState (is-goal [self]))
+
 (defn new-item-set [seed-items grammar mem-atom]
   (loop []
     (let [old-atom @mem-atom]
@@ -120,26 +134,7 @@
             r
             (recur)))))))
 
-; scans an input character, seeding a new state
-(defn shift-item-set [items grammar input-token mem-atom]
-  (let [r (remove nil? (map #(scan-item % input-token grammar) items))]
-    (if (seq r)
-      (new-item-set r grammar mem-atom))))
-
-; continuations an item given a stack-top item-set
-(defn advance-item-set [backlink-map grammar backlink seed? mem-atom]
-  (when-let [new-items
-             (seq (map advance-item 
-                       (filter #(= seed? (:seed? %))
-                               (omm/get-vec backlink-map backlink))))]
-    (new-item-set new-items grammar mem-atom)))
-
-(defn item-set-returns [items]
-  (filter (fn-> :rule rules/is-complete?) items))
-
-; ===
-; Using the automaton
-; ===
+; === Using the automaton ===
 
 ; Builds a rule match from the output stack and pushes the match to the top
 ; (think of a Forth operator reducing the top of a stack)
@@ -162,7 +157,10 @@
 
 ; mem-atom: [map: seed items -> item-set]
 (defn parse-charts [input-str grammar tokenizer goal mem-atom]
-  (npda/run-automaton (new-item-set [(new-item (rules/goal-rule goal) true)]
+  (npda/run-automaton (new-item-set [(new-item (rules/goal-rule
+                                                 (clearley.defrule/normalize goal
+                                                                             "::goal"))
+                                               true)]
                                     grammar mem-atom)
                       input-str tokenizer))
 

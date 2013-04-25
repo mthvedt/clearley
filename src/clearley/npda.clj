@@ -50,7 +50,7 @@
   (shift-state [self input-token input]) ; Simultaneously push a node and emit output.
   (spin-state [self]) ; Emits a seq of new states
   (accept-return [self rvalue])
-  (state-key [self]) ; Only one state with a given state-key may be present in a chart
+  (state-key [self])
   (peek [self])
   (pop [self]) ; Returns a seq of states
   (stream [self])
@@ -86,7 +86,7 @@
                                     underlyings))
                              returns)))))
   (state-key [self] 
-    (cons :key (cons (node-key node) (map state-key (om/vals node->prevs)))))
+    (cons (node-key node) (map state-key (om/vals node->prevs))))
   (accept-return [_ r-value]
     (when-let [continuation (continue node r-value)]
       (AState. continuation (cons r-value my-rstream) node->prevs)))
@@ -105,10 +105,11 @@
   (unify [self ostate]
     (let [on (peek ostate)
           op (prevs ostate)
-          new-prevs (reduce #(let [old-node (peek %2)]
-                               (if-let [old-prev (om/get % (peek %2))]
-                                 (om/assoc % old-node (unify old-prev %2))
-                                 %))
+          new-prevs (reduce #(let [node2 (peek %2)]
+                               (om/assoc % node2
+                                         (if-let [old-prev (om/get % node2)]
+                                           (unify old-prev %2)
+                                           %2)))
                             node->prevs (om/vals op))]
       (AState. node my-rstream new-prevs)))
   IPrinting
@@ -116,7 +117,8 @@
     (with-out-str
       (println "State" (hexhash (state-key self)))
       (println "Node" (node-key node))
-      (print "Stack tops" (if (seq (om/vals node->prevs))
+      (print "Stack" (pr-str (state-key self)))
+      #_(print "Stack tops" (if (seq (om/vals node->prevs))
                             (s/separate-str " " (map (fn-> state-key hexhash)
                                                      (om/vals node->prevs)))
                             "(none)"))
@@ -153,7 +155,7 @@
 
 (def empty-chart (AChart. []))
 
-; process states for a single chart
+; process stateunify for a single chart
 (defn spin-chart [chart]
   (loop [c chart, dot 0]
     (if-let [set (get-state c dot)]
@@ -164,20 +166,20 @@
 ; consume input and shift to the next chart
 (defn shift-chart [chart thetoken thechar]
   (reduce add-state empty-chart
-          (loop [stack-top->state om/empty
+          (loop [node->state om/empty
                  states (states chart)]
             (if-let [old-state (first states)]
               (recur
                 (if-let [new-state (shift-state old-state thetoken thechar)]
-                  (let [stack-top (peek new-state)]
-                    (om/assoc stack-top->state stack-top
+                  (let [node (peek new-state)]
+                    (om/assoc node->state node
                               (if-let [old-new-state
-                                       (om/get stack-top->state stack-top)]
+                                       (om/get node->state node)]
                                 (unify old-new-state new-state)
                                 new-state)))
-                  stack-top->state)
+                  node->state)
                 (rest states))
-              (om/vals stack-top->state)))))
+              (om/vals node->state)))))
 
 ; get the chart for an input
 (defn process-chart [chart token input]

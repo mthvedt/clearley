@@ -17,8 +17,7 @@
   (is grammar1 true)
   (is (get grammar1 'sum))
   (is (get grammar1 'times))
-  (is (get grammar1 'digit))
-  (is= (count (get grammar1 'sum)) 3))
+  (is (get grammar1 'digit)))
 
 ; Testing the parser
 (def parser1 (build-parser sum))

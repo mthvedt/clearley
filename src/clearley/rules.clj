@@ -16,142 +16,77 @@
 (defn match [rule submatches]
   (Match. rule submatches))
 
-; Core abstraction:
-; * Rule. Looks like this: clause-name -> clause. Can be advanced multiple times.
-; * Clause. The atoms. Predicts a seq of [rule | scanner].
-; Some clauses can be predicted inline; others must be turned into rules.
-
-(defrecord CfgRule [name type clauses dot toplevel? original null-results])
-
-(defn clause-type [clause]
-  (cond (map? clause) :rule-map
-        (seq? clause) (first clause)
-        (symbol? clause) :symbol
-        true :token))
+; The instrumented core abstraction
+; TODO a lot of records not neccesary?
+(defrecord CfgRule [name tag value dot toplevel? original null-results])
 
 (defn advance [cfg-rule]
   (update cfg-rule :dot inc))
 
-(defn cfg-from-defrule [name {:keys [value action] :as rule}]
-  (CfgRule. name (first value) (vec (rest value)) 0 true rule {}))
-
-(defn goal-rule [sym]
-  (CfgRule. ::goal :seq [sym] 0 false sym {}))
-
-(defn goal? [rule]
-  (= (:name rule) ::goal))
+(defn cfg-rule [{:keys [name tag value] :as rule}]
+  (CfgRule. name tag value 0 true rule {}))
 
 (defn rule? [x]
   (instance? clearley.rules.CfgRule x))
 
-; This protocool only exists so we can have actions that = each other
-; and I can't figure out how to impl ifn with rest args
-(defprotocol Actionable
-  (to-action [self]))
-(extend-protocol Actionable
-  Object
-  (to-action [self] (fn [& args] (apply self args))))
-(defrecord Constantly [object]
-  Actionable
-  (to-action [self] (fn [& args] object)))
-(defn list-identity [& args] args)
+(defn goal? [rule]
+  (= (:name rule) ::goal))
 
-(defn action [rule]
-  (to-action (get rule :action (fn [] rule))))
-
-(defn wrap-rule [rule]
-  (if (map? rule)
-    rule
-    {:value rule}))
+; TODO figure out where to put this
+(defn goal-rule [r]
+  (CfgRule. ::goal :seq [r] 0 true
+            {:name :goal, :tag :seq, :value [r], :action identity} {}))
 
 (defn get-original [{:keys [null-results original] :as cfg-rule}]
-  (let [a (action original)]
+  (let [a (:action original)]
     (if (seq null-results)
-      (assoc (wrap-rule original)
-             :action
-             (uncore.rpartial/gen-rpartial a null-results))
+      (assoc original :action (uncore.rpartial/gen-rpartial a null-results))
       original)))
 
 (defn null-advance [rule result]
   (let [dot (:dot rule)]
     (update-all rule {:dot inc, :null-results #(assoc % dot result)})))
 
-(defmacro hierarchy [& derivations]
-  `(-> (make-hierarchy) ~@(map #(cons derive %) derivations)))
+; Anaphoric, uses 'value and 'dot
+; Makes sure a rule has only one subrule
+(defmacro check-singleton [tag result]
+  `(if (= (count ~'value) 1)
+     ~result
+     (t/IAE ~tag "must have only one subrule")))
 
-(def cfg-hierarchy (hierarchy 
-                     (:or ::any) (:token ::any) (:scanner ::any)
-                     (:symbol ::any) (::sequential ::any) (:rule-map ::any)
-                     ; Special handling here
-                     (:seq ::sequential) (:star ::sequential)))
+; For rules that only match one clause, once
+(defmacro predict-singleton [tag result]
+  `(check-singleton ~tag (if (= ~'dot 1) [] ~result)))
 
-; Makes a clause into a rule
-; TODO impl for defrule?
-(defmulti to-rule (fn [_ x] (clause-type x)) :hierarchy #'cfg-hierarchy)
-(defmethod to-rule :rule-map [name clause]
-  (cfg-from-defrule name clause))
-(defmethod to-rule :symbol [name clause]
-  (CfgRule. name (clause-type clause) (vector clause) 0 false
-            {:clauses (vector clause) :action identity} {}))
-(defmethod to-rule :token [name clause]
-  (CfgRule. name (clause-type clause) (vector clause) 0 false
-            {:clauses (vector clause) :action (Constantly. clause)} {}))
-(defmethod to-rule ::sequential [name tagged-clause]
-  (CfgRule. name (first tagged-clause) (vec (rest tagged-clause)) 0
-            false {:clauses tagged-clause :action list-identity} {}))
-(defmethod to-rule ::any [name tagged-clause]
-  (CfgRule. name (first tagged-clause) (vec (rest tagged-clause)) 0
-            false {:clauses tagged-clause :action identity} {}))
-
-; Returns a seq, [rule | fn]. if fn, is a scanner.
-(defmulti predict-clause (fn [clause _] (clause-type clause))
-   :hierarchy #'cfg-hierarchy)
-(defmethod predict-clause :symbol [clause grammar]
-  (let [got (get grammar clause)
-        type (first got)]
-    (if (= type :defrule) ; Special type used only by defrule
-      (map #(cfg-from-defrule (str clause) %) (rest got))
-      [(to-rule (str clause) (get grammar clause))])))
-(defmethod predict-clause :or [clause _]
-  (map #(to-rule "anon-or" %) (rest clause)))
-(defmethod predict-clause :rule-map [clause _]
-  [(cfg-from-defrule "anon" clause)])
-(defmethod predict-clause ::any [clause _]
-  [(to-rule "anon" clause)])
-
-; Predicts a rule, returning a seq [rule | fn] as in predict-clause
-; TODO names in clauses
-(defmulti predict (fn [rule _] (:type rule)) :hierarchy #'cfg-hierarchy)
-; TODO unify with star
-(defmethod predict :symbol [{:keys [dot type clauses]} grammar]
-  (if (= dot 1) []
-    (predict-clause (first clauses) grammar)))
-(defmethod predict :or [{:keys [dot type clauses]} grammar]
-  (if (= dot 1) []
-    (predict-clause (cons type clauses) grammar)))
-(defmethod predict :seq [{:keys [clauses dot]} grammar]
-  (if (= dot (count clauses)) []
-    (predict-clause (get clauses dot) grammar)))
-(defmethod predict :star [{:keys [clauses dot]} grammar]
-  (if (= (count clauses) 1)
-    (predict-clause (first clauses) grammar)
-    (t/IAE ":star accepts only one rule")))
-(defmethod predict :scanner [{:keys [clauses]} _]
-  [(first clauses)])
+; Predicts a rule, returning a seq [rule | fn]
+; TODO just return a rule, not a fn. also get rid of 'rule?
+; glr can check for scaners directly
+(defmulti predict (fn [rule _] (:tag rule)))
+(defmethod predict :symbol [{:keys [dot value]} grammar]
+  (map cfg-rule (predict-singleton :symbol [(get grammar (first value))])))
+(defmethod predict :or [{:keys [dot value]} grammar]
+  (map cfg-rule (if (= dot 1) [] value)))
+(defmethod predict :seq [{:keys [value dot]} grammar]
+  (if (= dot (count value)) []
+    [(cfg-rule (get value dot))]))
+(defmethod predict :star [{:keys [value dot]} grammar]
+  (map cfg-rule (check-singleton :star value)))
+(defmethod predict :scanner [{:keys [value dot]} _]
+  (predict-singleton :scanner value))
+; TODO kill
 (defrecord TokenScanner [token]
   clojure.lang.IFn
   (invoke [_ val] (= token val))
   (applyTo [_ args] (= token (first args))))
-(defmethod predict :token [{:keys [clauses dot]} _]
-  (if (= dot 1) []
-    [(TokenScanner. (first clauses))]))
+(defmethod predict :token [{:keys [value dot]} _]
+  (predict-singleton :token [(TokenScanner. (first value))]))
 
 ; Is this rule complete?
-(defmulti is-complete? :type :hierarchy #'cfg-hierarchy)
+(defmulti is-complete? :tag)
 (defmethod is-complete? :star [{:keys [dot]}] true)
-(defmethod is-complete? :seq [{:keys [clauses dot]}]
-  (= dot (count clauses)))
-(defmethod is-complete? ::any [{:keys [dot]}]
+(defmethod is-complete? :seq [{:keys [value dot]}]
+  (= dot (count value)))
+(defmethod is-complete? :default [{:keys [dot]}]
   (= 1 dot))
 
 (defn clause-strs
@@ -162,13 +97,18 @@
              (if (zero? dot) [] ["*"])
              (drop dot clause-strs)))))
 
+(defn clause-name [clause]
+  (if (:name clause) (:name clause) (pr-str clause)))
+
 ; TODO rule-str for paren'd rules is wrong, dot should be outside parens
-(defmulti rule-str :type :hierarchy #'cfg-hierarchy)
-(defmethod rule-str :seq [{:keys [name clauses dot]}]
-  (s/separate-str " " (concat [name "->"] (clause-strs clauses dot))))
-(defmethod rule-str ::any [{:keys [name type clauses dot]}]
-  (str name " -> ("
-       (s/separate-str " " (cons type (clause-strs clauses)))
+(defmulti rule-str :tag)
+(defmethod rule-str :seq [{:keys [name value dot]}]
+  (let [clause-strs (map clause-name value)]
+    (s/separate-str " " (concat [name "->"] (take dot clause-strs)
+                                ["*"] (drop dot clause-strs)))))
+(defmethod rule-str :default [{:keys [name tag value dot]}]
+  (str name " -> " tag " ("
+       (s/separate-str " " (map clause-name value))
        ")"
        (if (zero? dot) "" " *")))
 
@@ -199,7 +139,10 @@
     (throw (RuntimeException. "Failure to parse"))
     (let [{:keys [rule submatches]} match
           subactions (map take-action* submatches)
-          action (action rule)]
+          action (get rule :action (fn [] rule))
+          action (if (= :token (:tag rule)) (fn [_] (action)) action)]
+      ; TODO shouldn't need the above, naked tokens should not appear
+      ; on the stack.
       (try
         (apply action subactions)
         (catch clojure.lang.ArityException e

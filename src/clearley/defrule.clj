@@ -9,6 +9,44 @@
   (require [clojure string pprint]
            [uncore.throw :as t])
   (use uncore.core clearley.rules))
+; TODO put grammar building in different ns
+
+; === Basic stuff ===
+
+(defmacro defrulefn [sym doc arg1 default-action & full-body]
+  `(defn ~sym ~doc
+     ([~arg1] (~sym nil ~arg1 ~default-action))
+     ([~arg1 ~'action] (~sym nil ~arg1 ~'action))
+     ([~'name ~arg1 ~'action] ~@full-body)))
+
+; TODO include default actions?
+; TODO have value always be a vector?
+; TODO expose to-rule, normalize
+; TODO arguments-checking
+(defrulefn rule
+  "Creates a context-free grammar rule. A rule has a required seq of clauses,
+  an optional name, and an optional action.
+  If not supplied, the default action bundles the args into a list."
+  clauses list-identity
+  {:name name, :tag :seq, :value (vec clauses), :action action})
+
+(defrulefn scanner
+  "Creates a rule that accepts input tokens. For a token t, if (scanner-fn t)
+  is logical true, this rule matches that token.
+  The default action returns the token."
+  scanner-fn identity
+  {:name name, :tag :scanner, :action action, :value [scanner-fn]})
+
+(defrulefn token
+  "Creates a rule that matches a token. The default action returns the token."
+  token (fn [] token)
+  {name name, :tag :token, :value [token], :action action})
+
+(defrulefn symbol-rule
+  "Creates a rule that points to some other rule, identified by the given symbol.
+  The default action is the identity."
+  a-symbol identity
+  {name name, :tag :symbol, :value [a-symbol], :action action})
 
 ; === Grammar building ===
 
@@ -17,14 +55,47 @@
   (if-let [resolved (ns-resolve thens theenv thesym)]
     (if [vector? @resolved]
       @resolved
-      (t/IAE "Clause symbol " thesym " must point to a vector"))
+      (t/IAE "Clause symbol " thesym " must point to a vector")) ;TODO WTF?
     (t/IAE "Cannot resolve rule: " thesym)))
 
-(defn- deps [rule]
-  (cond (map? rule) (deps (:value rule))
-        (seq? rule) (mapcat deps (rest rule))
-        (symbol? rule) [rule]
-        true []))
+(defn rule-type [rule]
+  ; Allowed rules: symbol, literal object (token), map, tagged clause
+  (cond (sequential? rule) ::tagged-clause
+        (map? rule) ::rule
+        (symbol? rule) ::symbol
+        true ::token))
+
+(defmulti default-action (fn [tag _] tag))
+(defmethod default-action :default [& _] identity)
+(defmethod default-action :star [& _] list-identity)
+(defmethod default-action :seq [& _] list-identity)
+(defmethod default-action :token [_ {[token] :value}] (fn [] token))
+
+; TODO unify similar items
+(declare map-normalize)
+
+(defn normalize [rule candidate-name]
+  (case (rule-type rule)
+    ::tagged-clause (let [[tag & rest] rule]
+                      {:tag tag, :value (vec (map-normalize rest candidate-name tag)),
+                       :action (default-action tag rest), :name candidate-name})
+    ::rule (let [name (if (:name rule) (:name rule) candidate-name)
+                 value (vec (map-normalize (:value rule) name (:tag rule)))]
+             (merge rule {:name name :value value}))
+    ::symbol {:name (str rule), :tag :symbol, :value [rule], :action identity}
+    ::token {:name (pr-str rule), :tag :token, :value [rule], :action (fn [] rule)}))
+
+(defn- map-normalize [rules parent-name parent-tag]
+  (if (contains? #{:token :scanner} parent-tag) ; exempt from normalization
+    rules
+    (map normalize rules (map #(str (name parent-tag) "@" parent-name "." %)
+                              (range)))))
+
+(defn deps [{:keys [tag value]}]
+  (cond (= tag :token) []
+        (= tag :scanner) []
+        (= tag :symbol) value
+        true (mapcat deps value)))
 
 ; seed: a seqable of syms
 (defn- build-grammar-helper [seed thens theenv]
@@ -33,31 +104,11 @@
     (if-let [sym (first syms)]
       (if (contains? grammar sym) ; have we already seen this?
         (recur (rest syms) grammar)
-        (let [resolved (lookup-symbol sym thens theenv)]
-          (recur (concat (rest syms) (deps resolved))
+        (let [resolved (normalize (lookup-symbol sym thens theenv)
+                                  (str sym))]
+          (recur (doall (concat (rest syms) (deps resolved)))
                  (assoc grammar sym resolved))))
       grammar)))
-
-; === Basic stuff ===
-
-; TODO Figure out what to do with "double named" rules
-(defn rule
-  "Creates a context-free grammar rule. A rule has a required seq of clauses,
-  an optional name, and an optional action.
-  If not supplied, the default action bundles the args into a list."
-  ([clauses] (rule nil clauses nil))
-  ([clauses action] (rule nil clauses action))
-  ([name clauses action] {:name name
-                          :value (cons :seq clauses)
-                          :action action}))
-
-(defn scanner
-  "Creates a rule that accepts input tokens. For a token t, if (scanner-fn t)
-  is logical true, this rule matches that token.
-  The default action returns the token."
-  ([scanner-fn] (scanner scanner-fn identity))
-  ([scanner-fn action]
-   {:action action, :value `(:scanner ~scanner-fn)}))
 
 ; === Defrule ===
 
@@ -142,7 +193,7 @@
   
   Symbols in the defrule bodies do not become qualified."
   [sym & impl-or-impls]
-  `(def ~sym (list :defrule ~@(build-defrule-bodies sym impl-or-impls))))
+  `(def ~sym (list :or ~@(build-defrule-bodies sym impl-or-impls))))
 
 ; In the future, we might bind &env to theenv
 ; The form of &env is not fixed by Clojure authors so don't do it now
