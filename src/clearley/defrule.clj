@@ -10,38 +10,24 @@
            [uncore.throw :as t])
   (use uncore.core clearley.rules))
 
-; TODO: have tagged :choice as rule symbols?
-;
-; TODO: allow tagged :choice in defrule? sort of messes up the bindings thing.
-; Defrule only accepts symbols or token literals. If it's not a symbol
-; it's a token literal. End of defrule.
-; Maybe defmatch not defrule.
-;
-; let-match
-;
-; Being able to def a rule literal would be a feature.
+; === Grammar building ===
 
-; ===
-; Grammar building
-; ===
-
-; Resolves a symbol to a seq of clauses
-(defn lookup-symbol [thesym thens theenv]
-  ; TODO kill ns-resolve and qualify syms
+; Resolves a symbol
+(defn- lookup-symbol [thesym thens theenv]
   (if-let [resolved (ns-resolve thens theenv thesym)]
     (if [vector? @resolved]
       @resolved
       (t/IAE "Clause symbol " thesym " must point to a vector"))
     (t/IAE "Cannot resolve rule: " thesym)))
 
-(defn deps [rule]
+(defn- deps [rule]
   (cond (map? rule) (deps (:value rule))
         (seq? rule) (mapcat deps (rest rule))
         (symbol? rule) [rule]
         true []))
 
 ; seed: a seqable of syms
-(defn build-grammar-1 [seed thens theenv]
+(defn- build-grammar-helper [seed thens theenv]
   (loop [syms seed ; syms to resolve
          grammar {}] ; grammar: maps symbols to rules
     (if-let [sym (first syms)]
@@ -52,12 +38,9 @@
                  (assoc grammar sym resolved))))
       grammar)))
 
-; ===
-; Common rules
-; ===
+; === Basic stuff ===
 
-; TODO rename to seq?
-; Figure out what to do with "double named" rules
+; TODO Figure out what to do with "double named" rules
 (defn rule
   "Creates a context-free grammar rule. A rule has a required seq of clauses,
   an optional name, and an optional action.
@@ -76,36 +59,13 @@
   ([scanner-fn action]
    {:action action, :value `(:scanner ~scanner-fn)}))
 
-(defn char-range
-  "Creates a rule that accepts any one character within a given range
-  given by min and max, inclusive. min and max should be chars. The default
-  action is the identity."
-  ([min max]
-   (char-range min max identity))
-  ([min max action]
-  (if (not (and (char? min) (char? max)))
-    (t/IAE "min and max should be chars"))
-  (let [intmin (int min)
-        intmax (int max)]
-    (scanner #(let [intx (int %)] (and (<= intx intmax) (>= intx intmin)))
-             action))))
-
-; TODO keep this?
-(defn string-rule
-  "Creates a rule that matches some string."
-  ([str] (string-rule str (fn [] str)))
-  ([str action]
-   {:action action, :value `(:seq ~@str)}))
-
-; ===
-; Defrule
-; ===
+; === Defrule ===
 
 ; Macro helper fn for def rule. Returns a pair of
 ; [appropriate-symbol-for-action-body, rule-or-rulename]
 (defn- process-nonlist-clause [clause]
   (cond (list? clause) (assert false)
-        (symbol? clause) [(symbol (name clause)) `'~clause]
+        (symbol? clause) [clause `'~clause]
         (keyword? clause) [(symbol (name clause)) clause]
         (string? clause) [(symbol clause) clause]
         true ['_ clause])) ; can't be an arg in a fn
@@ -156,7 +116,10 @@
   (defrule symbol [clauses] action?)
   (defrule (symbol [clauses] action?)+)
 
-  Valid clauses:
+  The clauses may be any seq, so you can do something like
+  (defrule true-rule \"true\" true)
+
+  A clause may be any of the following:
   any rule object
   a symbol pointing to a seq of rules
   [rule or rule-symbol]+
@@ -187,11 +150,10 @@
   "Builds a grammar in the given ns from the given goal clause.
   Symbols in the grammar will be unqualified."
   [goal thens]
-  (build-grammar-1 [goal] thens {}))
+  (build-grammar-helper [goal] thens {}))
 
-; TODO qualify symbols?
 (defmacro build-grammar
-  "Builds a grammar in the current ns from the given goal clause.
+  "Builds a grammar in *ns* from the given goal clause.
   A grammar is a map from symbols to seqs of rules.
   Symbols in the grammar are unqualified."
   [goal]
@@ -201,19 +163,4 @@
 ; Convenient fns
 ; ===
 
-(def ^{:doc "The empty rule. Returns nil."}
-  EMPTY {:value '(:seq) :action (fn [] nil)})
-
-(defn plus
-  "Creates a rule that matches one or more of some subrule.
-  The defalt action returns a seq of the args."
-  ([a-rule] (plus a-rule (fn [& args] args)))
-  ([a-rule action]
-   (rule [a-rule `(:star ~a-rule)] (fn [f r] (apply action f r)))))
-
-(defn opt
-  "Creates a rule that matches a subrule, or nothing. The action will be passed
-  the subrule's value, or nil. The default action is the identity."
-  ([a-rule] (opt a-rule identity))
-  ([a-rule action]
-   {:value `(:or ~a-rule EMPTY) :action action}))
+(load "core_stdlib")
