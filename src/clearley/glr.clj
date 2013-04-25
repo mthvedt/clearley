@@ -1,6 +1,6 @@
 (ns clearley.glr
-  (require [clearley.collections.ordered-set :as os]
-           [clearley.collections.ordered-multimap :as omm]
+  (require [uncore.collections.worm-ordered-set :as os]
+           [uncore.collections.worm-ordered-multimap :as omm]
            [clearley.npda :as npda]
            [clearley.rules :as rules]
            [uncore.str :as s])

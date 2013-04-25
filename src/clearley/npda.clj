@@ -1,7 +1,7 @@
 (ns clearley.npda
   (:refer-clojure :exclude [peek pop])
-  (require [clearley.collections.ordered-map :as om]
-           [clearley.collections.ordered-set :as os]
+  (require [uncore.collections.worm-ordered-map :as om]
+           [uncore.collections.worm-ordered-set :as os]
            [uncore.str :as s]
            [clojure.core :as core])
   (use uncore.core))

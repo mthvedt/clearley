@@ -1,6 +1,6 @@
 (ns clearley.test.npda
   (require [clearley.npda :as npda])
-  (use uncore.core clearley.test.utils lazytest.deftest))
+  (use uncore.core uncore.test.utils lazytest.deftest))
 
 (defrecord ANode [value]
   npda/Node
