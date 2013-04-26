@@ -47,33 +47,38 @@
 ; ambiguous output streams are not supported.
 
 (defprotocol State
-  (shift-state [self input-token input]) ; Simultaneously push a node and emit output.
-  (spin-state [self]) ; Emits a seq of new states
+  (shift-state [self input-token input pos])
+  ; Simultaneously push a node and emit output.
+  (spin-state [self count]) ; Emits a seq of new states
   (accept-return [self rvalue])
   (state-key [self])
+  (position [self])
   (peek [self])
-  (pop [self]) ; Returns a seq of states
+  (pop [self count]) ; Returns a seq of states
+  (stack-count [self])
   (stream [self])
   (rstream [self]) ; private accessor
   (prevs [self])
   (unify [self other-state]))
 
-(defn popone [state]
-  (first (pop state)))
-
 ; node: the node for this state
 ; my-rstream: the partial output associated with this state
 ; --a full (nondeterministic) output stream can be got by concating
 ;  all the rstreams on the stack, top to bottom, then reversing them
-; my-prevs: the previous state on the stack (will be null for the seed item at index 0)
-(defrecord AState [node my-rstream node->prevs]
+;  position: the position fo this state.
+; Two states with the same position and node are IDENTICAL.
+; There might be a better algorithmic way to do this but this gives us O(n^3)
+; (provably!) ; without breaking a sweat.
+; my-prevs: the previous state on the stack (will be null for the seed item at index 0
+(deftype AState [node my-position my-rstream stack-map]
   State
-  (shift-state [self input-token input]
+  (shift-state [self input-token input pos]
     (when-let [n (shift node input-token)]
-      (AState. n (list input) (om/assoc om/empty node self))))
-  (spin-state [self]
+      (AState. n pos (list input)
+               (om/assoc om/empty [(node-key node) (inc my-position)] self))))
+  (spin-state [self c] ; c is for when we need to spin multiple times
     (let [returns (return node)
-          underlyings (pop self)]
+          underlyings (pop self c)]
       (remove nil? (concat
                      (mapcat (fn [return-value]
                                (map #(accept-return % return-value) underlyings))
@@ -81,51 +86,50 @@
                      (mapcat (fn [return-value]
                                (map #(when-let [new-node (bounce (peek %)
                                                                  return-value)]
-                                       (AState. new-node (list return-value)
-                                                (om/assoc om/empty (peek %) %)))
+                                       (AState. new-node my-position
+                                                (list return-value)
+                                                (om/assoc om/empty (state-key %) %)))
                                     underlyings))
                              returns)))))
   (state-key [self] 
-    (cons (node-key node) (map state-key (om/vals node->prevs))))
+    [(node-key node) my-position])
   (accept-return [_ r-value]
     (when-let [continuation (continue node r-value)]
-      (AState. continuation (cons r-value my-rstream) node->prevs)))
+      (AState. continuation my-position (cons r-value my-rstream) stack-map)))
   (peek [_] node)
-  (pop [_]
+  (position [_] my-position)
+  (pop [_ c]
     (map (fn [my-prev]
            (AState. (peek my-prev)
-                    ; prevents lazy explosions with very large numbers of states
-                    ; for some reason
+                    (position my-prev)
                     (concat my-rstream (rstream my-prev))
                     (prevs my-prev)))
-         (om/vals node->prevs)))
+         (drop c (om/vals stack-map))))
+  (stack-count [_] (om/count stack-map))
   (stream [self] (reverse my-rstream))
   (rstream [_] my-rstream)
-  (prevs [_] node->prevs)
+  (prevs [_] stack-map) ; TODO rename
   (unify [self ostate]
-    (let [on (peek ostate)
-          op (prevs ostate)
-          new-prevs (reduce #(let [node2 (peek %2)]
-                               (om/assoc % node2
-                                         (if-let [old-prev (om/get % node2)]
-                                           (unify old-prev %2)
-                                           %2)))
-                            node->prevs (om/vals op))]
-      (AState. node my-rstream new-prevs)))
+    ;(prn "Unifying")
+    ;(prn (pstr self))
+    ;(prn "with")
+    ;(prn (pstr ostate))
+    (let [op (prevs ostate)
+          new-prevs (reduce #(om/assoc % (state-key %2) %2)
+                            stack-map (om/vals op))]
+      (AState. node my-position my-rstream new-prevs)))
   IPrinting
   (pstr [self]
     (with-out-str
-      (println "State" (hexhash (state-key self)))
-      (println "Node" (node-key node))
-      (print "Stack" (pr-str (state-key self)))
-      #_(print "Stack tops" (if (seq (om/vals node->prevs))
-                            (s/separate-str " " (map (fn-> state-key hexhash)
-                                                     (om/vals node->prevs)))
+      (println "State" (pr-str (state-key self)))
+      (print "Stack tops" (if (seq (om/vals stack-map))
+                            (s/separate-str " " (map pr-str
+                                                     (-> stack-map om/keys os/vec)))
                             "(none)"))
       (println)
       (print (pstr node)))))
 
-(defn state [node] (AState. node [] om/empty))
+(defn initial-state [node] (AState. node 0 [] om/empty))
 
 ; ===
 ; Charts
@@ -134,77 +138,77 @@
 
 (defprotocol Chart
   (get-state [self index])
-  (add-state [self state])
   (states [self]))
 
-(defrecord AChart [states]
+(defrecord AChart [my-states]
   Chart
   (get-state [_ index]
-    (get states index))
-  (add-state [_ new-state]
-    (AChart. (conj states new-state)))
-  (states [_] states)
+    (get my-states index))
+  (states [_] my-states)
   IPrinting
   (pstr [self]
     (with-out-str
       (println "===")
-      (if (seq states)
-        (print (s/separate-str "---\n" (map pstr states)))
+      (if (seq (states self))
+        (print (s/separate-str "---\n" (map pstr (states self))))
         (print "(empty)\n"))
       (println "==="))))
 
 (def empty-chart (AChart. []))
 
-; process stateunify for a single chart
-(defn spin-chart [chart]
-  (loop [c chart, dot 0]
-    (if-let [set (get-state c dot)]
-      (recur (reduce #(add-state % %2) c (spin-state set))
-             (inc dot))
-      c)))
-
-; consume input and shift to the next chart
-(defn shift-chart [chart thetoken thechar]
-  (reduce add-state empty-chart
-          (loop [node->state om/empty
-                 states (states chart)]
-            (if-let [old-state (first states)]
-              (recur
-                (if-let [new-state (shift-state old-state thetoken thechar)]
-                  (let [node (peek new-state)]
-                    (om/assoc node->state node
-                              (if-let [old-new-state
-                                       (om/get node->state node)]
-                                (unify old-new-state new-state)
-                                new-state)))
-                  node->state)
-                (rest states))
-              (om/vals node->state)))))
-
-; get the chart for an input
-(defn process-chart [chart token input]
-  (spin-chart (shift-chart chart token input)))
+(defn process-chart [chart thetoken thechar pos]
+  ; Shift and reduce, with bookkeeping making sure all states are processed
+  ; Assumption: shifted nodes are always terminal--they cannot come from a reduce
+  (let [seed-states
+        ; Shift-step
+        (loop [shifting-states (states chart) seed-states []]
+          (if-let [shifting-state (first shifting-states)]
+            (recur (rest shifting-states)
+                   (if-let [shifted-state (shift-state shifting-state thetoken
+                                                       thechar pos)]
+                     (conj seed-states shifted-state)
+                     seed-states))
+            seed-states))]
+    ; Reduce step
+    (loop [dot 0 state-map om/empty state-queue seed-states]
+      (if-let [current-state (get state-queue dot)]
+        (let [current-state-key (state-key current-state)
+              previous-state? (om/get state-map current-state-key)
+              pop-count (if previous-state? (stack-count previous-state?) 0)
+              current-state (if previous-state? 
+                              (unify previous-state? current-state)
+                              current-state)
+              new-state-queue (loop [state-queue state-queue
+                                     new-states (spin-state current-state pop-count)]
+                                (if-let [new-state (first new-states)]
+                                  (recur (conj state-queue new-state)
+                                         (rest new-states))
+                                  state-queue))]
+          (recur (inc dot)
+                 (om/assoc state-map current-state-key current-state)
+                 new-state-queue))
+        (AChart. (om/vals state-map))))))
 
 (defn initial-chart [node]
-  (spin-chart (add-state empty-chart (state node))))
+  (AChart. [(initial-state node)]))
 
-; Laziness knocks the big-O down a notch
+; Laziness knocks the memory big-O down a notch
 ; but doesn't get us to best-case O(n^2)--O(1) for CLR(k) grammars
 ; because we store matches in the chart. Push parsing could be added in the future
 ; to accomplish this.
-(defn run-automaton-helper [input current-chart tokenizer]
+(defn run-automaton-helper [input current-chart tokenizer pos]
   (cons current-chart
         (lazy-seq
           (when-let [thechar (first input)]
             (let [next-chart (process-chart current-chart
-                                            (tokenizer thechar) thechar)]
+                                            (tokenizer thechar) thechar pos)]
               (if (seq (states next-chart))
-                (run-automaton-helper (rest input) next-chart tokenizer)
+                (run-automaton-helper (rest input) next-chart tokenizer (inc pos))
                 (list next-chart))))))) ; Puts the empty chart at the end
 
 ; Runs the automaton, returning a sequence of charts
 (defn run-automaton [initial-node input tokenizer]
-  (run-automaton-helper input (initial-chart initial-node) tokenizer))
+  (run-automaton-helper input (initial-chart initial-node) tokenizer 0))
 
 ; Saved for later
 #_(defn fast-run-automaton [initial-node input tokenizer]

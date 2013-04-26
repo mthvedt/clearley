@@ -2,10 +2,14 @@
   (require [clearley.npda :as npda])
   (use uncore.core uncore.test.utils lazytest.deftest))
 
+(defn popone [state]
+  (first (npda/pop state 0)))
+
 (defrecord ANode [value]
   npda/Node
   (npda/shift [self input]
     (ANode. input))
+  (npda/node-key [_] value)
   (npda/continue [self input]
     (ANode. (+ (dec input) (dec value))))
   (npda/bounce [self input] nil) ; TODO test
@@ -15,18 +19,18 @@
 (deftest da-test
   ; a certain liddle test dat come checkout acceptanss time
   ; will pass wit flying colorss called... DA TEST
-  (let [n1 (-> (npda/state (ANode. 1))
-          (npda/shift-state 2 2)
-          (npda/shift-state 3 3)) ; stack is 3 2 1, ostream 3 . 2 1
+  (let [n1 (-> (npda/initial-state (ANode. 1))
+          (npda/shift-state 2 2 1)
+          (npda/shift-state 3 3 2)) ; stack is 3 2 1, ostream 3 . 2 1
         ; (the dot denotes ostreams sitting in unpopped states)
-        n2 (-> n1 npda/popone npda/popone) ; should be 1
+        n2 (-> n1 popone popone) ; should be 1
         ; stack is 4 3 2 1. spinning 4 returns 5. 3 becomes 2 + 4 = 6
         ; ostream is now 5 4 3 . 2 1
         ; stack becomes 6 2 1 
-        n2a (-> n1 (npda/shift-state 4 4) npda/spin-state first)
+        n2a (-> n1 (npda/shift-state 4 4 3) (npda/spin-state 0) first)
         ; spinning 6 returns 7, stack becomes 7 1
         ; ostream is now 7 5 4 3 . 2 1. pop it and it's 7 5 4 3 2 . 1
-        n2b (-> n2a npda/spin-state first npda/popone)]
+        n2b (-> n2a (npda/spin-state 0) first popone)]
     (is= (:value (npda/peek n1)) 3)
     (is= (:value (npda/peek n2)) 1)
     (is= (vec (npda/stream n2)) [2 3])
@@ -54,17 +58,17 @@
              (npda/shift-state 5 5))
         ; n* is in state 5; child stacks are 2 1, 3 2 1, 4 3 2 1
         n* (npda/unify n1 (npda/unify n2 n3))
-        nx (npda/pop n*) ; 3 stacks
-        ny (mapcat npda/pop nx) ; Still three stacks
+        nx (npda/pop n* 0) ; 3 stacks
+        ny (mapcat #(npda/pop % 0) nx) ; Still three stacks
         ; test nondeterministic reducing
         ; put 6 on the stack and spin... yields stack-top 10
         ; spin again... yields 11 1, 12 2 1, 13 3 2 1
-        nr (-> n* (npda/shift-state 6 6) npda/spin-state first npda/spin-state)
+        nr (-> n* (npda/shift-state 6 6) (npda/spin-state 0) first npda/spin-state)
         ; 11, 13 1, 15 2 1
-        nr2 (mapcat npda/spin-state nr)
+        nr2 (mapcat #(npda/spin-state 0) nr)
         nr3 [(first nr2)
-             (-> (second nr2) npda/spin-state first)
-             (-> (nth nr2 2) npda/spin-state first npda/spin-state first)]]
+             (-> (second nr2) (npda/spin-state 0) first)
+             (-> (nth nr2 2) (npda/spin-state 0) first (npda/spin-state 0) first)]]
     (is= (:value (npda/peek n*)) 5)
     (is= (count nx) 3)
     (is= (count ny) 3)
