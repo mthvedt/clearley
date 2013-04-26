@@ -17,31 +17,30 @@
   (Match. rule submatches))
 
 ; The instrumented core abstraction
-; TODO a lot of records not neccesary?
-(defrecord CfgRule [name tag value dot toplevel? original null-results])
+(defrecord CfgRule [dot raw-rule null-results])
 
 (defn advance [cfg-rule]
   (update cfg-rule :dot inc))
 
-(defn cfg-rule [{:keys [name tag value] :as rule}]
-  (CfgRule. name tag value 0 true rule {}))
+(defn cfg-rule [rule]
+  (CfgRule. 0 rule {}))
 
 (defn rule? [x]
   (instance? clearley.rules.CfgRule x))
 
-(defn goal? [rule]
-  (= (:name rule) ::goal))
+(defn goal? [cfg-rule]
+  (-> cfg-rule :raw-rule :name (= ::goal)))
 
-; TODO figure out where to put this
 (defn goal-rule [r]
-  (CfgRule. ::goal :seq [r] 0 true
-            {:name :goal, :tag :seq, :value [r], :action identity} {}))
+  (CfgRule. 0 {:name ::goal, :tag :seq, :value [r], :action identity} {}))
 
-(defn get-original [{:keys [null-results original] :as cfg-rule}]
-  (let [a (:action original)]
-    (if (seq null-results)
-      (assoc original :action (uncore.rpartial/gen-rpartial a null-results))
-      original)))
+; For a rule that has been nulled out, gets a reduced version of the rule
+; appropriate for take-action.
+; This is a stopgap and won't be neccesary in a real GLL parser.
+(defn get-original [{{:keys [action] :as raw-rule} :raw-rule :keys [null-results]}]
+  (if (seq null-results)
+    (assoc raw-rule :action (uncore.rpartial/gen-rpartial action null-results))
+    raw-rule))
 
 (defn null-advance [rule result]
   (let [dot (:dot rule)]
@@ -61,30 +60,30 @@
 ; Predicts a rule, returning a seq [rule | fn]
 ; TODO just return a rule, not a fn. also get rid of 'rule?
 ; glr can check for scaners directly
-(defmulti predict (fn [rule _] (:tag rule)))
-(defmethod predict :symbol [{:keys [dot value]} grammar]
+(defmulti predict (fn [r _] (-> r :raw-rule :tag)))
+(defmethod predict :symbol [{dot :dot {value :value} :raw-rule} grammar]
   (map cfg-rule (predict-singleton :symbol [(get grammar (first value))])))
-(defmethod predict :or [{:keys [dot value]} grammar]
+(defmethod predict :or [{dot :dot {value :value} :raw-rule} grammar]
   (map cfg-rule (if (= dot 1) [] value)))
-(defmethod predict :seq [{:keys [value dot]} grammar]
+(defmethod predict :seq [{dot :dot {value :value} :raw-rule} grammar]
   (if (= dot (count value)) []
     [(cfg-rule (get value dot))]))
-(defmethod predict :star [{:keys [value dot]} grammar]
+(defmethod predict :star [{dot :dot {value :value} :raw-rule} grammar]
   (map cfg-rule (check-singleton :star value)))
-(defmethod predict :scanner [{:keys [value dot]} _]
+(defmethod predict :scanner [{dot :dot {value :value} :raw-rule} _]
   (predict-singleton :scanner value))
 ; TODO kill
 (defrecord TokenScanner [token]
   clojure.lang.IFn
   (invoke [_ val] (= token val))
   (applyTo [_ args] (= token (first args))))
-(defmethod predict :token [{:keys [value dot]} _]
+(defmethod predict :token [{dot :dot {value :value} :raw-rule} _]
   (predict-singleton :token [(TokenScanner. (first value))]))
 
 ; Is this rule complete?
-(defmulti is-complete? :tag)
+(defmulti is-complete? (fn-> :raw-rule :tag))
 (defmethod is-complete? :star [{:keys [dot]}] true)
-(defmethod is-complete? :seq [{:keys [value dot]}]
+(defmethod is-complete? :seq [{dot :dot {value :value} :raw-rule}]
   (= dot (count value)))
 (defmethod is-complete? :default [{:keys [dot]}]
   (= 1 dot))
@@ -100,13 +99,12 @@
 (defn clause-name [clause]
   (if (:name clause) (:name clause) (pr-str clause)))
 
-; TODO rule-str for paren'd rules is wrong, dot should be outside parens
-(defmulti rule-str :tag)
-(defmethod rule-str :seq [{:keys [name value dot]}]
+(defmulti rule-str (fn-> :raw-rule :tag))
+(defmethod rule-str :seq [{dot :dot, {:keys [name value]} :raw-rule}]
   (let [clause-strs (map clause-name value)]
     (s/separate-str " " (concat [name "->"] (take dot clause-strs)
                                 ["*"] (drop dot clause-strs)))))
-(defmethod rule-str :default [{:keys [name tag value dot]}]
+(defmethod rule-str :default [{dot :dot, {:keys [name tag value]} :raw-rule}]
   (str name " -> " tag " ("
        (s/separate-str " " (map clause-name value))
        ")"
@@ -121,11 +119,11 @@
       (do
         (set! *breadcrumbs* (assoc *breadcrumbs* rule nil))
         (let [r (if (is-complete? rule)
-                  (match (:original rule) [])
+                  (match (:raw-rule rule) [])
                   (if-let [r (some identity (map #(null-result* % grammar)
                                                  (predict rule grammar)))]
                     (if-let [r2 (null-result* (advance rule) grammar)]
-                      (match (:original rule)
+                      (match (:raw-rule rule)
                              (apply vector r (:submatches r2))))))]
           (set! *breadcrumbs* (assoc *breadcrumbs* rule r))
           r)))
@@ -139,6 +137,7 @@
     (throw (RuntimeException. "Failure to parse"))
     (let [{:keys [rule submatches]} match
           subactions (map take-action* submatches)
+          ; TODO clean up the next two lines eventually
           action (get rule :action (fn [] rule))
           action (if (= :token (:tag rule)) (fn [_] (action)) action)]
       ; TODO shouldn't need the above, naked tokens should not appear
