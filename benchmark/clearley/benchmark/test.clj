@@ -26,6 +26,7 @@
                       io/resource io/reader slurp)]
     (bench-str name parser loaded-file)))
 
+; Snakes... why did it have to be snakes? Ssssssss!
 (defrule S
   ([(s1 S) (s2 S)] (str s1 s2))
   ([(s1 S) (s2 S) (s3 S)] (str s1 s2 s3))
@@ -48,9 +49,9 @@
   ; This has quadratic growth without lookahead, linear growth with it.
   (bench-str "Right-recursive calculator 2"
              calc/my-calculator "1^2^3^4^5^6^7^8^1^2^3^4^5^6^7^8")
-  ; Snakes... why did it have to be snakes?
-  ; This is a quadratic grammar, but can incur O(n^4) parse time in some GLR impls.
-  ; TODO: add a cubic grammar.
+  ; This is quadratic in GLR, but seems to be cubic in the current impl.
+  ; It can incur O(n^4) behavior in naïve GLR impls.
+  ; (In fact, naïve GLR algos are O(n^O(m)) where m is grammar ambiguity)
   (bench-str "Pathological grammar 1.1" pathological-parser-1 (repeat 20 \s)) 
   (bench-str "Pathological grammar 1.2" pathological-parser-1 (repeat 40 \s))
   )
