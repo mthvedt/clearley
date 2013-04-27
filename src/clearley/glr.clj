@@ -16,19 +16,14 @@
 ; name: an object representing the clause that predicted this item
 ; should have a short str representation
 ; rule: the rule for this item
-; TODO: is original used?
-; original: the original (unadvanced) rule, used to populate matches
 ; backlink: the item as it first appeared in an Earley set
-; TODO should original be a cfg rule? or something more primitive
 ; match-count: the number of times this rule has been scanned or advanced
-; TODO kill ndpa/IPrinting?
-; TODO: original, bakclink, and cfg original duplicate information
-(defrecord Item [rule original backlink match-count seed?]
+(defrecord Item [rule backlink match-count seed?]
   npda/IPrinting
   (npda/pstr [_] (str (if seed? "" "+ ") (rules/rule-str rule))))
 
 (defn new-item [rule seed?]
-  (Item. rule rule rule 0 seed?))
+  (Item. rule rule 0 seed?))
 
 ; TODO test parsing the empty string
 (defn eager-advance [item grammar prediction?]
