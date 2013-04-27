@@ -93,15 +93,18 @@
   (if (:name clause) (:name clause) (pr-str clause)))
 
 (defmulti rule-str (fn-> :raw-rule :tag))
-(defmethod rule-str :seq [{dot :dot, {:keys [name value]} :raw-rule}]
+(defmethod rule-str :seq [{dot :dot, {:keys [name value]} :raw-rule :as rule}]
   (let [clause-strs (map clause-name value)]
-    (s/separate-str " " (concat [name "->"] (take dot clause-strs)
-                                ["*"] (drop dot clause-strs)))))
+    (str name " -> "
+         (cond (= dot 0) (s/separate-str " " clause-strs)
+               (is-complete? rule) (s/separate-str " " (concat clause-strs ["✓"]))
+               true (s/separate-str " " (concat (take dot clause-strs) ["•"]
+                                                (drop dot clause-strs)))))))
 (defmethod rule-str :default [{dot :dot, {:keys [name tag value]} :raw-rule}]
   (str name " -> " tag " ("
        (s/separate-str " " (map clause-name value))
        ")"
-       (if (zero? dot) "" " *")))
+       (if (zero? dot) "" " ✓")))
 
 (def ^:dynamic *breadcrumbs*)
 ; Basically, this does an LL match on the empty string

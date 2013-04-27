@@ -25,17 +25,19 @@
 ; TODO: original, bakclink, and cfg original duplicate information
 (defrecord Item [rule original backlink match-count seed?]
   npda/IPrinting
-  (npda/pstr [_] (str (if seed? "- " "+ ") (rules/rule-str rule))))
+  (npda/pstr [_] (str (if seed? "" "+ ") (rules/rule-str rule))))
 
 (defn new-item [rule seed?]
   (Item. rule rule rule 0 seed?))
 
-; TODO don't eager advance nullables
+; TODO test parsing the empty string
 (defn eager-advance [item grammar prediction?]
   (if item
     (if-let [rule2 (rules/eager-advance (:rule item) grammar)]
       (if prediction?
-        (merge item {:rule rule2, :backlink rule2})
+        (if (rules/is-complete? rule2)
+          nil ; don't eager advance predictions to completion
+          (merge item {:rule rule2, :backlink rule2}))
         (assoc item :rule rule2)))))
 
 (defn eager-advances [item grammar prediction?]

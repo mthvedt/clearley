@@ -54,7 +54,7 @@
               (let [clauses (first impl)]
                 (if (seq clauses)
                   (let [processed-clauses (map process-clause clauses)]
-                    `(rule '~head [~@(map second processed-clauses)]
+                    `(rule [~@(map second processed-clauses)]
                            (fn [~@(map first processed-clauses)] ~@(rest impl))))
                   (t/IAE "Rule clauses must be seqable"))))
             impls)))

@@ -45,11 +45,11 @@
   [rule candidate-name]
   (case (rule-type rule)
     ::tagged-clause (let [[tag & rest] rule]
-                      {:tag tag, :value (vec (map-normalize rest candidate-name tag)),
+                      {:tag tag, :value (map-normalize rest candidate-name tag),
                        :action (default-action tag rest), :name candidate-name,
                        :original rule})
     ::rule (let [name (if (:name rule) (:name rule) candidate-name)
-                 value (vec (map-normalize (:value rule) name (:tag rule)))]
+                 value (map-normalize (:value rule) name (:tag rule))]
              (merge rule {:name name, :value value, :original rule}))
     ::symbol {:name (str rule), :tag :symbol, :value [rule], :action identity,
               :original rule}
@@ -60,8 +60,8 @@
   (if (contains? #{:token :scanner} parent-tag) ; exempt from normalization
     ; TODO why?
     rules
-    (map normalize rules (map #(str (name parent-tag) "@" parent-name "." %)
-                              (range)))))
+    (vec (map normalize rules (map #(str parent-name "." %)
+                              (range))))))
 
 (defn- deps [{:keys [tag value]}]
   (cond (= tag :token) []
