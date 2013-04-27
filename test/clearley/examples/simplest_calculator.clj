@@ -4,15 +4,15 @@
 (defrule sum
   ([sum \+ term] (+ sum term)) ; left associative
   ([sum \- term] (- sum term))
-  ([term] term))
+  term)
 (defrule term
   ([term \* number] (* term number))
   ([term \/ number] (/ term number))
-  ([number] number))
+  number)
 (defrule number
   ([\- number] (- number))
   ([number digit] (+ (* 10 number) digit))
-  ([digit] digit))
+  digit)
 ; The below converts a char digit to a Clojure number
 (def digit (char-range \0 \9
                        #(- (int %) (int \0))))

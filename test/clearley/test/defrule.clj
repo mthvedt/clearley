@@ -2,13 +2,15 @@
   (use clearley.core clearley.defrule clearley.grammar clearley.test.utils
        uncore.test.utils lazytest.deftest))
 
+; TODO tests for match and bind
+
 ; === Just a smoke test ===
 (defrule sum
   ([sum \+ times] (+ sum times))
-  ([times] times))
+  times)
 (defrule times
   ([times \* digit] (* times digit))
-  ([digit] digit))
+  digit)
 (defrule digit [\3] 3)
 
 (def grammar1 (build-grammar sum))
@@ -26,7 +28,6 @@
   (is (with-out-str (print-charts parser1 "3+3"))))
 
 ; === Test the basics ===
-; TODO don't test asts
 (def-parser-test parsing1 parser1
     (is-parsing "3+3")
     (not-parsing "4+4"))
@@ -42,7 +43,6 @@
     (is-action 15 "3+3*3+3")))
 
 ; A little more invovled
-; TODO test build from grammar
 (defrule digit ([\1] 1) ([\2] 2) ([\3] 3) ([\4] 4) ([\5 \5] 55))
 (def parser2 (build-parser sum))
 
@@ -60,6 +60,17 @@
   ;(is-ast [[[[[\1]]] \+ [[[\2]] \* [\3]]] \+ [[[\4]] \* [\1]]] "1+2*3+4*1")
   ;(is-ast [[[\5 \5]]] "55"))
 
+(def g (build-grammar sum))
+(def grammar-parser (parser 'sum g))
+(def-parser-test build-from-grammar grammar-parser
+  (is-parsing "1+2")
+  (is-parsing "1+2*3+4")
+  (is-parsing "1*2+3*4")
+  (is-parsing "1+55*3+2*55")
+  (isnt (parses? "44"))
+  (isnt (parses? "55*23"))
+  (isnt (parses? "1+2a")))
+
 ; Rule aliasing
 (defrule sum
   ([sum \+ (t times)] (+ sum t))
@@ -70,7 +81,6 @@
   (is-action 6 "3+3"))
 
 ; Rule literals
-; TODO have :defrule?
 (def digits67 '(:or \6 (:seq \7 \7)))
 (defrule digits67* [digits67] 10) ; ok, maybe this is bad practice
 (defrule digit ([\1] 1) ([\2] 2) ([\3] 3) ([\4] 4) ([\5 \5] 55)
@@ -126,5 +136,3 @@
   (is-action "wyy" "wyy"))
 
 ; TODO 'practical earley parsing' test
-
-;TODO tests on grammars alone

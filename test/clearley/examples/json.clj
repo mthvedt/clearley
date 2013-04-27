@@ -5,10 +5,9 @@
 ; JSON spec:
 ; https://www.ietf.org/rfc/rfc4627.txt?number=4627
 
-; Start with whitepsace. JSON's whitespace is different from Java.
+; Start with whitepsace. JSON has fewer whitespace chars than Java.
 ; At the end, we will define a JSON value as 'value, surrounded by whitespace.
-(def whitespace-char '(:or \u0020 \u0009 \u000A \u000D))
-(def whitespace '(:star whitespace-char))
+(def whitespace '(:star (:or \space \tab \newline \return)))
 
 ; JSON recognizes 7 types of value. Three are represented by keywords.
 (defrule true-token "true" true)
@@ -18,13 +17,14 @@
 ; Fourth is the string.
 ; First we need to parse digits and hex numbers.
 ; Clojure doesn't support character arithmetic so we need a manual implementation.
+; TODO add to stdlib.
 (defn char-to-digit [char-start num-start]
   (let [char-start-int (int char-start)]
     #(+ num-start (- (int %) char-start-int))))
 
 ; We need this for escaped characters. Notice they return a number not a char.
 (def digit (char-range \0 \9 (char-to-digit \0 0)))
-(def hex-char `(:or digit
+(def hex-digit `(:or digit
                     ~(char-range \a \f (char-to-digit \a 10))
                     ~(char-range \A \F (char-to-digit \A 10))))
 
@@ -34,15 +34,19 @@
   (scanner (fn [c] (and (char? c) (> (int c) 0x1f)
                         (not (= \\ c)) (not (= \" c))))))
 
+(defbind hex [_ \\
+              _ \u
+              hex (rule "unicode-hex" [hex-digit hex-digit hex-digit hex-digit]
+                     ; hex-char returns an int... we turn that into Unicode char
+                     (fn [& chars] (char (reduce (fn [a b] (+ (* 16 a) b)) chars))))]
+  hex)
+
 (defrule string-char
   ; an escaped char
   ([\\ (escaped-char '(:or \" \\ \/ \b \f \n \r \t))] escaped-char)
   ; a unicode char, using a rule literal
-  ([\\ \u (hex (rule "unicode-hex" [hex-char hex-char hex-char hex-char]
-                     ; hex-char returns an int... we turn that into Unicode char
-                     (fn [& chars] (char (reduce (fn [a b] (+ (* 16 a) b)) chars)))))]
-   hex)
-  ([char-scanner] char-scanner))
+  hex
+  char-scanner)
 
 (defrule string
   ([\" (string-body '(:star string-char)) \"]
@@ -56,43 +60,38 @@
 
 (defrule natnum
   ([\0] 0)
-  ([digit1-9] digit1-9)
+  digit1-9
   ([digit1-9 digits] (make-num (cons digit1-9 digits))))
 
 (defrule decimal
-  ([natnum] natnum)
+  natnum
   ([natnum \. digits] (+ natnum (/ (make-num digits)
                                      (expt 10 (count digits))))))
 
 (defrule mantissa
-  ([(_ (opt \+)) digits] (make-num digits))
+  ([(_ (opt \+)) digits] (make-num digits)) ; TODO
   ([\- digits] (- (make-num digits))))
 
 ; It appears JSON numbers are exact although JS numbers are double floats.
 (defrule posnum
-  ([decimal] decimal)
+  decimal
   ([decimal '(:or \e \E) mantissa] (* decimal (expt 10 mantissa))))
 
 (defrule number
-  ([posnum] posnum)
+  posnum
   ([\- posnum] (- posnum)))
 
 ; The sixth type is the array.
-(defrule array-values
-  ([value] [value])
-  ([array-values \, value] (conj array-values value)))
+(def array-values (separate-rule 'value \, #(vec %&)))
 
 (defrule array
   ([\[ whitespace \]] [])
   ([\[ array-values \]] array-values))
 
 ; and the seventh (and also the goal type): Object.
-(defrule pair [whitespace string whitespace \: value]
-  [string value])
+(defrule pair [whitespace string whitespace \: value] [string value])
 
-(defrule pairs
-  ([pair] (apply hash-map pair))
-  ([pairs \, pair] (conj pairs pair)))
+(def pairs (separate-rule 'pair \, #(apply hash-map (apply concat %&))))
 
 (defrule object
   ([\{ whitespace \}] {})
@@ -100,9 +99,13 @@
 (defrule whitespace-object [whitespace object whitespace] object)
 
 ; Put it all together...
-(def value* '(:or true-token false-token null-token
-                 string number array object))
-(defrule value [whitespace value* whitespace] value*)
+(defrule value [whitespace
+                (value `(:or true-token false-token null-token
+                            string number array object))
+                whitespace]
+  value)
+;(defrule value* true-token false-token null-token string number array object)
+;(defrule value [whitespace value* whitespace] value*)
 
 ; And we are done
 (def json-parser (clearley.core/build-parser whitespace-object))

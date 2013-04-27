@@ -1,29 +1,30 @@
 (ns clearley.examples.calculator
   (use clearley.defrule clojure.math.numeric-tower))
 
+; TODO do we even need this?
 (defrule sum
   ([sum \+ term] (+ sum term))
   ([sum \- term] (- sum term)) ; left associative
-  ([term] term))
+  term)
 (defrule term
   ([term \* pow] (* term pow))
   ([term parenexpr] (* term parenexpr))
   ([parenexpr term] (* parenexpr term))
   ([term parenexpr (term2 term)] (* term parenexpr term2)) ; need an alias
   ([term \/ pow] (/ term pow))
-  ([pow] pow))
+  pow)
 (defrule pow
   ([numexpr \^ pow] (expt numexpr pow)) ; right associative
-  ([numexpr] numexpr))
+  numexpr)
 (defrule numexpr
   ([\- numexpr] (- numexpr))
-  ([parenexpr] parenexpr)
-  ([number] number))
+  parenexpr
+  number)
 (defrule parenexpr
   ([\( sum \)] sum))
 (defrule number
   ([number digit] (+ (* 10 number) digit))
-  ([digit] digit))
+  digit)
 (def digit (char-range \0 \9 #(- (int %) (int \0))))
 
 (def my-calculator (clearley.core/build-parser sum))

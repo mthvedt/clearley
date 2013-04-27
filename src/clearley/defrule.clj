@@ -1,13 +1,7 @@
 (ns clearley.defrule
-  "Tools for parsing and processing streams of input.
-  The central abstraction is the context-free grammar, where one match rule
-  maps to arbitrary sequences of sub-rules.
-  Emphasis is on completeness, modularity, and ease of use.
-  A functional API and a macro DSL are provided.
- 
-  See the high-level docs for a further background and overview." 
-  (require [clojure string pprint]
-           [uncore.throw :as t])
+  "Fns and macros to define context-free grammars.
+  Emphasis is on power, flexibility, and ease of use."
+  (require [uncore.throw :as t])
   (use uncore.core))
 
 (defmacro defrulefn [sym doc arg1 default-action & full-body]
@@ -39,71 +33,101 @@
     (if-let [thename (first clause)]
       (let [therule (second clause)]
         [thename (if (list? therule) ; A form to evaluate
-                   ; Return it; will be eval'd when defrule called
+                   ; Return it; will be eval'd by the reader
                    therule
                    ; See what process-nonlist-clause has to say
                    (second (process-nonlist-clause therule)))])
-      (t/IAE "Not a valid subrule: " clause))
+      (t/IAE "Not a valid match clause: " clause))
     (process-nonlist-clause clause)))
 
-; TODO: eliminate most of the logic here.
-; Macro helper fn. Builds the `(rule ...) bodies for defrule.
-; Head: a symbol. impls: seq of (bindings bodies+) forms.
-(defn- build-defrule-rule-bodies [head impls]
-  (vec (map (fn [impl]
-              (let [clauses (first impl)]
-                (if (seq clauses)
-                  (let [processed-clauses (map process-clause clauses)]
-                    `(rule [~@(map second processed-clauses)]
-                           (fn [~@(map first processed-clauses)] ~@(rest impl))))
-                  (t/IAE "Rule clauses must be seqable"))))
-            impls)))
+(defmacro match
+  "Defines a rule together with an action. If a subrule is a symbol,
+  it can be bound to symbols in the action body. You can also supply a
+  renaming binding symbol.
+  
+  Examples:
+  
+  (match [\\- num (- num))
+  (match [(num1 num) \\+ (num2 num)] (+ num1 num2))"
+  [clauses & body]
+  (if (vector? clauses)
+    (let [processed-clauses (map process-clause clauses)]
+      `(rule [~@(map second processed-clauses)]
+             (fn [~@(map first processed-clauses)] ~@body)))
+    (t/IAE "Match clauses must be a vector")))
 
-; Macro helper fn. Builds the body for defrule and related macros.
-; Head: a symbol. impl-or-impls: (clauses bodies+) or ((clauses bodies+)+).
-(defn- build-defrule-bodies [head impl-or-impls]
-  (let [first-form (first impl-or-impls)]
-    (cond (or (vector? first-form) (string? first-form))
-          (build-defrule-rule-bodies head [(apply list first-form
-                                                  (rest impl-or-impls))])
-          (seq? first-form) (build-defrule-rule-bodies head impl-or-impls)
-          true (t/IAE "Not a valid defrule; "
-                     "expected clause vector, string, or clause-body pairs"))))
+(defn- build-multi-match [form]
+  (cond (list? form) (let [[f1 & rest] form]
+                       (cond (vector? f1) `(match ~@form)
+                             (string? f1) `(match ~(vec f1) ~@rest)
+                             true (t/IAE "Not a valid start to a defrule body: "
+                                         form ", expect vector or string")))
+        (symbol? form) `'~form
+        true (t/IAE "Not a valid defrule body: " form
+                    ", expected list or symbol")))
 
 (defmacro defrule
-  "Defs a parser rule or seq of parser rules. See the docs for
-  the full defrule syntax.
-  
+  "Defines a rule and an action together. This macro is intended to be
+  the primary way to def rules.
+
   Usage:
-  (defrule symbol [clauses] action?)
-  (defrule (symbol [clauses] action?)+)
+  (defrule symbol [subrules] action-body?)
+  (defrule symbol ([subrules] action-body? | symbol)+)
+  Subrules may be a vector or a string. It can contain any rule,
+  but if it's a symbol, this can bind symbols in the action body.
 
-  The clauses may be any seq, so you can do something like
-  (defrule true-rule \"true\" true)
+  Examples:
 
-  A clause may be any of the following:
-  any rule object
-  a symbol pointing to a seq of rules
-  [rule or rule-symbol]+
-  (rule-alias-symbol rule-symbol)
-  (rule-alias-symbol [rule or rule-symbol]+)
-  
-  Defines one or more rules and binds them in a seq to the given var.
-  The rule's name will be the given (unqualified) symbol by default.
-  The optional action form defines a parse action, where the symbols will be bound
-  to the results of the actions of the correspoinding subrules.
+  (defrule true-token \"true\" true)
+  This matches the string \"true\" and returns true.
 
-  Example:
+  (defrule sum [num \\+ (num2 num)] (+ num num2)
+               [num \\- (num2 num)] (- num num2))
+  This matches any num, followed by + or -, followed by another num,
+  and returns the value of adding or subtracting the two respectively.
 
-  (defrule sum [num \\+ (num2 num)] (+ num num2))
-  
-  The above rule matches two nums (one of which is aliased as num2)
-  and adds them together. If a parse action is not provided, a default
-  will be used which bundles its args into a list. The rule will be bound
-  to 'sum in the current namespace.
-  
+  (defrule num ([\\- posnum] (- posnum))
+                posnum)
+  This matches any posnum preceded by -, returning the negation of posnum.
+  Or it can match a posnum directly, and return the posnum (default).
+
+  You can embed rules in named subrules, viz:
+  (defrule digit [(x (char-range 0 9))] x)
+
   Symbols in the defrule bodies do not become qualified."
   [sym & impl-or-impls]
-  `(def ~sym (list :or ~@(build-defrule-bodies sym impl-or-impls))))
+  `(def ~sym ~(let [[first-form & rest] impl-or-impls]
+                (cond (vector? first-form)
+                      `(match ~@impl-or-impls)
+                      (string? first-form)
+                      `(match ~(vec first-form) ~@rest)
+                      true
+                      `(list :or ~@(map build-multi-match impl-or-impls))))))
+
+(defmacro bind
+  "A format for defining a rule and an action that binds to some subrules.
+  Syntax is as in let, except the binding values are rules.
+
+  Example:
+  (letrule [a rule1
+            b `(:or rule2-1 rule2-2)
+            [c d] rule3]
+    (str rule1 rule2 rule3))"
+  [binding-forms & body]
+  (let [pairs (partition 2 binding-forms)
+        rules (map (fn [key] (if (symbol? key) `'~key key))
+                   (map second pairs))
+        val-gensyms (repeatedly (count pairs) #(gensym "bind_"))]
+    (if (some #(not (= 2 %)) (map count pairs))
+      (t/IAE "Binding forms must come in pairs"))
+    `(rule ~(vec rules)
+           (fn [~@val-gensyms]
+             (let [~@(interleave (map first pairs) val-gensyms)]
+               ~@body)))))
+
+(defmacro defbind
+  "Like bind but defs a variable."
+  [sym & body]
+  `(def ~sym (assoc (bind ~@body) :name '~sym)))
 
 (load "core_stdlib")

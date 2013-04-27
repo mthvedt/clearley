@@ -1,4 +1,5 @@
-; Standard library, included in clearley.core
+; Standard library, included in clearley.defrule
+; TODO include defrule in core
 
 (def ^{:doc "The empty rule. Returns nil."}
   empty-rule {:name "empty" :tag :seq :value [] :action (fn [] nil)})
@@ -10,7 +11,7 @@
   is logical true, this rule matches that token.
   The default action returns the token."
   scanner-fn identity
-  {:name name, :tag :scanner, :action action, :value [scanner-fn]})
+  {:name name, :tag :scanner, :value [scanner-fn], :action action})
 
 (defrulefn token
   "Creates a rule that matches a token. The default action returns the token."
@@ -22,6 +23,12 @@
   The default action is the identity."
   a-symbol identity
   {name name, :tag :symbol, :value [a-symbol], :action action})
+
+(defrulefn or-rule
+  "Creates a rule that matches one of some number of given rules. The default
+  action is the identity."
+  rules identity
+  {name name, :tag :or, :value (vec rules), :action action})
 
 (defn plus
   "Creates a rule that matches one or more of some subrule.
@@ -56,3 +63,9 @@
   ([str] (string-rule str (fn [] str)))
   ([str action]
    {:tag :seq, :action action, :value (vec str)}))
+
+(defn separate-rule [a-rule separator-rule action]
+  "Creates a rule that matches 1 or more of a given subrule, separated
+  by the given separator rule which is invisible to the parse action."
+  (let [subrule (rule [separator-rule a-rule] (fn [_ x] x))]
+    (rule [a-rule `(:star ~subrule)] (fn [a b] (apply action a b)))))

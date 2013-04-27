@@ -25,15 +25,12 @@
                                http://www.wikipedia.org/wiki/Earley_parser."))
 
 (defn parser
-  "Constructs a parser given a map of rules,
-  a goal clause, and an optional tokenizer."
-  ([goal rules]
-   (parser goal identity rules))
-  ([goal tokenizer rules]
-   ; This mem-atom will help us lazily build our parser,
-   ; and keep the results in memory
+  "Constructs a parser given a grammar, a goal clause, and an optional tokenizer."
+  ([goal grammar]
+   (parser goal identity grammar))
+  ([goal tokenizer grammar]
    (let [mem-atom (atom {})
-         parse-fn #(glr/parse-charts % rules tokenizer goal mem-atom)]
+         parse-fn #(glr/parse-charts % grammar tokenizer goal mem-atom)]
    (reify
      Parser
      (parse [_ input]
@@ -43,6 +40,7 @@
      (charts [_ input] (parse-fn input))
      (print-charts [_ input] (glr/pstr-charts (parse-fn input)))))))
 
+; TODO work on this
 (defn print-match
   "Pretty-prints a match tree to *out*."
   [match]
