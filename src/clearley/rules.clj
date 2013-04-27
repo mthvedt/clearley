@@ -1,5 +1,5 @@
 (ns clearley.rules
-  (require clearley.grammar clojure.string uncore.rpartial
+  (require metaparse.connectors.grammar clojure.string uncore.rpartial
            [uncore.throw :as t]
            [uncore.str :as s])
   (use uncore.core))
@@ -29,7 +29,8 @@
   (-> cfg-rule :raw-rule :name (= ::goal)))
 
 (defn goal-rule [r]
-  (CfgRule. 0 {:name ::goal, :tag :seq, :value [(clearley.grammar/normalize r nil)],
+  (CfgRule. 0 {:name ::goal, :tag :seq,
+               :value [(metaparse.connectors.grammar/normalize r nil)],
                :action identity} {}))
 
 ; For a rule that has been nulled out, gets a reduced version of the rule

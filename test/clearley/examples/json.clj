@@ -1,6 +1,6 @@
 (ns clearley.examples.json
   (require clearley.core)
-  (use clearley.defrule clojure.math.numeric-tower))
+  (use metaparse.core clojure.math.numeric-tower))
 
 ; JSON spec:
 ; https://www.ietf.org/rfc/rfc4627.txt?number=4627

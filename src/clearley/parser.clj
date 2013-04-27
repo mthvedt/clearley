@@ -1,11 +1,10 @@
-(ns clearley.glr
+(ns clearley.parser
   (require [uncore.collections.worm-ordered-set :as os]
            [uncore.collections.worm-ordered-multimap :as omm]
            [clearley.npda :as npda]
            [clearley.rules :as rules]
            [uncore.str :as s])
   (use uncore.core))
-; A GLR automaton.
 
 ; ===
 ; Parse items
@@ -145,7 +144,7 @@
     (pr-str (rules/take-action* val))
     (pr-str val)))
 (defn reduce-ostream-helper [ostream val]
-  (if (instance? clearley.glr.Item val)
+  (if (instance? clearley.parser.Item val)
     (let [{:keys [rule match-count]} val]
       (cons (rules/match (rules/get-original rule)
                          (vec (reverse (take match-count ostream))))

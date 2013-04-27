@@ -1,4 +1,4 @@
-(ns clearley.defrule
+(ns metaparse.core
   "Tools for parsing and processing streams of input.
   The central abstraction is the context-free grammar, where one match rule
   maps to arbitrary sequences of sub-rules.
@@ -6,7 +6,7 @@
   A functional API and a macro DSL are provided.
  
   See the high-level docs for a further background and overview." 
-  (require [clojure string pprint]
+  (require clojure.string clojure.pprint
            [uncore.throw :as t])
   (use uncore.core))
 
@@ -46,7 +46,7 @@
       (t/IAE "Not a valid subrule: " clause))
     (process-nonlist-clause clause)))
 
-; TODO: eliminate most of the logic here.
+; TODO: eliminate most of the logic here?
 ; Macro helper fn. Builds the `(rule ...) bodies for defrule.
 ; Head: a symbol. impls: seq of (bindings bodies+) forms.
 (defn- build-defrule-rule-bodies [head impls]

@@ -1,5 +1,5 @@
 (ns clearley.test.multithreaded
-  (use clearley.core clearley.defrule clearley.test.utils uncore.test.utils
+  (use clearley.core metaparse.core clearley.test.utils uncore.test.utils
        lazytest.deftest [clearley.examples.json :exclude [json-parser]]))
 ; This tests multithreading parsers (important if you're memoizing)
 

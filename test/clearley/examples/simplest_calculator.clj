@@ -1,5 +1,6 @@
 (ns clearley.examples.simplest-calculator
-  (use clearley.defrule))
+  (require clearley.core)
+  (use metaparse.core))
 
 (defrule sum
   ([sum \+ term] (+ sum term)) ; left associative

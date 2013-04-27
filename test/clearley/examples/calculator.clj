@@ -1,5 +1,6 @@
 (ns clearley.examples.calculator
-  (use clearley.defrule clojure.math.numeric-tower))
+  (require clearley.core)
+  (use metaparse.core clojure.math.numeric-tower))
 
 (defrule sum
   ([sum \+ term] (+ sum term))

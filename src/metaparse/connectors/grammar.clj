@@ -1,5 +1,5 @@
-(ns clearley.grammar
-  "The base lib for the Clearley intermediate representation."
+(ns metaparse.connectors.grammar
+  "Lib for building parsers that use Metaparse grammars."
   (require [uncore.throw :as t])
   (use uncore.core))
 

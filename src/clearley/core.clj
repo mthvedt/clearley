@@ -1,17 +1,10 @@
 (ns clearley.core
-  "Tools for parsing and processing linear input.
-  The central abstraction is the context-free grammar, where one match rule
-  maps to arbitrary sequences of sub-rules.
-  Emphasis is on completeness, modularity, and ease of use.
-  A functional API and a macro DSL are provided.
- 
-  See the high-level docs for a further background and overview." 
+  "Namespace for the Clearley parser."
   (require [clojure string pprint]
            [clearley.rules :as rules]
-           [clearley.glr :as glr]
+           [clearley.parser :as parser]
            [uncore.throw :as t])
-  (use [clearley defrule grammar] uncore.core))
-; TODO rename to clearley.grammar, move docs to defrule
+  (use metaparse.core metaparse.connectors.grammar uncore.core))
 
 (defprotocol Parser
   (parse [parser input] "Parse the given input with the given parser,
@@ -33,15 +26,15 @@
    ; This mem-atom will help us lazily build our parser,
    ; and keep the results in memory
    (let [mem-atom (atom {})
-         parse-fn #(glr/parse-charts % rules tokenizer goal mem-atom)]
+         parse-fn #(parser/parse-charts % rules tokenizer goal mem-atom)]
    (reify
      Parser
      (parse [_ input]
        ; For now, only return first match. If failure, last chart will be empty
-       (-> (parse-fn input) last glr/scan-goal first))
+       (-> (parse-fn input) last parser/scan-goal first))
      ChartParser
      (charts [_ input] (parse-fn input))
-     (print-charts [_ input] (glr/pstr-charts (parse-fn input)))))))
+     (print-charts [_ input] (parser/pstr-charts (parse-fn input)))))))
 
 (defn print-match
   "Pretty-prints a match tree to *out*."

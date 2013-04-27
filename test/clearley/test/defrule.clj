@@ -1,8 +1,9 @@
 (ns clearley.test.defrule
-  (use clearley.core clearley.defrule clearley.grammar clearley.test.utils
-       uncore.test.utils lazytest.deftest))
+  (use clearley.core metaparse.core metaparse.connectors.grammar
+       clearley.test.utils uncore.test.utils lazytest.deftest))
 
 ; === Just a smoke test ===
+; TODO move to metaparse
 (defrule sum
   ([sum \+ times] (+ sum times))
   ([times] times))
