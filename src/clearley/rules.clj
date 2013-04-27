@@ -58,8 +58,6 @@
   `(check-singleton ~tag (if (= ~'dot 1) [] ~result)))
 
 ; Predicts a rule, returning a seq [rule | fn]
-; TODO just return a rule, not a fn. also get rid of 'rule?
-; glr can check for scaners directly
 (defmulti predict (fn [r _] (-> r :raw-rule :tag)))
 (defmethod predict :symbol [{dot :dot {value :value} :raw-rule} grammar]
   (map cfg-rule (predict-singleton :symbol [(get grammar (first value))])))
@@ -72,13 +70,8 @@
   (map cfg-rule (check-singleton :star value)))
 (defmethod predict :scanner [{dot :dot {value :value} :raw-rule} _]
   (predict-singleton :scanner value))
-; TODO kill
-(defrecord TokenScanner [token]
-  clojure.lang.IFn
-  (invoke [_ val] (= token val))
-  (applyTo [_ args] (= token (first args))))
 (defmethod predict :token [{dot :dot {value :value} :raw-rule} _]
-  (predict-singleton :token [(TokenScanner. (first value))]))
+  (predict-singleton :token [(fn [x] (= x (first value)))]))
 
 ; Is this rule complete?
 (defmulti is-complete? (fn-> :raw-rule :tag))

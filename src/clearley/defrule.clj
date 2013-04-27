@@ -65,25 +65,33 @@
         (symbol? rule) ::symbol
         true ::token))
 
+(defrecord TokenAction [token]
+  clojure.lang.IFn
+  (invoke [_] token)
+  (applyTo [_ args] token))
+
 (defmulti default-action (fn [tag _] tag))
 (defmethod default-action :default [& _] identity)
 (defmethod default-action :star [& _] list-identity)
 (defmethod default-action :seq [& _] list-identity)
-(defmethod default-action :token [_ {[token] :value}] (fn [] token))
+(defmethod default-action :token [_ {[token] :value}] (TokenAction. token))
 
-; TODO unify similar items
+; TODO unify similar items?
 (declare map-normalize)
 
 (defn normalize [rule candidate-name]
   (case (rule-type rule)
     ::tagged-clause (let [[tag & rest] rule]
                       {:tag tag, :value (vec (map-normalize rest candidate-name tag)),
-                       :action (default-action tag rest), :name candidate-name})
+                       :action (default-action tag rest), :name candidate-name,
+                       :original rule})
     ::rule (let [name (if (:name rule) (:name rule) candidate-name)
                  value (vec (map-normalize (:value rule) name (:tag rule)))]
-             (merge rule {:name name :value value}))
-    ::symbol {:name (str rule), :tag :symbol, :value [rule], :action identity}
-    ::token {:name (pr-str rule), :tag :token, :value [rule], :action (fn [] rule)}))
+             (merge rule {:name name, :value value, :original rule}))
+    ::symbol {:name (str rule), :tag :symbol, :value [rule], :action identity,
+              :original rule}
+    ::token {:name (pr-str rule), :tag :token, :value [rule],
+             :action (TokenAction. rule), :original rule}))
 
 (defn- map-normalize [rules parent-name parent-tag]
   (if (contains? #{:token :scanner} parent-tag) ; exempt from normalization

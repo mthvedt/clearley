@@ -43,14 +43,14 @@
 
 (defn predict-item [item grammar]
   (mapcat #(eager-advances (new-item % false) grammar true)
-          (filter rules/rule? (rules/predict (:rule item) grammar))))
+          (remove fn? (rules/predict (:rule item) grammar))))
 
 (defn advance-item [item]
   (assoc (update-all item {:rule rules/advance, :match-count inc}) :seed? true))
 
 (defn scan-item [item input-token grammar]
   (if (some #(% input-token)
-            (remove rules/rule? (rules/predict (:rule item) grammar)))
+            (filter fn? (rules/predict (:rule item) grammar)))
     (advance-item item)))
 
 ; === Item sets ===
@@ -95,7 +95,6 @@
 
 (defn item-set-returns [items]
   (filter (fn-> :rule rules/is-complete?) items))
-
 
 (defprotocol GlrState (is-goal [self]))
 
