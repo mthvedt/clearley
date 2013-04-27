@@ -2,10 +2,10 @@
   (require [uncore.collections.worm-ordered-set :as os]
            [uncore.collections.worm-ordered-multimap :as omm]
            [clearley.npda :as npda]
-           [clearley.defrule]
            [clearley.rules :as rules]
            [uncore.str :as s])
   (use uncore.core))
+; A GLR automaton.
 
 ; ===
 ; Parse items
@@ -156,10 +156,7 @@
 
 ; mem-atom: [map: seed items -> item-set]
 (defn parse-charts [input-str grammar tokenizer goal mem-atom]
-  (npda/run-automaton (new-item-set [(new-item (rules/goal-rule
-                                                 (clearley.defrule/normalize goal
-                                                                             "::goal"))
-                                               true)]
+  (npda/run-automaton (new-item-set [(new-item (rules/goal-rule goal) true)]
                                     grammar mem-atom)
                       input-str tokenizer))
 

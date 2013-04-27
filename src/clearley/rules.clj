@@ -1,14 +1,11 @@
 (ns clearley.rules
-  "Back-end stuff for Clearley. Work in progress with unstable API."
-  (require clojure.string uncore.rpartial
+  (require clearley.grammar clojure.string uncore.rpartial
            [uncore.throw :as t]
            [uncore.str :as s])
   (use uncore.core))
+; Core stuff for context free grammar parsing.
 
-; TODO this ns is such a mess
-; in particular we should have once-only invocations for creating rules
-
-; TODO maybe we can nuke this entirely; move it into GLR
+; TODO maybe we can nuke this NS entirely; move it into GLR
 
 ; TODO merge into core?
 (defrecord Match [rule submatches])
@@ -32,7 +29,8 @@
   (-> cfg-rule :raw-rule :name (= ::goal)))
 
 (defn goal-rule [r]
-  (CfgRule. 0 {:name ::goal, :tag :seq, :value [r], :action identity} {}))
+  (CfgRule. 0 {:name ::goal, :tag :seq, :value [(clearley.grammar/normalize r nil)],
+               :action identity} {}))
 
 ; For a rule that has been nulled out, gets a reduced version of the rule
 ; appropriate for take-action.
@@ -42,6 +40,8 @@
     (assoc raw-rule :action (uncore.rpartial/gen-rpartial action null-results))
     raw-rule))
 
+; Null advance: for advancing a rule that can predict the empty string
+; See Aycock+Horspool Practical Earley Parsing
 (defn null-advance [rule result]
   (let [dot (:dot rule)]
     (update-all rule {:dot inc, :null-results #(assoc % dot result)})))

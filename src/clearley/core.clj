@@ -10,8 +10,8 @@
            [clearley.rules :as rules]
            [clearley.glr :as glr]
            [uncore.throw :as t])
-  (use [clearley defrule]
-       uncore.core))
+  (use [clearley defrule grammar] uncore.core))
+; TODO rename to clearley.grammar, move docs to defrule
 
 (defprotocol Parser
   (parse [parser input] "Parse the given input with the given parser,

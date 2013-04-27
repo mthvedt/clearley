@@ -1,6 +1,6 @@
 (ns clearley.test.defrule
-  (:use clearley.core clearley.defrule clearley.test.utils uncore.test.utils
-        lazytest.deftest))
+  (use clearley.core clearley.defrule clearley.grammar clearley.test.utils
+       uncore.test.utils lazytest.deftest))
 
 ; === Just a smoke test ===
 (defrule sum

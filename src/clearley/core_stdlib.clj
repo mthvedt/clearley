@@ -3,6 +3,26 @@
 (def ^{:doc "The empty rule. Returns nil."}
   empty-rule {:name "empty" :tag :seq :value [] :action (fn [] nil)})
 
+; TODO include default actions?
+; TODO arguments-checking
+(defrulefn scanner
+  "Creates a rule that accepts input tokens. For a token t, if (scanner-fn t)
+  is logical true, this rule matches that token.
+  The default action returns the token."
+  scanner-fn identity
+  {:name name, :tag :scanner, :action action, :value [scanner-fn]})
+
+(defrulefn token
+  "Creates a rule that matches a token. The default action returns the token."
+  token (fn [] token)
+  {name name, :tag :token, :value [token], :action action})
+
+(defrulefn symbol-rule
+  "Creates a rule that points to some other rule, identified by the given symbol.
+  The default action is the identity."
+  a-symbol identity
+  {name name, :tag :symbol, :value [a-symbol], :action action})
+
 (defn plus
   "Creates a rule that matches one or more of some subrule.
   The defalt action returns a seq of the args."
