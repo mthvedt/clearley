@@ -10,69 +10,45 @@
 (def whitespace '(:star (:or \space \tab \newline \return)))
 
 ; JSON recognizes 7 types of value. Three are represented by keywords.
-(defmatch true-token "true" true)
-(defmatch false-token "false" false)
-(defmatch null-token "null" nil)
+(defmatch json-keyword ("true" true) ("false" false) ("null" nil))
 
 ; Fourth is the string.
-; First we need to parse digits and hex numbers.
-; Clojure doesn't support character arithmetic so we need a manual implementation.
-; TODO add to stdlib.
-(defn char-to-digit [char-start num-start]
-  (let [char-start-int (int char-start)]
-    #(+ num-start (- (int %) char-start-int))))
-
-; We need this for escaped characters. Notice they return a number not a char.
-(def digit (char-range \0 \9 (char-to-digit \0 0)))
-(def hex-digit `(:or digit
-                    ~(char-range \a \f (char-to-digit \a 10))
-                    ~(char-range \A \F (char-to-digit \A 10))))
-
-; Accepts any non-escaped character. Rejected are \\, \",
-; and all JSON control characters (which are not the same as in Unicode!)
+; This is a valid JSON string character. It can be any non-escaped character,
+; except \, ", and for some reason, ASCII control characters below u001f.
 (def char-scanner
   (scanner (fn [c] (and (char? c) (> (int c) 0x1f)
                         (not (= \\ c)) (not (= \" c))))))
 
-(defbind hex [_ \\
-              _ \u
-              hex (rule "unicode-hex" [hex-digit hex-digit hex-digit hex-digit]
+; Matches a unicode literal: \u007f for example
+(defmatch hex [\\ \u
+              (r (rule "unicode-hex" [hex-digit hex-digit hex-digit hex-digit]
                      ; hex-char returns an int... we turn that into Unicode char
-                     (fn [& chars] (char (reduce (fn [a b] (+ (* 16 a) b)) chars))))]
-  hex)
+                     (fn [& chars] (char (make-num chars 16)))))]
+  r)
 
+; A string character can be an escaped char, a hex char, or anything else.
 (defmatch string-char
-  ; an escaped char
   ([\\ (escaped-char '(:or \" \\ \/ \b \f \n \r \t))] escaped-char)
-  ; a unicode char, using a rule literal
-  hex
-  char-scanner)
+  hex char-scanner)
 
-(defmatch string
-  ([\" (string-body '(:star string-char)) \"]
-   (java.lang.String. (char-array string-body))))
+(def string (quotes [:star string-char] #(java.lang.String. (char-array %))))
 
-; Fifth, the Number, the most complex.
-(def digit1-9 (char-range \1 \9 (char-to-digit \1 1)))
-(def digits (plus 'digit))
-(defn make-num [digits]
-  (reduce #(+ (* 10 %) %2) 0 digits))
-
-(defmatch natnum
-  ([\0] 0)
-  digit1-9
-  ([digit1-9 digits] (make-num (cons digit1-9 digits))))
-
+; Fifth, the Number, the most complex. JSON accepts canonical integers,
+; decimals, and scientific notation.
 (defmatch decimal
-  natnum
-  ([natnum \. digits] (+ natnum (/ (make-num digits)
-                                     (expt 10 (count digits))))))
+  canonical-natnum
+  ([canonical-natnum \. (digits '(:star digit))]
+   (+ canonical-natnum (/ (make-num digits) (expt 10 (count digits))))))
 
+; A mantiss uses 'natnum' because it may start with an arbitrary number of 0s.
+; Which is odd if you think about it.
 (defmatch mantissa
-  ([(_ (opt \+)) digits] (make-num digits)) ; TODO
-  ([\- digits] (- (make-num digits))))
+  ([\+ natnum] natnum)
+  natnum
+  ([\- natnum] (- natnum)))
 
-; It appears JSON numbers are exact although JS numbers are double floats.
+; The exactness of JSON numbers is undefined (it's just a data exchange after all).
+; We'll assume 100% exactness.
 (defmatch posnum
   decimal
   ([decimal '(:or \e \E) mantissa] (* decimal (expt 10 mantissa))))
@@ -82,30 +58,20 @@
   ([\- posnum] (- posnum)))
 
 ; The sixth type is the array.
-(def array-values (separate-rule 'value \, #(vec %&)))
+(def array-values (delimit `value \, #(vec %&)))
 
-(defmatch array
-  ([\[ whitespace \]] [])
-  ([\[ array-values \]] array-values))
+(def array (brackets (match ([whitespace] []) array-values)))
 
 ; and the seventh (and also the goal type): Object.
 (defmatch pair [whitespace string whitespace \: value] [string value])
 
-(def pairs (separate-rule 'pair \, #(apply hash-map (apply concat %&))))
+(def pairs (delimit pair \, #(apply hash-map (apply concat %&))))
 
-(defmatch object
-  ([\{ whitespace \}] {})
-  ([\{ pairs \}] pairs))
-(defmatch whitespace-object [whitespace object whitespace] object)
+(def object (braces (match ([whitespace] {}) pairs)))
 
 ; Put it all together...
-(defmatch value [whitespace
-                (value `(:or true-token false-token null-token
-                            string number array object))
-                whitespace]
-  value)
-;(defmatch value* true-token false-token null-token string number array object)
-;(defmatch value [whitespace value* whitespace] value*)
+(def value (surround whitespace `(:or json-keyword string number array object)))
+(def whitespace-object (surround whitespace object))
 
 ; And we are done
 (def json-parser (clearley.core/build-parser whitespace-object))
@@ -169,16 +135,17 @@
 
 ; Only Objects are valid json parses.
 (def-parser-test json-test json-parser
-  (is (compare-to-file json-parser "clearley/examples/json_test.json"
-                   "clearley/examples/json_test.edn"))
   (not-parsing "1")
   (not-parsing "true")
   (not-parsing "\"a\"")
   (not-parsing "[1]")
   (is-action {"a" 1} "{\"a\" : 1}")
   (is-action {} "{}")
+  (is-action {} " { } ")
   (is-parsing "{\"a\" : 1, \"a\" : 2}")
   (not-parsing "{a : 1}")
   (not-parsing "{\"a\" : 1 \"b\" : 2}")
   (is-action {"a" 1 "b" 2} "{\"a\" : 1, \"b\" : 2}")
-  (is-action {"a" 1 "b" true "c" "3"} "{\"a\" : 1, \"b\" : true, \"c\" : \"3\"}"))
+  (is-action {"a" 1 "b" true "c" "3"} "{\"a\" : 1, \"b\" : true, \"c\" : \"3\"}")
+  (is (compare-to-file json-parser "clearley/examples/json_test.json"
+                   "clearley/examples/json_test.edn")))

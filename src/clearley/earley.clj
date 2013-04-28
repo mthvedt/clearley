@@ -23,6 +23,7 @@
 ; match-count: the number of times this rule has been scanned or advanced
 ; follow: the follow set of this item = any terminal that can follow this item
 ; (depends on predicting items)
+; TODO print follow
 (defrecord Item [rule backlink match-count seed? follow]
   npda/IPrinting
   (npda/pstr [_] (str (if seed? "" "+ ") (rules/rule-str rule)

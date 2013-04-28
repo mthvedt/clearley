@@ -5,13 +5,13 @@
   (use uncore.core))
 ; TODO include in core
 
-(defmacro defmatchfn [sym doc arg1 default-action & full-body]
+(defmacro defrulefn [sym doc arg1 default-action & full-body]
   `(defn ~sym ~doc
      ([~arg1] (~sym nil ~arg1 ~default-action))
      ([~arg1 ~'action] (~sym nil ~arg1 ~'action))
      ([~'name ~arg1 ~'action] ~@full-body)))
 
-(defmatchfn rule
+(defrulefn rule
   "Creates a context-free grammar rule. A rule has a required seq of clauses,
   an optional name, and an optional action.
   If not supplied, the default action bundles the args into a list."
@@ -41,7 +41,7 @@
       (t/IAE "Not a valid match clause: " clause))
     (process-nonlist-clause clause)))
 
-(defmacro match
+(defmacro match-one
   "Defines a rule together with an action. If a subrule is a symbol,
   it can be bound to symbols in the action body. You can also supply a
   renaming binding symbol.
@@ -59,13 +59,24 @@
 
 (defn- build-multi-match [form]
   (cond (list? form) (let [[f1 & rest] form]
-                       (cond (vector? f1) `(match ~@form)
-                             (string? f1) `(match ~(vec f1) ~@rest)
+                       (cond (vector? f1) `(match-one ~@form)
+                             (string? f1) `(match-one ~(vec f1) ~@rest)
                              true (t/IAE "Not a valid start to a defmatch body: "
                                          form ", expect vector or string")))
         (symbol? form) `'~form
         true (t/IAE "Not a valid defmatch body: " form
                     ", expected list or symbol")))
+
+(defmacro match
+  "Like defmatch, but doens't def a variable."
+  [& impl-or-impls]
+  (let [[first-form & rest] impl-or-impls]
+    (cond (vector? first-form)
+          `(match-one ~@impl-or-impls)
+          (string? first-form)
+          `(match-one ~(vec first-form) ~@rest)
+          true
+          `(list :or ~@(map build-multi-match impl-or-impls)))))
 
 (defmacro defmatch
   "Defines a rule and an action together. This macro is intended to be
@@ -97,13 +108,7 @@
 
   Symbols in the defmatch bodies do not become qualified."
   [sym & impl-or-impls]
-  `(def ~sym ~(let [[first-form & rest] impl-or-impls]
-                (cond (vector? first-form)
-                      `(match ~@impl-or-impls)
-                      (string? first-form)
-                      `(match ~(vec first-form) ~@rest)
-                      true
-                      `(list :or ~@(map build-multi-match impl-or-impls))))))
+  `(def ~sym (match ~@impl-or-impls)))
 
 (defmacro bind
   "A format for defining a rule and an action that binds to some subrules.

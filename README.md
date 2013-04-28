@@ -33,17 +33,19 @@ Of course there is a defmatch macro also. It works kind of like defn. There is a
 
 Here is a calculator written in Clearley:
 
+[ TODO ]
+
 ```clojure
 (use 'clearley.core 'clearley.defmatch)
 
 (defmatch sum
   ([sum \+ term] (+ sum term))
   ([sum \- term] (- sum term))
-  times-or-divide)
+  term)
 (defmatch term
-  ([term \* posnum] (* times-or-divide posnum))
-  ([term \/ posnum] (/ times-or-divide posnum))
-  posnum) ; posnum comes from the Clearley core library
+  ([term \* natnum] (* term natnum))
+  ([term \/ natnum] (/ term natnum))
+  natnum)
 
 (def my-calculator (build-parser sum))
 
@@ -51,9 +53,11 @@ user=> (execute my-calculator "1+1")
 2
 ```
 
-This defines two rules, 'sum' and 'term'. A term is a sequence of numbers multiplied and divided to each other. A sum is a sequence of terms added and subtracted to each other. Left-recursion ensures rules are evaluated from left to right. The rule 'term' refers to the rule 'posnum', which comes from the Clearley core library. Posnum matches any string of digits and returns a number.
+In particular, note the following:
 
-Note that rules may refer to rules that haven't been defined yet. As long as they're defined when the parser is built, you're good. The macros might try to qualify symbols if they can, but it's OK if they can't--the grammar builder will qualify them later.
+* Rules are modular and can be combined. The rule 'natnum' comes from the Clearley library. It matches any positive number and returns it.
+* Forward-references are handled naturally. As long as a symbol is visible when the grammar is built, you're good.
+* The order of subrules--sum => sum + term--enforces left-to-right evaluation. Clearley can handle ambiguous grammars, so if the order doesn't matter, you could have said sum => sum + sum.
 
 More examples live in test/examples. For instance, there's a standards-compliant JSON parser. Since JSON uses a different set of tokens (different whitespace, control characters, escape characters) than does Java, this is a non-trivial task.
 
@@ -77,7 +81,7 @@ The match macro is like defmatch, but doesn't def anything:
 (def sum (match [sum \+ term] (+ sum term)))
 ```
 
-For more complicated rules, the bind and defbind macros work like let:
+For more complicated rules, the bind and defbind macros work like Clojure's let macro:
 ```
 (defbind sum [num1 sum
               op (or-rule [\+ \-])
@@ -143,6 +147,8 @@ You can mix-and-match shorthand:
 
 (def foo `(:or bar baz \x (:seq ~(star-rule 'bitcoin) satoshi)))
 
+but note that tagged sequences don't work in match/defmatch, because that's how match names subrules. [ TODO keep this behavior? ]
+
 ## Working with match trees
 
 The goal of Clearley is to work with parse actions directly, but if you want, you can get a match tree directly from the parser in the following way:
@@ -155,7 +161,6 @@ user=> (parse my-calculator "1+2")
 There's some crude pretty printing for matches. If your rules don't have names, Clearley will invent names for them.
 
 [ TODO the format has changed ]
-
 ```clojure
 user=> (print-match (parse my-calculator "1+2"))
  sum

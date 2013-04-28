@@ -40,10 +40,10 @@
 
 ; TODO work on this
 (defn print-match
-  "Rudimentary match-tree pretty printing to *out*."
+  "Very rudimentary match-tree pretty printing to *out*."
   [match]
   ((fn f [{:keys [rule submatches]} depth]
-     (println (apply str (repeat depth " ")) (rules/rule-str rule))
+     (println (apply str (repeat depth " ")) (get rule :name (str rule)))
      (runmap #(f % (+ depth 2)) submatches))
      match 0)
   nil)

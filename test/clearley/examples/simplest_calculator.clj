@@ -13,9 +13,6 @@
   ([\- number] (- number))
   ([number digit] (+ (* 10 number) digit))
   digit)
-; The below converts a char digit to a Clojure number
-(def digit (char-range \0 \9
-                       #(- (int %) (int \0))))
 
 (def my-calculator (clearley.core/build-parser sum))
 

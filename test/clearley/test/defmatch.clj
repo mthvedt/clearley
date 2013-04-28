@@ -1,6 +1,6 @@
 (ns clearley.test.defmatch
-  (use clearley.core clearley.defmatch clearley.grammar clearley.test.utils
-       uncore.test.utils lazytest.deftest))
+  (use clearley.core [clearley.defmatch :exclude [digit]] clearley.grammar
+       clearley.test.utils uncore.test.utils lazytest.deftest))
 
 ; TODO tests for match
 ; TODO simplify def-parser-test
@@ -100,7 +100,7 @@
 
 (def star-parser (build-parser sum))
 
-(def-parser-test star star-parser
+(def-parser-test star-test star-parser
   (is-action 2 "1+1")
   (is-action 22 "11+11")
   (is-action 771 "1+22*33+44"))
