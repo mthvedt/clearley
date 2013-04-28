@@ -7,9 +7,11 @@
 
 ; Resolves a symbol
 (defn- lookup-symbol [thesym thens theenv]
-  (if-let [resolved (ns-resolve thens theenv thesym)]
-    @resolved
-    (t/IAE "Cannot resolve rule: " thesym)))
+  (if (symbol? thesym)
+    (if-let [resolved (ns-resolve thens theenv thesym)]
+      @resolved
+      (t/IAE "Cannot resolve rule: " thesym))
+    (t/IAE thesym " is not a symbol")))
 
 (defn rule-type
   "Gets the rule type for an unnormalized rule. The rule types are
