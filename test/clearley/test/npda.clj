@@ -2,10 +2,11 @@
   (require [clearley.npda :as npda])
   (use uncore.core uncore.test.utils lazytest.deftest))
 
-(defn popone [state]
+; Stash this for now while we work on the automaton
+#_(defn popone [state]
   (first (npda/pop state 0)))
 
-(defrecord ANode [value]
+#_(defrecord ANode [value]
   npda/Node
   (npda/shift [self input]
     (ANode. input))
@@ -16,7 +17,7 @@
   (npda/return [self]
     [(inc value)]))
 
-(deftest da-test
+#_(deftest da-test
   ; a certain liddle test dat come checkout acceptanss time
   ; will pass wit flying colorss called... DA TEST
   (let [n1 (-> (npda/initial-state (ANode. 1))

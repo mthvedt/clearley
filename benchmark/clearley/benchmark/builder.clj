@@ -21,4 +21,4 @@
     (println "Benchmark: parser building")
     ;(bench (let [parser (parser 'clearley.examples.json/whitespace-object identity)]
     (bench (let [parser (parser 'whitespace-object grammar)]
-             (parse parser input-str)))))
+             (execute parser input-str)))))

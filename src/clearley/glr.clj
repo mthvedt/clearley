@@ -1,5 +1,6 @@
 (ns clearley.glr
-  (require [uncore.collections.worm-ordered-set :as os]
+  (require clojure.set
+           [uncore.collections.worm-ordered-set :as os]
            [uncore.collections.worm-ordered-multimap :as omm]
            [clearley.npda :as npda]
            [clearley.rules :as rules]
@@ -18,32 +19,34 @@
 ; rule: the rule for this item
 ; backlink: the item as it first appeared in an Earley set
 ; match-count: the number of times this rule has been scanned or advanced
-(defrecord Item [rule backlink match-count seed?]
+; follow: the follow set of this item = any terminal that can follow this item
+; (depends on predicting items)
+(defrecord Item [rule backlink match-count seed? follow]
   npda/IPrinting
-  (npda/pstr [_] (str (if seed? "" "+ ") (rules/rule-str rule))))
+  (npda/pstr [_] (str (if seed? "" "+ ") (rules/rule-str rule)
+                      " : " (s/separate-str " " (map hexhash follow)))))
 
-(defn new-item [rule seed?]
-  (Item. rule rule 0 seed?))
+(defn new-item [rule seed? follow]
+  (Item. rule nil 0 seed? follow))
 
 ; TODO test parsing the empty string
 (defn eager-advance [item prediction?]
   (if item
     (if-let [rule2 (rules/eager-advance (:rule item))]
-      (if prediction?
-        (if (rules/is-complete? rule2)
-          nil ; don't eager advance predictions to completion
-          (merge item {:rule rule2, :backlink rule2}))
+      (if (and prediction? (rules/is-complete? rule2))
+        nil ; don't eager advance predictions to completion
         (assoc item :rule rule2)))))
 
 (defn eager-advances [item prediction?]
   (take-while identity (iterate #(eager-advance % prediction?) item)))
 
-(defn predict-item [item]
-  (mapcat #(eager-advances (new-item % false) true)
-          (remove fn? (rules/predict (:rule item)))))
+(defn predict-item [{:keys [rule follow]}]
+  (mapcat #(eager-advances (new-item % false (rules/follow-first rule follow)) true)
+          (remove fn? (rules/predict rule))))
 
 (defn advance-item [item]
-  (assoc (update-all item {:rule rules/advance, :match-count inc}) :seed? true))
+  (assoc (update-all item {:rule rules/advance, :match-count inc,
+                           :backlink #(if % % item)}) :seed? true))
 
 (defn scan-item [item input-token]
   (if (some #(% input-token)
@@ -57,12 +60,11 @@
                         (map npda/pstr) (s/separate-str ", ") s/cutoff)]
     (str (npda/pstr item) (if (seq predictor-str) (str " | " predictor-str)))))
 
-(defn predict-into-item-set [{:keys [items backlink-map] :as item-set}
-                             {backlink :backlink :as item} predictor]
-  (if (empty? (omm/get-vec backlink-map backlink))
+(defn predict-into-item-set [{:keys [items backlink-map] :as item-set} item predictor]
+  (if (empty? (omm/get-vec backlink-map item))
     (update-all item-set {:items #(conj % item)
-                          :backlink-map #(omm/assoc % backlink predictor)})
-    (update item-set :backlink-map #(omm/assoc % backlink predictor))))
+                          :backlink-map #(omm/assoc % item predictor)})
+    (update item-set :backlink-map #(omm/assoc % item predictor))))
 
 (defn current-item [{items :items} dot]
   (when-not (>= dot (count items)) (get items dot)))
@@ -104,7 +106,8 @@
               item-set-num (count old-atom)
               ; items: a vector of items
               ; backlink-map: ordered multimap, items -> internal predicting items
-              {all-items :items, :keys [backlink-map]} (close-item-set more-seed-items)
+              {all-items :items, :keys [backlink-map]} (close-item-set
+                                                         more-seed-items)
               shift-fn (memoize #(shift-item-set all-items % mem-atom))
               returns (item-set-returns more-seed-items)
               continues (memoize #(advance-item-set backlink-map % true mem-atom))
@@ -115,7 +118,7 @@
                   (npda/shift [_ input] (shift-fn input))
                   (npda/continue [_ output] (continues (:backlink output)))
                   (npda/bounce [_ output] (bounces (:backlink output)))
-                  (npda/return [_] returns)
+                  (npda/return [_ input-token] returns)
                   GlrState
                   (is-goal [_] (some #(rules/goal? (:rule %)) all-items))
                   npda/IPrinting
@@ -149,10 +152,13 @@
   (first (reduce reduce-ostream-helper '() ostream)))
 
 ; mem-atom: [map: seed items -> item-set]
-(defn parse-charts [input-str grammar tokenizer goal mem-atom]
-  (npda/run-automaton (new-item-set [(new-item (rules/goal-rule goal grammar) true)]
-                                    mem-atom)
-                      input-str tokenizer))
+(defn parse-charts [input-str grammar tokenizer goal mem-atom secondary-mem-atom]
+  (binding [rules/*mem-atom* secondary-mem-atom]
+    (doall ; TODO man what a hack this is
+      (npda/run-automaton (new-item-set [(new-item (rules/goal-rule goal grammar) true
+                                                 #{nil})]
+                                      mem-atom)
+                        input-str tokenizer))))
 
 (defn pstr-charts [charts]
   (dorun (map-> charts npda/pstr println)))

@@ -19,7 +19,7 @@
   (shift [self input]) ; Accept input and put a new state ont stack
   (bounce [self input])
   (continue [self output]) ; Accept a return value
-  (return [self])) ; This state is ready to return
+  (return [self input])) ; This state is ready to return
 
 ; Things for a non-deterministic pushdown automaton (an NPDA).
 ; An NDPA state is a (node, stack, output-stream) tuple.
@@ -49,7 +49,7 @@
 (defprotocol State
   (shift-state [self input-token input pos])
   ; Simultaneously push a node and emit output.
-  (spin-state [self count]) ; Emits a seq of new states
+  (spin-state [self count input-token]) ; Emits a seq of new states
   (accept-return [self rvalue])
   (state-key [self])
   (position [self])
@@ -76,8 +76,8 @@
     (when-let [n (shift node input-token)]
       (AState. n pos (list input)
                (om/assoc om/empty [(node-key node) (inc my-position)] self))))
-  (spin-state [self c] ; c is for when we need to spin multiple times
-    (let [returns (return node)
+  (spin-state [self c input-token] ; c is for when we need to spin multiple times
+    (let [returns (return node input-token)
           underlyings (pop self c)]
       (remove nil? (concat
                      (mapcat (fn [return-value]
@@ -179,7 +179,8 @@
                               (unify previous-state? current-state)
                               current-state)
               new-state-queue (loop [state-queue state-queue
-                                     new-states (spin-state current-state pop-count)]
+                                     new-states (spin-state current-state
+                                                            pop-count nil)]
                                 (if-let [new-state (first new-states)]
                                   (recur (conj state-queue new-state)
                                          (rest new-states))
@@ -209,14 +210,3 @@
 ; Runs the automaton, returning a sequence of charts
 (defn run-automaton [initial-node input tokenizer]
   (run-automaton-helper input (initial-chart initial-node) tokenizer 0))
-
-; Saved for later
-#_(defn fast-run-automaton [initial-node input tokenizer]
-  (loop [remaining-input input
-         current-chart (initial-chart initial-node)]
-    (if-let [thechar (first remaining-input)]
-      (let [next-chart (process-chart current-chart (tokenizer thechar) thechar)]
-        (if (seq (states next-chart))
-          (recur (rest remaining-input) next-chart)
-          nil))
-      current-chart)))

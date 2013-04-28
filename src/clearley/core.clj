@@ -33,7 +33,8 @@
    ; This mem-atom will help us lazily build our parser,
    ; and keep the results in memory
    (let [mem-atom (atom {})
-         parse-fn #(glr/parse-charts % rules tokenizer goal mem-atom)]
+         mem-atom-2 (atom {})
+         parse-fn #(glr/parse-charts % rules tokenizer goal mem-atom mem-atom-2)]
    (reify
      Parser
      (parse [_ input]

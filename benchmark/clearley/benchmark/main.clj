@@ -1,6 +1,5 @@
 (ns clearley.benchmark.main
-  (require [clearley.benchmark test grammars test-json])
-  (:gen-class)
+  (require [clearley.benchmark test builder test-json])
   (use clearley.benchmark.core))
 
 (defmacro do-main [the-ns]
