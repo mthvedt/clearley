@@ -5,22 +5,19 @@
   (use uncore.core))
 ; Core stuff for context free grammar parsing.
 
-; TODO maybe we can nuke this NS entirely; move it into GLR
-
-; TODO merge into core?
+; just for speed
 (defrecord Match [rule submatches])
 
-(defn match [rule submatches]
-  (Match. rule submatches))
+(def match ->Match)
 
 ; The instrumented core abstraction
-(defrecord CfgRule [dot raw-rule null-results])
+(defrecord CfgRule [dot raw-rule null-results grammar])
 
 (defn advance [cfg-rule]
   (update cfg-rule :dot inc))
 
-(defn cfg-rule [rule]
-  (CfgRule. 0 rule {}))
+(defn cfg-rule [rule grammar]
+  (CfgRule. 0 rule {} grammar))
 
 (defn rule? [x]
   (instance? clearley.rules.CfgRule x))
@@ -28,9 +25,9 @@
 (defn goal? [cfg-rule]
   (-> cfg-rule :raw-rule :name (= ::goal)))
 
-(defn goal-rule [r]
+(defn goal-rule [r grammar]
   (CfgRule. 0 {:name ::goal, :tag :seq, :value [(clearley.grammar/normalize r nil)],
-               :action identity} {}))
+               :action identity} {} grammar))
 
 ; For a rule that has been nulled out, gets a reduced version of the rule
 ; appropriate for take-action.
@@ -58,19 +55,20 @@
   `(check-singleton ~tag (if (= ~'dot 1) [] ~result)))
 
 ; Predicts a rule, returning a seq [rule | fn]
-(defmulti predict (fn [r _] (-> r :raw-rule :tag)))
-(defmethod predict :symbol [{dot :dot {value :value} :raw-rule} grammar]
-  (map cfg-rule (predict-singleton :symbol [(get grammar (first value))])))
-(defmethod predict :or [{dot :dot {value :value} :raw-rule} grammar]
-  (map cfg-rule (if (= dot 1) [] value)))
-(defmethod predict :seq [{dot :dot {value :value} :raw-rule} grammar]
+(defmulti predict (fn-> :raw-rule :tag))
+(defmethod predict :symbol [{dot :dot, grammar :grammar, {value :value} :raw-rule}]
+  (map #(cfg-rule % grammar)
+       (predict-singleton :symbol [(get grammar (first value))])))
+(defmethod predict :or [{dot :dot, grammar :grammar, {value :value} :raw-rule}]
+  (map #(cfg-rule % grammar) (if (= dot 1) [] value)))
+(defmethod predict :seq [{dot :dot, grammar :grammar, {value :value} :raw-rule}]
   (if (= dot (count value)) []
-    [(cfg-rule (get value dot))]))
-(defmethod predict :star [{dot :dot {value :value} :raw-rule} grammar]
-  (map cfg-rule (check-singleton :star value)))
-(defmethod predict :scanner [{dot :dot {value :value} :raw-rule} _]
+    [(cfg-rule (get value dot) grammar)]))
+(defmethod predict :star [{dot :dot, grammar :grammar, {value :value} :raw-rule}]
+  (map #(cfg-rule % grammar) (check-singleton :star value)))
+(defmethod predict :scanner [{dot :dot {value :value} :raw-rule}]
   (predict-singleton :scanner value))
-(defmethod predict :token [{dot :dot {value :value} :raw-rule} _]
+(defmethod predict :token [{dot :dot {value :value} :raw-rule}]
   (predict-singleton :token [(fn [x] (= x (first value)))]))
 
 ; Is this rule complete?
@@ -108,7 +106,7 @@
 
 (def ^:dynamic *breadcrumbs*)
 ; Basically, this does an LL match on the empty string
-(defn null-result* [rule grammar]
+(defn null-result* [{grammar :grammar :as rule}]
   (if (rule? rule)
     (if (contains? *breadcrumbs* rule)
       (get *breadcrumbs* rule)
@@ -116,17 +114,16 @@
         (set! *breadcrumbs* (assoc *breadcrumbs* rule nil))
         (let [r (if (is-complete? rule)
                   (match (:raw-rule rule) [])
-                  (if-let [r (some identity (map #(null-result* % grammar)
-                                                 (predict rule grammar)))]
-                    (if-let [r2 (null-result* (advance rule) grammar)]
+                  (if-let [r (some identity (map null-result* (predict rule)))]
+                    (if-let [r2 (null-result* (advance rule))]
                       (match (:raw-rule rule)
                              (apply vector r (:submatches r2))))))]
           (set! *breadcrumbs* (assoc *breadcrumbs* rule r))
           r)))
     nil))
-(defn null-result [rule grammar]
+(defn null-result [rule]
   (binding [*breadcrumbs* {}]
-    (null-result* rule grammar)))
+    (null-result* rule)))
 
 (defn take-action* [match]
   (if (nil? match)
@@ -148,7 +145,6 @@
                                          "was given " (count subactions))
                                     e)))))))
 
-(defn eager-advance [rule grammar]
-  (if-let [eager-match (some identity (map #(null-result % grammar)
-                                           (predict rule grammar)))]
+(defn eager-advance [{grammar :grammar :as rule}]
+  (if-let [eager-match (some identity (map null-result (predict rule)))]
     (null-advance rule (take-action* eager-match))))

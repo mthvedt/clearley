@@ -26,28 +26,28 @@
   (Item. rule rule 0 seed?))
 
 ; TODO test parsing the empty string
-(defn eager-advance [item grammar prediction?]
+(defn eager-advance [item prediction?]
   (if item
-    (if-let [rule2 (rules/eager-advance (:rule item) grammar)]
+    (if-let [rule2 (rules/eager-advance (:rule item))]
       (if prediction?
         (if (rules/is-complete? rule2)
           nil ; don't eager advance predictions to completion
           (merge item {:rule rule2, :backlink rule2}))
         (assoc item :rule rule2)))))
 
-(defn eager-advances [item grammar prediction?]
-  (take-while identity (iterate #(eager-advance % grammar prediction?) item)))
+(defn eager-advances [item prediction?]
+  (take-while identity (iterate #(eager-advance % prediction?) item)))
 
-(defn predict-item [item grammar]
-  (mapcat #(eager-advances (new-item % false) grammar true)
-          (remove fn? (rules/predict (:rule item) grammar))))
+(defn predict-item [item]
+  (mapcat #(eager-advances (new-item % false) true)
+          (remove fn? (rules/predict (:rule item)))))
 
 (defn advance-item [item]
   (assoc (update-all item {:rule rules/advance, :match-count inc}) :seed? true))
 
-(defn scan-item [item input-token grammar]
+(defn scan-item [item input-token]
   (if (some #(% input-token)
-            (filter fn? (rules/predict (:rule item) grammar)))
+            (filter fn? (rules/predict (:rule item))))
     (advance-item item)))
 
 ; === Item sets ===
@@ -67,51 +67,48 @@
 (defn current-item [{items :items} dot]
   (when-not (>= dot (count items)) (get items dot)))
 
-(defn close-item-set [seed-items grammar]
+(defn close-item-set [seed-items]
   (loop [c {:items (vec seed-items), :backlink-map omm/empty}, dot 0]
     (if-let [s (current-item c dot)]
       (recur (reduce #(predict-into-item-set % %2 s)
-                     c (predict-item s grammar))
+                     c (predict-item s))
              (inc dot))
       c)))
 
 (declare new-item-set)
 
-(defn shift-item-set [items grammar input-token mem-atom]
-  (let [r (remove nil? (map #(scan-item % input-token grammar) items))]
+(defn shift-item-set [items input-token mem-atom]
+  (let [r (remove nil? (map #(scan-item % input-token) items))]
     (if (seq r)
-      (new-item-set r grammar mem-atom))))
+      (new-item-set r mem-atom))))
 
 ; continuations an item given a stack-top item-set
-(defn advance-item-set [backlink-map grammar backlink seed? mem-atom]
+(defn advance-item-set [backlink-map backlink seed? mem-atom]
   (when-let [new-items
              (seq (map advance-item 
                        (filter #(= seed? (:seed? %))
                                (omm/get-vec backlink-map backlink))))]
-    (new-item-set new-items grammar mem-atom)))
+    (new-item-set new-items mem-atom)))
 
 (defn item-set-returns [items]
   (filter (fn-> :rule rules/is-complete?) items))
 
 (defprotocol GlrState (is-goal [self]))
 
-(defn new-item-set [seed-items grammar mem-atom]
+(defn new-item-set [seed-items mem-atom]
   (loop []
     (let [old-atom @mem-atom]
       (if-let [r (get old-atom seed-items)]
         r
-        (let [more-seed-items (mapcat #(eager-advances % grammar false) seed-items)
+        (let [more-seed-items (mapcat #(eager-advances % false) seed-items)
               item-set-num (count old-atom)
               ; items: a vector of items
               ; backlink-map: ordered multimap, items -> internal predicting items
-              {all-items :items, :keys [backlink-map]} (close-item-set
-                                                         more-seed-items grammar)
-              shift-fn (memoize #(shift-item-set all-items grammar % mem-atom))
+              {all-items :items, :keys [backlink-map]} (close-item-set more-seed-items)
+              shift-fn (memoize #(shift-item-set all-items % mem-atom))
               returns (item-set-returns more-seed-items)
-              continues (memoize #(advance-item-set backlink-map grammar
-                                                    % true mem-atom))
-              bounces (memoize #(advance-item-set backlink-map grammar
-                                                  % false mem-atom)) 
+              continues (memoize #(advance-item-set backlink-map % true mem-atom))
+              bounces (memoize #(advance-item-set backlink-map % false mem-atom)) 
               r (reify
                   npda/Node
                   (npda/node-key [_] item-set-num)
@@ -153,8 +150,8 @@
 
 ; mem-atom: [map: seed items -> item-set]
 (defn parse-charts [input-str grammar tokenizer goal mem-atom]
-  (npda/run-automaton (new-item-set [(new-item (rules/goal-rule goal) true)]
-                                    grammar mem-atom)
+  (npda/run-automaton (new-item-set [(new-item (rules/goal-rule goal grammar) true)]
+                                    mem-atom)
                       input-str tokenizer))
 
 (defn pstr-charts [charts]
