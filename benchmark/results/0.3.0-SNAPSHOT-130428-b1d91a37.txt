@@ -1,0 +1,18 @@
+Version: 0.3.0-SNAPSHOT
+Date: Sun Apr 28 16:32:11 CDT 2013
+Commit: b1d91a37
+Main: -m clearley.benchmark.builder
+lein with-profile dev,benchmark run -m clearley.benchmark.builder
+Performing task 'run' with profile(s): 'dev,benchmark'
+================================================================================
+Benchmark: parser building
+Evaluation count : 360 in 60 samples of 6 calls.
+             Execution time mean : 175.827600 ms
+    Execution time std-deviation : 4.996567 ms
+   Execution time lower quantile : 171.883667 ms ( 2.5%)
+   Execution time upper quantile : 190.117188 ms (97.5%)
+
+Found 10 outliers in 60 samples (16.6667 %)
+	low-severe	 6 (10.0000 %)
+	low-mild	 4 (6.6667 %)
+ Variance from outliers : 15.7709 % Variance is moderately inflated by outliers

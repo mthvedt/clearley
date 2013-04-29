@@ -30,7 +30,8 @@
    (parser goal identity grammar))
   ([goal tokenizer grammar]
    (let [mem-atom (atom {})
-         parse-fn #(glr/parse-charts % grammar tokenizer goal mem-atom)]
+         mem-atom-2 (atom {})
+         parse-fn #(glr/parse-charts % grammar tokenizer goal mem-atom mem-atom-2)]
    (reify
      Parser
      (parse [_ input]

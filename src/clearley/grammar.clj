@@ -7,9 +7,11 @@
 
 ; Resolves a symbol
 (defn- lookup-symbol [thesym thens theenv]
-  (if-let [resolved (ns-resolve thens theenv thesym)]
-    @resolved
-    (t/IAE "Cannot resolve rule: " thesym)))
+  (if (symbol? thesym)
+    (if-let [resolved (ns-resolve thens theenv thesym)]
+      @resolved
+      (t/IAE "Cannot resolve rule: " thesym))
+    (t/IAE thesym " is not a symbol")))
 
 (defn rule-type
   "Gets the rule type for an unnormalized rule. The rule types are
@@ -40,8 +42,9 @@
 
 (defn normalize
   "Turns a rule into a 'normalized' rule map with :tag, :value, :action,
-  :name and :original. The :values will also be normalized. :action and :name
-  may be auto-populated. :original will point to the original, unnormalized rule."
+  :name and :original. The :values will also be normalized, unless
+  it is a token or scanner. :action and :name may be auto-populated.
+  :original will point to the original, unnormalized rule."
   [rule candidate-name]
   (case (rule-type rule)
     ::tagged-clause (let [[tag & rest] rule]
@@ -57,8 +60,7 @@
              :action (TokenAction. rule), :original rule}))
 
 (defn- map-normalize [rules parent-name parent-tag]
-  (if (contains? #{:token :scanner} parent-tag) ; exempt from normalization
-    ; TODO why?
+  (if (contains? #{:token :scanner} parent-tag)
     rules
     (vec (map normalize rules (map #(str parent-name "." %)
                               (range))))))

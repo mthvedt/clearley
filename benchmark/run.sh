@@ -23,7 +23,10 @@ echo "Opening file $OUTPUT"
 	echo "Version: $REVISION"
 	echo "Date:" `date`
 	echo "Commit: $COMMIT"
-	echo "Main: $MAIN"
+	echo "Branch:" `git rev-parse --abbrev-ref=strict HEAD`
+	if [[ "$MAIN" ]]; then
+		echo "Main: $MAIN"
+	fi
 
 	echo "lein with-profile dev,benchmark run $MAIN"
 	lein with-profile dev,benchmark run $MAIN
