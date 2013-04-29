@@ -125,16 +125,17 @@
   (if (rule? rule-or-fn)
     (if (contains? *breadcrumbs* rule-or-fn)
       (get *breadcrumbs* rule-or-fn)
-      (do
-        (set! *breadcrumbs* (assoc *breadcrumbs* rule-or-fn nil))
-        (let [r (if (is-complete? rule-or-fn)
-                  (match (:raw-rule rule-or-fn) [])
-                  (if-let [r (some identity (map null-result* (predict rule-or-fn)))]
-                    (if-let [r2 (null-result* (advance rule-or-fn))]
-                      (match (:raw-rule rule-or-fn)
-                             (apply vector r (:submatches r2))))))]
-          (set! *breadcrumbs* (assoc *breadcrumbs* rule-or-fn r))
-          r)))
+      (local-memo :null-result rule-or-fn
+                  (set! *breadcrumbs* (assoc *breadcrumbs* rule-or-fn nil))
+                  (let [r (if (is-complete? rule-or-fn)
+                            (match (:raw-rule rule-or-fn) [])
+                            (if-let [r (some identity (map null-result*
+                                                           (predict rule-or-fn)))]
+                              (if-let [r2 (null-result* (advance rule-or-fn))]
+                                (match (:raw-rule rule-or-fn)
+                                       (apply vector r (:submatches r2))))))]
+                    (set! *breadcrumbs* (assoc *breadcrumbs* rule-or-fn r))
+                    r)))
     nil))
 (defn null-result [rule]
   (binding [*breadcrumbs* {}]
@@ -146,16 +147,20 @@
   (if (rule? rule-or-fn)
     (if (contains? *breadcrumbs-firsts* rule-or-fn)
       (get *breadcrumbs-firsts* rule-or-fn)
-      (do
-        (set! *breadcrumbs-firsts* (assoc *breadcrumbs-firsts* rule-or-fn #{}))
-        (let [r (apply clojure.set/union (map first-set* (predict rule-or-fn)))
-              r (cond (null-result rule-or-fn) (conj r ::empty)
-                      (r ::empty) (disj (clojure.set/union r (first-set*
-                                                               (advance rule-or-fn)))
-                                        ::empty)
-                      true r)]
-          (set! *breadcrumbs-firsts* (assoc *breadcrumbs-firsts* rule-or-fn r))
-          r)))
+      (local-memo :first-set rule-or-fn
+                  (set! *breadcrumbs-firsts* (assoc *breadcrumbs-firsts*
+                                                    rule-or-fn #{}))
+                  (let [r (apply clojure.set/union (map first-set* (predict
+                                                                     rule-or-fn)))
+                        r (cond (null-result rule-or-fn) (conj r ::empty)
+                                (r ::empty) (disj
+                                              (clojure.set/union
+                                                r (first-set* (advance rule-or-fn)))
+                                              ::empty)
+                                true r)]
+                    (set! *breadcrumbs-firsts* (assoc *breadcrumbs-firsts*
+                                                      rule-or-fn r))
+                    r)))
     #{rule-or-fn}))
 (defn first-set [rule]
   (binding [*breadcrumbs-firsts* {}]
