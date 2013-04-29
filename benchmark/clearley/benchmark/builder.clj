@@ -9,9 +9,7 @@
   ; Run an input file that should test the gamut.
   (let [input-str (slurp (get-resource "clearley/examples/json_test.json"))
         grammar (clearley.grammar/build-grammar-with-ns
-                  'whitespace-object (find-ns 'clearley.examples.json))
-        #_(clearley.grammar/build-grammar-with-ns
-                  'clearley.examples.json/whitespace-object
+                  'whitespace-object
                   (find-ns 'clearley.examples.json))]
     (let [parser (parser 'whitespace-object grammar)]
       (when-not (= (read (java.io.PushbackReader.
@@ -19,6 +17,5 @@
                    (execute parser input-str))
         (t/RE "Sanity check failed")))
     (println "Benchmark: parser building")
-    ;(bench (let [parser (parser 'clearley.examples.json/whitespace-object identity)]
     (bench (let [parser (parser 'whitespace-object grammar)]
              (execute parser input-str)))))

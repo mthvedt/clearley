@@ -3,6 +3,7 @@
   Emphasis is on power, flexibility, and ease of use."
   (require [uncore.throw :as t])
   (use uncore.core))
+; TODO include in core
 
 (defmacro defrulefn [sym doc arg1 default-action & full-body]
   `(defn ~sym ~doc
@@ -21,7 +22,7 @@
 ; [appropriate-symbol-for-action-body, rule-or-rulename]
 (defn- process-nonlist-clause [clause]
   (cond (list? clause) (assert false)
-        (symbol? clause) [clause `'~clause]
+        (symbol? clause) [(symbol (name clause)) `'~(symbol (name clause))]
         (keyword? clause) [(symbol (name clause)) clause]
         (string? clause) [(symbol clause) clause]
         true ['_ clause])) ; can't be an arg in a fn
