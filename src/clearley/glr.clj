@@ -17,7 +17,8 @@
 ; name: an object representing the clause that predicted this item
 ; should have a short str representation
 ; rule: the rule for this item
-; backlink: the item as it first appeared in an Earley set
+; backlink: the item from the original item set, before shifts
+; (but including initial eager advances)
 ; match-count: the number of times this rule has been scanned or advanced
 ; follow: the follow set of this item = any terminal that can follow this item
 ; (depends on predicting items)
@@ -34,7 +35,7 @@
   (if item
     (if-let [rule2 (rules/eager-advance (:rule item))]
       (if (and prediction? (rules/is-complete? rule2))
-        nil ; don't eager advance predictions to completion
+        nil ; don't eager advance predicted items to completion
         (assoc item :rule rule2)))))
 
 (defn eager-advances [item prediction?]
@@ -46,7 +47,8 @@
 
 (defn advance-item [item]
   (assoc (update-all item {:rule rules/advance, :match-count inc,
-                           :backlink #(if % % item)}) :seed? true))
+                           :backlink #(if % % item)})
+         :seed? true))
 
 (defn scan-item [item input-token]
   (if (some #(% input-token)
@@ -56,7 +58,7 @@
 ; === Item sets ===
 
 (defn pstr-item-set-item [item backlink-map]
-  (let [predictor-str (->> item :backlink (omm/get-vec backlink-map)
+  (let [predictor-str (->> item (omm/get-vec backlink-map)
                         (map npda/pstr) (s/separate-str ", ") s/cutoff)]
     (str (npda/pstr item) (if (seq predictor-str) (str " | " predictor-str)))))
 
@@ -92,8 +94,16 @@
                                (omm/get-vec backlink-map backlink))))]
     (new-item-set new-items mem-atom)))
 
-(defn item-set-returns [items]
-  (filter (fn-> :rule rules/is-complete?) items))
+(defn item-set-returns [items lookahead]
+  (let [acceptor (if (= lookahead :clearley.npda/term)
+                   ; Special handling. We don't want to surprise pass ::term
+                   ; to someone's scanner
+                   #(= % lookahead)
+                   #(and (ifn? %) (% lookahead)))]
+  (filter (fn [{:keys [rule follow]}]
+            (and (rules/is-complete? rule)
+                 (some identity (map acceptor follow))))
+          items)))
 
 (defprotocol GlrState (is-goal [self]))
 
@@ -109,7 +119,7 @@
               {all-items :items, :keys [backlink-map]} (close-item-set
                                                          more-seed-items)
               shift-fn (memoize #(shift-item-set all-items % mem-atom))
-              returns (item-set-returns more-seed-items)
+              returns (memoize #(item-set-returns more-seed-items %))
               continues (memoize #(advance-item-set backlink-map % true mem-atom))
               bounces (memoize #(advance-item-set backlink-map % false mem-atom)) 
               r (reify
@@ -118,7 +128,7 @@
                   (npda/shift [_ input] (shift-fn input))
                   (npda/continue [_ output] (continues (:backlink output)))
                   (npda/bounce [_ output] (bounces (:backlink output)))
-                  (npda/return [_ input-token] returns)
+                  (npda/return [_ input-token] (returns input-token))
                   GlrState
                   (is-goal [_] (some #(rules/goal? (:rule %)) all-items))
                   npda/IPrinting
@@ -156,9 +166,9 @@
   (binding [rules/*mem-atom* secondary-mem-atom]
     (doall ; TODO man what a hack this is
       (npda/run-automaton (new-item-set [(new-item (rules/goal-rule goal grammar) true
-                                                 #{nil})]
-                                      mem-atom)
-                        input-str tokenizer))))
+                                                   #{:clearley.npda/term})]
+                                        mem-atom)
+                          input-str tokenizer))))
 
 (defn pstr-charts [charts]
   (dorun (map-> charts npda/pstr println)))

@@ -156,9 +156,11 @@
 
 (def empty-chart (AChart. []))
 
-(defn process-chart [chart thetoken thechar pos]
+(defn process-chart [chart thetoken thechar next-token pos]
   ; Shift and reduce, with bookkeeping making sure all states are processed
   ; Assumption: shifted nodes are always terminal--they cannot come from a reduce
+  ;
+  ; TODO yeeeeah this is too complicated
   (let [seed-states
         ; Shift-step
         (loop [shifting-states (states chart) seed-states []]
@@ -180,7 +182,7 @@
                               current-state)
               new-state-queue (loop [state-queue state-queue
                                      new-states (spin-state current-state
-                                                            pop-count nil)]
+                                                            pop-count next-token)]
                                 (if-let [new-state (first new-states)]
                                   (recur (conj state-queue new-state)
                                          (rest new-states))
@@ -197,12 +199,16 @@
 ; but doesn't get us to best-case O(n^2)--O(1) for CLR(k) grammars
 ; because we store matches in the chart. Push parsing could be added in the future
 ; to accomplish this.
+;
+; TODO: don't double-dip on char2
 (defn run-automaton-helper [input current-chart tokenizer pos]
   (cons current-chart
         (lazy-seq
           (when-let [thechar (first input)]
-            (let [next-chart (process-chart current-chart
-                                            (tokenizer thechar) thechar pos)]
+            (let [rest-input (rest input)
+                  char2 (if (seq rest-input) (tokenizer (first rest-input)) ::term)
+                  next-chart (process-chart current-chart
+                                            (tokenizer thechar) thechar char2 pos)]
               (if (seq (states next-chart))
                 (run-automaton-helper (rest input) next-chart tokenizer (inc pos))
                 (list next-chart))))))) ; Puts the empty chart at the end

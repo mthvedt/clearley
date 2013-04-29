@@ -121,19 +121,19 @@
 
 (def ^:dynamic *breadcrumbs*)
 ; Basically, this does an LL match on the empty string
-(defn null-result* [rule]
-  (if (rule? rule)
-    (if (contains? *breadcrumbs* rule)
-      (get *breadcrumbs* rule)
+(defn null-result* [rule-or-fn]
+  (if (rule? rule-or-fn)
+    (if (contains? *breadcrumbs* rule-or-fn)
+      (get *breadcrumbs* rule-or-fn)
       (do
-        (set! *breadcrumbs* (assoc *breadcrumbs* rule nil))
-        (let [r (if (is-complete? rule)
-                  (match (:raw-rule rule) [])
-                  (if-let [r (some identity (map null-result* (predict rule)))]
-                    (if-let [r2 (null-result* (advance rule))]
-                      (match (:raw-rule rule)
+        (set! *breadcrumbs* (assoc *breadcrumbs* rule-or-fn nil))
+        (let [r (if (is-complete? rule-or-fn)
+                  (match (:raw-rule rule-or-fn) [])
+                  (if-let [r (some identity (map null-result* (predict rule-or-fn)))]
+                    (if-let [r2 (null-result* (advance rule-or-fn))]
+                      (match (:raw-rule rule-or-fn)
                              (apply vector r (:submatches r2))))))]
-          (set! *breadcrumbs* (assoc *breadcrumbs* rule r))
+          (set! *breadcrumbs* (assoc *breadcrumbs* rule-or-fn r))
           r)))
     nil))
 (defn null-result [rule]
@@ -142,21 +142,21 @@
 
 (def ^:dynamic *breadcrumbs-firsts*)
 ; Gets the first set of an item, including ::empty if item is nullable
-(defn first-set* [rule]
-  (if (rule? rule)
-    (if (contains? *breadcrumbs-firsts* rule)
-      (get *breadcrumbs-firsts* rule)
+(defn first-set* [rule-or-fn]
+  (if (rule? rule-or-fn)
+    (if (contains? *breadcrumbs-firsts* rule-or-fn)
+      (get *breadcrumbs-firsts* rule-or-fn)
       (do
-        (set! *breadcrumbs-firsts* (assoc *breadcrumbs-firsts* rule #{}))
-        (let [r (apply clojure.set/union (map first-set* (predict rule)))
-              r (cond (null-result rule) (conj r ::empty)
+        (set! *breadcrumbs-firsts* (assoc *breadcrumbs-firsts* rule-or-fn #{}))
+        (let [r (apply clojure.set/union (map first-set* (predict rule-or-fn)))
+              r (cond (null-result rule-or-fn) (conj r ::empty)
                       (r ::empty) (disj (clojure.set/union r (first-set*
-                                                               (advance rule)))
+                                                               (advance rule-or-fn)))
                                         ::empty)
                       true r)]
-          (set! *breadcrumbs-firsts* (assoc *breadcrumbs-firsts* rule r))
+          (set! *breadcrumbs-firsts* (assoc *breadcrumbs-firsts* rule-or-fn r))
           r)))
-    #{rule}))
+    #{rule-or-fn}))
 (defn first-set [rule]
   (binding [*breadcrumbs-firsts* {}]
     (first-set* rule)))
