@@ -11,7 +11,7 @@
            [clearley.glr :as glr]
            [uncore.throw :as t])
   (use [clearley defrule grammar] uncore.core))
-; TODO rename to clearley.grammar, move docs to defrule
+; TODO integreate defrule
 
 (defprotocol Parser
   (parse [parser input] "Parse the given input with the given parser,
@@ -25,13 +25,15 @@
                                http://www.wikipedia.org/wiki/Earley_parser."))
 
 (defn parser
-  "Constructs a parser given a grammar, a goal clause, and an optional tokenizer."
+  "Constructs a parser given a grammar and goal clause."
+  ;"Constructs a parser given a grammar, a goal clause, and an optional tokenizer."
   ([goal grammar]
-   (parser goal identity grammar))
-  ([goal tokenizer grammar]
+   ;(parser goal identity grammar))
+  ;([goal tokenizer grammar]
    (let [mem-atom (atom {})
          mem-atom-2 (atom {})
-         parse-fn #(glr/parse-charts % grammar tokenizer goal mem-atom mem-atom-2)]
+         parse-fn #(glr/parse-charts % grammar identity
+                                     #_tokenizer goal mem-atom mem-atom-2)]
    (reify
      Parser
      (parse [_ input]
@@ -43,7 +45,7 @@
 
 ; TODO work on this
 (defn print-match
-  "Pretty-prints a match tree to *out*."
+  "Rudimentary match-tree pretty printing to *out*."
   [match]
   ((fn f [{:keys [rule submatches]} depth]
      (println (apply str (repeat depth " ")) (rules/rule-str rule))
@@ -62,14 +64,16 @@
   (rules/take-action* (parse parser input)))
 
 (defmacro build-parser
-  "Build a parser in the current ns from the given goal rule and an
-  optional tokenizer."
+  "Build a parser in the current ns from the given goal rule
+  and an optional tokenizer."
+  ;and an optional tokenizer."
   ([goal]
-   `(build-parser ~goal identity))
-  ([goal tokenizer]
-   `(build-parser-with-ns '~goal ~tokenizer *ns*)))
+   ;`(build-parser ~goal identity))
+  ;([goal tokenizer]
+   `(build-parser-with-ns '~goal #_~tokenizer *ns*)))
 
 (defn build-parser-with-ns
-  "Build a parser in a given ns from the given goal rule and tokenizer."
-  [goal tokenizer thens]
-  (parser goal tokenizer (build-grammar-with-ns goal thens)))
+  "Build a parser in a given ns from the given goal rule."
+  ;and tokenizer."
+  [goal #_tokenizer thens]
+  (parser goal #_tokenizer (build-grammar-with-ns goal thens)))
