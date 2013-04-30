@@ -3,3 +3,4 @@ classes/*
 target/*
 pom.xml
 .lein*
+doc

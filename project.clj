@@ -10,7 +10,11 @@
                    :dependencies [[com.stuartsierra/lazytest "2.0.0-SNAPSHOT"]
                                   [org.clojure/math.numeric-tower "0.0.1"]
                                   [criterium "0.3.1"]]
-                   :plugins [[eightnotrump/lein-lazytest "1.0.5"]]}
+                   :plugins [[eightnotrump/lein-lazytest "1.0.5"]
+                             [codox "0.6.4"]]
+                   :codox {:exclude [clearley.npda clearley.earley
+                                     clearley.rules]
+                           :output-dir "doc/codox"}}
              :benchmark {:dependencies [[org.clojure/data.json "0.2.2"]
                                         [clj-json "0.5.3"]
                                         [cheshire "5.1.0"]]

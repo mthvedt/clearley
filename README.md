@@ -1,53 +1,56 @@
 # Clearley
 
-Parsing for Earthlings.
-
-## Repository
-
-lein:
 ```
-[clearley "0.2.0"]
+[clearley "0.3.0-SNAPSHOT"]
 ```
 
-maven:
-```
-<dependency>
-  <groupId>clearley</groupId>
-  <artifactId>clearley</artifactId>
-  <version>0.2.0</version>
-</dependency>
-```
+Parsing for Earthlings. Parsing without compromise.
 
-## Overview
+## Elevator pitch
 
-The goal of Clearley is to make processing streams of structured input as easy as any other Clojure task.
+Clearley is born of a fustration with the current state-of-the-art in parsers, which are alternately of limited power or too difficult to use. Clearley offers the following:
 
-Clearley can handle strings or any other seq of input, and will accept any set of parse rules and handle them in polynomial time.
+* *Ease of use without comprimising power.* There's a front-end API to define what your data looks like, and how to process it, in one step. You can use a Kern-style bind operation, or a Clojure core-style defrule, or you can roll your own because Clearley is also…
+* *Fully programmable.* Parsers are defined in 100% Clojure fns and macros. No EBNF or regexes required. Parser rules are simple data structures. Rules can be plugged into other rules and behave as expected.
+* Creates *parsers that do things*. No mucking around with parse trees. You tell Clearley how to give you the final product, not an intermediate representation. (But it can also make parse trees if you want.)
+* *Handles any context-free grammar* in polynomial time. Most real-world grammars parse in linear time. You do not have to worry about whether your set of parse rules will work. All valid parse rules will work.
+* Can parse *any stream of input*, not just text. Clearley is also scannerless--it doesn't need a separate tokenizer step.
 
 ## Crash course
 
-This is a a simple calculator written in Clearley. Parse rules and actions
-are defined together in a style similar to defn.
+Suppose you have a stream of data that you want to turn into a data structure.
+
+The computer-science grad would say "use a parser", but parsers are complicated and hard to use. You have to define what your data looks like in a weird domain-specific language, then do some kind of parse tree transformations or embedded code generation.
+
+But this is how Clearley works:
+
+1. Describe what your data looks like, together with how to process that data, in natural Clojure.
+2. There is no step 2.
+
+Defining a Clearley rule looks like this:
 
 ```clojure
-(use 'clearley.core)
-
-(defrule sum
-  ([sum \+ term] (+ sum term)) ; left associative
-  ([sum \- term] (- sum term))
-  ([term] term))
-(defrule term
-  ([term \* number] (* term number))
-  ([term \/ number] (/ term number))
-  ([number] number))
-(defrule number
+(defrule negative-number
   ([\- number] (- number))
-  ([number digit] (+ (* 10 number) digit))
-  ([digit] digit))
-; Convert a char digit to a Clojure number
-(def digit
-  (char-range \0 \9
-    #(- (int %) (int \0))))
+```
+
+The first part tells you that a negative number is the - character, followed by a number.
+
+The second part tells you that, to process a negative number, just execute `(- number)`. The defrule wraps that in a fn and packages it with your rule.
+
+Here is a calculator written in Clearley:
+
+```clojure
+(use 'clearley.core 'clearley.defrule)
+
+(defrule plus-or-minus
+  ([plus-or-minus \+ times-or-divide] (+ plus-or-minus times-or-divide))
+  ([plus-or-minus \- times-or-divide] (- plus-or-minus times-or-divide))
+  times-or-divide)
+(defrule times-or-divide
+  ([times-or-divide \* number] (* times-or-divide number))
+  ([times-or-divide \/ number] (/ times-or-divide number))
+  posnum) ; posnum comes from the Clearley core library
 
 (def my-calculator (build-parser sum))
 
@@ -55,77 +58,90 @@ user=> (execute my-calculator "1+1")
 2
 ```
 
-### Breaking it down
+Note the following:
+* Forward references to rules are allowed. The grammar/parser builder will figure it out.
+* Rules are just objects that can be combined. For instance, the rule "posnum" comes from the Clearley core library. [TODO]
 
-The lines
+Note that rules may refer to rules that haven't been defined yet. As long as they're defined when the parser is built, you're good.
+
+More examples live in test/examples. For instance, there's a standards-compliant JSON parser. Since JSON uses a different set of tokens (different whitespace, control characters, escape characters) than does Java, this is a non-trivial task that shows off the power of Clearley.
+
+## Working with rules
+
+The quickest way to define rules is the defrule macro. To recap:
+
 ```
-(defrule term
-  ([term \* number] (* term number))
-```
-
-The first part of a defrule body is a vector of rules. This means that the rule ```term``` can match a ```term``` followed by a ```*``` character followed by a ```number```. When such a match is encountered, multiply the term by the number and return the result. That's all there is to it.
-
-Notice that rules can refer to rules that haven't been defined yet. For instance, ```number``` is defined after ```term```.
-
-More examples live in test/examples. For example, there's a fully valid JSON parser.
-
-## Bullet points
-
-* Clearley is Clojure-oriented. The 'defrule' macro library works in a style like that of defn. Or you can manipulate grammars and rule records directly.
-* Clearley is designed to be intuitive and easy to use without sacrificing power or expressiveness.
-* Clearley will parse any set of rules and will always find a way to parse input whenever possible. Many CFG grammars (LL, *LR) have restrictions on the rules, and memoizing parsers (Packrat) may fail to find valid parses.
-* Combining grammars is easy, and adding new rules will never break existing parses.
-* Clearley is designed with good asymptotic requirements in mind. Everything parses in polynomial time. Many real world grammars parse in O(n) time. Memory requirements are O(n^2) in the worst case and O(n) for almost all grammars. Stack requirements are O(1).
-
-## Disadvantages
-
-Clearley is beta software and has a few drawbacks:
-
-* Disambiguation is not supported. If input can be parsed in multiple ways, Clearley will silently pick one. This undesirable behavior will probably be changed in the future.
-* Clearley is not (yet) highly performant. Different libraries are available if you need very fast code.
-* Performance is poor, but since the GLR algorithm underneath is fundementally fast, performance can be greatly increased in the future.
-* Error reporting is currently minimal.
-
-The API may also change a little over time. I'm pretty pleased with it but some rough edges could use polishing.
-
-## Defining rules
-
-The main macro is the defrule macro, which looks a lot like defn. The difference is the arguments aren't just symbols, they refer to other rules, which may or may not be defined yet.
-
-```clojure
-(defrule term
-  ([term \* number] (* term number))
-  ([term \/ number] (/ term number))
-  ([number] number))
+(defrule sum [sum \+ times] (+ sum times))
 ```
 
-A rule contains a sequence of clauses. If a clause is a symbol, it can be used in a defrule body. To match a rule, the parser must match all its clauses, in order.
+You can use the match macro to create a rule without defing a variable:
+```
+(def sum (match [sum \+ times] (+ sum times)))
+```
 
-A clause can be any of the following:
+You can use the bind and defbind macros, which work like let:
+```
+(defbind sum [num1 sum
+              op '(:or \+ \-)
+              num2 times]
+  ((symbol (str op)) num1 num2)
+```
+This also shows how you can use _tagged lists_ as rules and subrules. Here, the rule `(:or \+ \-)` matches either the character + or the character -. This is bound to op. The rule body converts op into the symbol '+ or '-, then calls (+ num1 num2) or (- num1 num2).
 
-* Any instance of Rule. This lets you embed 'anonymous' rules in other rules.
-* Any sequence or vector of clauses. This matches any one of those subclauses.
-* Any symbol. Symbols map to sequences of rules in a grammar. If you use symbols, you probably want to use build-grammar or build-parser. When building a grammar, a symbol must be resolvable to any clause.
-* Any other Object. Objects that don't match one of the above are interpreted as tokens. These Objects match a single input token using =.
-
-In a built grammar, rules map to sequences of other rules. A non-rule clause will be wrapped up in an anonymous rule with the identity action. This doesn't affect behavior but affects match trees and parse charts.
-
-A rule is a record that implements an internal interface (RuleKernel). I might make them pure maps in the future, but this is how it is for now. Make sure that if you manipulate rule records, you get instances of the record back. Also, the structure of the record might change to something simpler.
-
-N.B.: The empty rule is not supported. This is usually easy to work around except you cannot parse the empty string.
-
+In addition to these macros, Clearley has plenty more macros and fns available that create rules. See the [http://eightnotrump.github.io/clearley/codox/clearley.defrule.html](defrule codox).
 
 ### Scanning rules
 
-Sometimes you want a fn that tells you if a token matches a rule. The fn ```clearley.core/scanner``` does this. For instance, this code
+Sometimes you want a fn that tells you if a token matches a rule. The fn ```clearley.core/scanner``` does this. For instance, this rule
 
 ```
 (scanner #(java.lang.Character/isWhitespace %))
 ```
 
-matches any whitespace character and returns it.
+matches any Java whitespace character and returns it.
+
+### Shorthand
+
+At any point you can substitute a symbol for a rule. The symbol will be understood to point to another rule. You can also substitute any non-symbol, non-list Object. That will be understood to be a token.
+
+You can use a list shorthand (prefix list) to define rules with default actions:
+
+```
+(def whitespace `(:or \space \tab \newline \return))
+```
+
+This creates an :or rule that matches any one of thsoe four characters, and returns the matched character. Prefix lists may be any (http://clojure.github.io/clojure/clojure.core-api.html#clojure.core/sequential?)[sequential] object, which includes vectors and all seqs.
+
+You can mix-and-match shorthand:
+
+(def foo `(:or bar baz \x (:seq ~(star-rule 'bitcoin) satoshi)))
+
+### Rules in detail
+
+All rules, in the end, are maps. A rule map has these keys:
+
+key 	| required?	| description
+---|---|---
+:name 	| optional	| the rule name
+:tag	| require	| the rule combinator type (see below)
+:value	| required	| any subrules
+:action	| optional	| the parse action. if not supplied, a reasonable default is provided (see below)
+:original	| supplied by the grammar builder	| if this rule was made by a grammar builder, this is the rule it was based on
+
+Rule behavior is defined with rule tags. These are the rule tags supported by Clearley:
+
+tag	| description	| behavior	| default action	| notes
+---|---|---|---|---
+:seq	| sequence	| matches all given subrules, in order	| returns a seq	| if empty, matches the empty string
+:or	| choice	| matches any one of the given subrules	| identity	| if empty, always fails
+:star	| zero-or-more	| matches zero or more of one given subrule	| returns a seq
+:symbol	| rule reference | matches the rule the symbol refres to	| if the symbol can't be found by the grammar/parser builder, that's an error
+:token	| matches one item of input using = |	returns the matched item	|
+:scanner	| given a fn, matches one item of input if (fn input) is true	| returns the matched input
 
 ## Working with match trees
+
+The goal of Clearley is to work with parse actions directly.
 
 You can get a match tree directly from the parser in the following way:
 
@@ -179,19 +195,23 @@ You can manipulate it as you'd manipulate any other map. For nondeterministic gr
 
 ## What's under the hood
 
-Currently Clearley is using a GLR parser with Earley-like charts. Eventually I want to convert this to an Earley automaton, or perhaps the newfangled GLL automaton (haven't looked into GLL yet). This is why I called it Clearley: Clojure + Earley plus 'clear' as a bonus. The code is designed such that new backends can be coded and plugged in. The rule API is seperate from the parser itself.
+Clearley uses a nondeterministic Earley automaton. The name is a combination of 'Clojure', 'clear', and 'Earley'. The automaton is based on Aycock and Horspool's Practical Earley Parsing.
 
-If you want, you can look at the parser's parse charts directly, but note that the underlying algorithm and its textual representation is in flux.
+If you want, you can look at the parser's parse charts directly, but note that the underlying algorithm and its textual representation is in flux. [ TODO ]
+
+## Disadvantages
+
+Clearley is beta software and has a few drawbacks:
+
+* Disambiguation is not supported. If input can be parsed in multiple ways, Clearley will silently pick one. This undesirable behavior will probably be changed in the future.
+* Clearley is not (yet) highly performant. Different libraries are available if you need very fast code.
+* Error reporting can use some work. Some rudimentary tools to inspect and diagnose errors can be found [ TODO ].
 
 ## Next steps
 
-* Improve the rules API. Right now they are records that implement an interface.
 * Better ambiguity detection, error detection, and recovery.
-* Big-O performance improvements, such as using lookahead to parse right-recursive grammars in linear time.
-
-I'm also looking in to plugging Clearley's front end into the excellent Instaparse. I will have to dig into their code, since the Instaparse front-end is for text only.
-
-Please open an issue if you find any issues. If you have any suggestions, ideas, or have written some fns/libs that might be useful, please let me know!
+* More performance improvements.
+* Work on docs and the standard library.
 
 ## License
 

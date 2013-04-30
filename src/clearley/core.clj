@@ -1,17 +1,10 @@
 (ns clearley.core
-  "Tools for parsing and processing linear input.
-  The central abstraction is the context-free grammar, where one match rule
-  maps to arbitrary sequences of sub-rules.
-  Emphasis is on completeness, modularity, and ease of use.
-  A functional API and a macro DSL are provided.
- 
-  See the high-level docs for a further background and overview." 
+  "The Clearley parser and related fns."
   (require [clojure string pprint]
            [clearley.rules :as rules]
            [clearley.earley :as earley]
            [uncore.throw :as t])
-  (use [clearley defrule grammar] uncore.core))
-; TODO integreate defrule
+  (use clearley.defrule clearley.grammar uncore.core))
 
 (defprotocol Parser
   (parse [parser input] "Parse the given input with the given parser,

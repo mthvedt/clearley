@@ -1,5 +1,8 @@
 (ns clearley.grammar
-  "The base lib for the Clearley intermediate representation."
+  "The base lib for creating Clearley grammars. A Clearley grammar maps
+  symbols to full-fledged rule maps, called 'normalized' rules.
+  
+  Unless you are doing advanced stuff, you probably don't need this namespace."
   (require [uncore.throw :as t])
   (use uncore.core))
 
@@ -37,7 +40,6 @@
 (defmethod default-action :seq [& _] list-identity)
 (defmethod default-action :token [_ {[token] :value}] (TokenAction. token))
 
-; TODO unify similar items?
 (declare map-normalize)
 
 (defn normalize
