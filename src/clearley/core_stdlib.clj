@@ -15,8 +15,8 @@
 
 (defrulefn token
   "Creates a rule that matches a token. The default action returns the token."
-  token (fn [] token)
-  {name name, :tag :token, :value [token], :action action})
+  a-token (fn [] a-token)
+  {name name, :tag :token, :value [a-token], :action action})
 
 (defrulefn symbol-rule
   "Creates a rule that points to some other rule, identified by the given symbol.
