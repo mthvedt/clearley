@@ -1,30 +1,30 @@
-; Standard library, included in clearley.defrule
-; TODO include defrule in core
+; Standard library, included in clearley.defmatch
+; TODO include defmatch in core
 
 (def ^{:doc "The empty rule. Returns nil."}
   empty-rule {:name "empty" :tag :seq :value [] :action (fn [] nil)})
 
 ; TODO include default actions?
 ; TODO arguments-checking
-(defrulefn scanner
+(defmatchfn scanner
   "Creates a rule that accepts input tokens. For a token t, if (scanner-fn t)
   is logical true, this rule matches that token.
   The default action returns the token."
   scanner-fn identity
   {:name name, :tag :scanner, :value [scanner-fn], :action action})
 
-(defrulefn token
+(defmatchfn token
   "Creates a rule that matches a token. The default action returns the token."
   a-token (fn [] a-token)
   {name name, :tag :token, :value [a-token], :action action})
 
-(defrulefn symbol-rule
+(defmatchfn symbol-rule
   "Creates a rule that points to some other rule, identified by the given symbol.
   The default action is the identity."
   a-symbol identity
   {name name, :tag :symbol, :value [a-symbol], :action action})
 
-(defrulefn or-rule
+(defmatchfn or-rule
   "Creates a rule that matches one of some number of given rules. The default
   action is the identity."
   rules identity

@@ -1,15 +1,15 @@
 (ns clearley.examples.simplest-calculator
-  (use clearley.defrule))
+  (use clearley.defmatch))
 
-(defrule sum
+(defmatch sum
   ([sum \+ term] (+ sum term)) ; left associative
   ([sum \- term] (- sum term))
   term)
-(defrule term
+(defmatch term
   ([term \* number] (* term number))
   ([term \/ number] (/ term number))
   number)
-(defrule number
+(defmatch number
   ([\- number] (- number))
   ([number digit] (+ (* 10 number) digit))
   digit)

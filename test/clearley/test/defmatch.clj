@@ -1,26 +1,26 @@
-(ns clearley.test.defrule
-  (use clearley.core clearley.defrule clearley.grammar clearley.test.utils
+(ns clearley.test.defmatch
+  (use clearley.core clearley.defmatch clearley.grammar clearley.test.utils
        uncore.test.utils lazytest.deftest))
 
 ; TODO tests for match
 ; TODO simplify def-parser-test
 
 ; === Just a smoke test ===
-(defrule sum
+(defmatch sum
   ([sum \+ times] (+ sum times))
   times)
-(defrule times
+(defmatch times
   ([times \* digit] (* times digit))
   digit)
-(defrule digit [\3] 3)
+(defmatch digit [\3] 3)
 
 (def grammar1 (build-grammar sum))
 
 (deftest build-grammar-smoke-test
   (is grammar1 true)
-  (is (get grammar1 'sum))
-  (is (get grammar1 'times))
-  (is (get grammar1 'digit)))
+  (is (get grammar1 'clearley.test.defmatch/sum))
+  (is (get grammar1 'clearley.test.defmatch/times))
+  (is (get grammar1 'clearley.test.defmatch/digit)))
 
 ; Testing the parser
 (def parser1 (build-parser sum))
@@ -33,14 +33,14 @@
     (is-parsing "3+3")
     (not-parsing "4+4"))
 
-(def-parser-test defrule-test parser1
+(def-parser-test defmatch-test parser1
   (with-parser parser1
     (is-action 6 "3+3")
     (is-action 9 "3*3")
     (is-action 15 "3+3*3+3")))
 
 ; A little more invovled
-(defrule digit ([\1] 1) ([\2] 2) ([\3] 3) ([\4] 4) ([\5 \5] 55))
+(defmatch digit ([\1] 1) ([\2] 2) ([\3] 3) ([\4] 4) ([\5 \5] 55))
 (def parser2 (build-parser sum))
 
 (def-parser-test basic parser2
@@ -52,10 +52,6 @@
   (isnt (parses? "55*23"))
   (isnt (parses? "1+2a"))
   (is-parsing "1+55*2*55+3+55*4"))
-  ;(is-ast [[[\1]]] "1")
-  ;(is-ast [[[[\2]]] \+ [[[\3]] \* [\4]]] "2+3*4")
-  ;(is-ast [[[[[\1]]] \+ [[[\2]] \* [\3]]] \+ [[[\4]] \* [\1]]] "1+2*3+4*1")
-  ;(is-ast [[[\5 \5]]] "55"))
 
 (def g (build-grammar sum))
 (def grammar-parser (parser 'sum g))
@@ -69,7 +65,7 @@
   (isnt (parses? "1+2a")))
 
 ; Rule aliasing
-(defrule sum
+(defmatch sum
   ([sum \+ (t times)] (+ sum t))
   ([(t times)] t))
 (def aliasing-parser (build-parser sum))
@@ -79,16 +75,14 @@
 
 ; Rule literals
 (def digits67 '(:or \6 (:seq \7 \7)))
-(defrule digits67* [digits67] 10) ; ok, maybe this is bad practice
-(defrule digit ([\1] 1) ([\2] 2) ([\3] 3) ([\4] 4) ([\5 \5] 55)
+(defmatch digits67* [digits67] 10) ; ok, maybe this is bad practice
+(defmatch digit ([\1] 1) ([\2] 2) ([\3] 3) ([\4] 4) ([\5 \5] 55)
   ([digits67*] digits67*))
 (def literal-parser (build-parser sum))
 
 (def-parser-test rule-literals literal-parser
   (is-action 15 "2+3+6")
   (is-action 15 "2+3+77"))
-  ;(is-ast [[[[\2]]] \+ [[[\3]] \* [[[\6]]]]] "2+3*6")
-  ;(is-ast [[[[\2]]] \+ [[[\3]] \* [[[\7 \7]]]]] "2+3*77"))
 
 ; Scanner test
 (def digit (char-range \0 \9 #(- (int %) (int \0))))
@@ -98,9 +92,9 @@
   (is-action 6 "1+2+3"))
 
 ; star test
-(defrule number [(digits (plus 'digit))]
+(defmatch number [(digits (plus 'digit))]
   (reduce #(+ % (* %2 10)) digits))
-(defrule times
+(defmatch times
   ([times \* number] (* times number))
   ([number] number))
 
@@ -121,10 +115,10 @@
   (not-parsing "xyy"))
 
 ; hidden left recursion test
-(defrule alpha
+(defmatch alpha
   ([beta alpha mu] (str beta alpha mu))
   ("w" "w"))
-(defrule mu "y" "y")
+(defmatch mu "y" "y")
 (def beta
   `(:or \x (:seq)))
 (def hidden-left-recursion-parser (build-parser alpha))

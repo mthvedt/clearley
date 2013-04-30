@@ -1,17 +1,17 @@
-(ns clearley.defrule
+(ns clearley.defmatch
   "Fns and macros to define context-free grammars.
   Emphasis is on power, flexibility, and ease of use."
   (require [uncore.throw :as t])
   (use uncore.core))
 ; TODO include in core
 
-(defmacro defrulefn [sym doc arg1 default-action & full-body]
+(defmacro defmatchfn [sym doc arg1 default-action & full-body]
   `(defn ~sym ~doc
      ([~arg1] (~sym nil ~arg1 ~default-action))
      ([~arg1 ~'action] (~sym nil ~arg1 ~'action))
      ([~'name ~arg1 ~'action] ~@full-body)))
 
-(defrulefn rule
+(defmatchfn rule
   "Creates a context-free grammar rule. A rule has a required seq of clauses,
   an optional name, and an optional action.
   If not supplied, the default action bundles the args into a list."
@@ -61,41 +61,41 @@
   (cond (list? form) (let [[f1 & rest] form]
                        (cond (vector? f1) `(match ~@form)
                              (string? f1) `(match ~(vec f1) ~@rest)
-                             true (t/IAE "Not a valid start to a defrule body: "
+                             true (t/IAE "Not a valid start to a defmatch body: "
                                          form ", expect vector or string")))
         (symbol? form) `'~form
-        true (t/IAE "Not a valid defrule body: " form
+        true (t/IAE "Not a valid defmatch body: " form
                     ", expected list or symbol")))
 
-(defmacro defrule
+(defmacro defmatch
   "Defines a rule and an action together. This macro is intended to be
   the primary way to def rules.
 
   Usage:
-  (defrule symbol [subrules] action-body?)
-  (defrule symbol ([subrules] action-body? | symbol)+)
+  (defmatch symbol [subrules] action-body?)
+  (defmatch symbol ([subrules] action-body? | symbol)+)
   Subrules may be a vector or a string. It can contain any rule,
   but if it's a symbol, this can bind symbols in the action body.
 
   Examples:
 
-  (defrule true-token \"true\" true)
+  (defmatch true-token \"true\" true)
   This matches the string \"true\" and returns true.
 
-  (defrule sum [num \\+ (num2 num)] (+ num num2)
+  (defmatch sum [num \\+ (num2 num)] (+ num num2)
                [num \\- (num2 num)] (- num num2))
   This matches any num, followed by + or -, followed by another num,
   and returns the value of adding or subtracting the two respectively.
 
-  (defrule num ([\\- posnum] (- posnum))
+  (defmatch num ([\\- posnum] (- posnum))
                 posnum)
   This matches any posnum preceded by -, returning the negation of posnum.
   Or it can match a posnum directly, and return the posnum (default).
 
   You can embed rules in named subrules, viz:
-  (defrule digit [(x (char-range 0 9))] x)
+  (defmatch digit [(x (char-range 0 9))] x)
 
-  Symbols in the defrule bodies do not become qualified."
+  Symbols in the defmatch bodies do not become qualified."
   [sym & impl-or-impls]
   `(def ~sym ~(let [[first-form & rest] impl-or-impls]
                 (cond (vector? first-form)

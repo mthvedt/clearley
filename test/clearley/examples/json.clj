@@ -1,6 +1,6 @@
 (ns clearley.examples.json
   (require clearley.core)
-  (use clearley.defrule clojure.math.numeric-tower))
+  (use clearley.defmatch clojure.math.numeric-tower))
 
 ; JSON spec:
 ; https://www.ietf.org/rfc/rfc4627.txt?number=4627
@@ -10,9 +10,9 @@
 (def whitespace '(:star (:or \space \tab \newline \return)))
 
 ; JSON recognizes 7 types of value. Three are represented by keywords.
-(defrule true-token "true" true)
-(defrule false-token "false" false)
-(defrule null-token "null" nil)
+(defmatch true-token "true" true)
+(defmatch false-token "false" false)
+(defmatch null-token "null" nil)
 
 ; Fourth is the string.
 ; First we need to parse digits and hex numbers.
@@ -41,14 +41,14 @@
                      (fn [& chars] (char (reduce (fn [a b] (+ (* 16 a) b)) chars))))]
   hex)
 
-(defrule string-char
+(defmatch string-char
   ; an escaped char
   ([\\ (escaped-char '(:or \" \\ \/ \b \f \n \r \t))] escaped-char)
   ; a unicode char, using a rule literal
   hex
   char-scanner)
 
-(defrule string
+(defmatch string
   ([\" (string-body '(:star string-char)) \"]
    (java.lang.String. (char-array string-body))))
 
@@ -58,54 +58,54 @@
 (defn make-num [digits]
   (reduce #(+ (* 10 %) %2) 0 digits))
 
-(defrule natnum
+(defmatch natnum
   ([\0] 0)
   digit1-9
   ([digit1-9 digits] (make-num (cons digit1-9 digits))))
 
-(defrule decimal
+(defmatch decimal
   natnum
   ([natnum \. digits] (+ natnum (/ (make-num digits)
                                      (expt 10 (count digits))))))
 
-(defrule mantissa
+(defmatch mantissa
   ([(_ (opt \+)) digits] (make-num digits)) ; TODO
   ([\- digits] (- (make-num digits))))
 
 ; It appears JSON numbers are exact although JS numbers are double floats.
-(defrule posnum
+(defmatch posnum
   decimal
   ([decimal '(:or \e \E) mantissa] (* decimal (expt 10 mantissa))))
 
-(defrule number
+(defmatch number
   posnum
   ([\- posnum] (- posnum)))
 
 ; The sixth type is the array.
 (def array-values (separate-rule 'value \, #(vec %&)))
 
-(defrule array
+(defmatch array
   ([\[ whitespace \]] [])
   ([\[ array-values \]] array-values))
 
 ; and the seventh (and also the goal type): Object.
-(defrule pair [whitespace string whitespace \: value] [string value])
+(defmatch pair [whitespace string whitespace \: value] [string value])
 
 (def pairs (separate-rule 'pair \, #(apply hash-map (apply concat %&))))
 
-(defrule object
+(defmatch object
   ([\{ whitespace \}] {})
   ([\{ pairs \}] pairs))
-(defrule whitespace-object [whitespace object whitespace] object)
+(defmatch whitespace-object [whitespace object whitespace] object)
 
 ; Put it all together...
-(defrule value [whitespace
+(defmatch value [whitespace
                 (value `(:or true-token false-token null-token
                             string number array object))
                 whitespace]
   value)
-;(defrule value* true-token false-token null-token string number array object)
-;(defrule value [whitespace value* whitespace] value*)
+;(defmatch value* true-token false-token null-token string number array object)
+;(defmatch value [whitespace value* whitespace] value*)
 
 ; And we are done
 (def json-parser (clearley.core/build-parser whitespace-object))

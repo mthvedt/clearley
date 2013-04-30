@@ -3,7 +3,8 @@
   symbols to full-fledged rule maps, called 'normalized' rules.
   
   Unless you are doing advanced stuff, you probably don't need this namespace."
-  (require [uncore.throw :as t])
+  (require [uncore.throw :as t]
+           backtick)
   (use uncore.core))
 
 ; === Grammar building ===
@@ -46,6 +47,8 @@
   "Turns a rule into a 'normalized' rule map with :tag, :value, :action,
   :name and :original. The :values will also be normalized, unless
   it is a token or scanner. :action and :name may be auto-populated.
+  Symbols in rules will be qualified in the namespace bound to *ns*.
+  (If a symbol cannot be qualified, that is an error.)
   :original will point to the original, unnormalized rule."
   [rule candidate-name]
   (case (rule-type rule)
@@ -56,8 +59,8 @@
     ::rule (let [name (if (:name rule) (:name rule) candidate-name)
                  value (map-normalize (:value rule) name (:tag rule))]
              (merge rule {:name name, :value value, :original rule}))
-    ::symbol {:name (str rule), :tag :symbol, :value [rule], :action identity,
-              :original rule}
+    ::symbol {:name (str rule), :tag :symbol, :value [(backtick/resolve-symbol rule)],
+              :action identity, :original rule}
     ::token {:name (pr-str rule), :tag :token, :value [rule],
              :action (TokenAction. rule), :original rule}))
 
@@ -75,7 +78,7 @@
 
 ; seed: a seqable of syms
 (defn- build-grammar-helper [seed thens theenv]
-  (loop [syms seed ; syms to resolve
+  (loop [syms (map backtick/resolve-symbol seed) ; syms to resolve
          grammar {}] ; grammar: maps symbols to rules
     (if-let [sym (first syms)]
       (if (contains? grammar sym) ; have we already seen this?
@@ -86,16 +89,14 @@
                  (assoc grammar sym resolved))))
       grammar)))
 
-; In the future, we might bind &env to theenv
-; The form of &env is not fixed by Clojure authors so don't do it now
 (defn build-grammar-with-ns
-  "Builds a grammar in the given ns from the given goal rule."
+  "Builds a grammar in the given ns from the given goal symbol."
   [goal thens]
-  (build-grammar-helper [goal] thens {}))
+  (binding [*ns* thens]
+    (build-grammar-helper [goal] thens {})))
 
 (defmacro build-grammar
-  "Builds a grammar in *ns* from the given goal rule.
-  A grammar maps (usually unqualified) symbols to normalized rules.
-  Returns the grammar."
+  "Builds a grammar in *ns* from the given goal symbol.
+  A grammar maps qualified symbols to normalized rules. Returns the grammar."
   [goal]
   `(build-grammar-with-ns '~goal *ns*))

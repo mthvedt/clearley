@@ -1,28 +1,28 @@
 (ns clearley.examples.calculator
-  (use clearley.defrule clojure.math.numeric-tower))
+  (use clearley.defmatch clojure.math.numeric-tower))
 
 ; TODO do we even need this?
-(defrule sum
+(defmatch sum
   ([sum \+ term] (+ sum term))
   ([sum \- term] (- sum term)) ; left associative
   term)
-(defrule term
+(defmatch term
   ([term \* pow] (* term pow))
   ([term parenexpr] (* term parenexpr))
   ([parenexpr term] (* parenexpr term))
   ([term parenexpr (term2 term)] (* term parenexpr term2)) ; need an alias
   ([term \/ pow] (/ term pow))
   pow)
-(defrule pow
+(defmatch pow
   ([numexpr \^ pow] (expt numexpr pow)) ; right associative
   numexpr)
-(defrule numexpr
+(defmatch numexpr
   ([\- numexpr] (- numexpr))
   parenexpr
   number)
-(defrule parenexpr
+(defmatch parenexpr
   ([\( sum \)] sum))
-(defrule number
+(defmatch number
   ([number digit] (+ (* 10 number) digit))
   digit)
 (def digit (char-range \0 \9 #(- (int %) (int \0))))

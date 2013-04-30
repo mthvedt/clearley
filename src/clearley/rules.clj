@@ -6,8 +6,8 @@
 ; Core stuff for context free grammar parsing.
 
 ; A somewhat ugly hack to make calculating first sets and null advances O(1)
-; Note that if body is recrusive, returns lower on the stack will overwrite higher ones
-; this is intentional
+; Note that if body is recrusive, returns lower on the stack
+; will overwrite higher ones; this is intentional
 (def ^:dynamic *mem-atom* nil)
 (defmacro local-memo [key datum & body]
   `(let [m# (get @*mem-atom* ~key {})]
@@ -31,9 +31,10 @@
 (defn rule? [x]
   (instance? clearley.rules.CfgRule x))
 
-(defn goal-rule [r grammar]
-  (CfgRule. 0 {:name ::goal, :tag :seq, :value [(clearley.grammar/normalize r nil)],
-               :action identity} {} grammar))
+(defn goal-rule [sym grammar]
+  (CfgRule. 0 {:name ::goal, :tag :seq,
+               :value [(clearley.grammar/normalize sym nil)], :action identity}
+            {} grammar))
 
 ; For a rule that has been nulled out, gets a reduced version of the rule
 ; appropriate for take-action.
@@ -66,8 +67,11 @@
 ; Predicts a rule, returning a seq [rule | fn]
 (defmulti predict* (fn-> :raw-rule :tag))
 (defmethod predict* :symbol [{dot :dot, grammar :grammar, {value :value} :raw-rule}]
-  (map #(cfg-rule % grammar)
-       (predict-singleton :symbol [(get grammar (first value))])))
+  (if-let [resolved (predict-singleton :symbol (get grammar (first value)))]
+    (if (= resolved [])
+      []
+      [(cfg-rule resolved grammar)])
+    (t/RE "Cannot find symbol in grammar: " (first value))))
 (defmethod predict* :or [{dot :dot, grammar :grammar, {value :value} :raw-rule}]
   (map #(cfg-rule % grammar) (if (= dot 1) [] value)))
 (defmethod predict* :seq [{dot :dot, grammar :grammar, {value :value} :raw-rule}]
@@ -81,6 +85,7 @@
   (predict-singleton :token [(fn [x] (= x (first value)))]))
 
 (defn predict [cfg-rule]
+  ;(prn "Predicting " cfg-rule)
   (local-memo :predict cfg-rule (predict* cfg-rule)))
 
 ; Is this rule complete?

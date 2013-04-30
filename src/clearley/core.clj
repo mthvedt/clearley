@@ -3,30 +3,32 @@
   (require [clojure string pprint]
            [clearley.rules :as rules]
            [clearley.earley :as earley]
-           [uncore.throw :as t])
-  (use clearley.defrule clearley.grammar uncore.core))
+           [uncore.throw :as t]
+           backtick)
+  (use clearley.defmatch clearley.grammar uncore.core))
 
 (defprotocol Parser
   (parse [parser input] "Parse the given input with the given parser,
                         yielding a match tree."))
 
 (defprotocol ChartParser
-  (charts [parser input]) ; Yields raw charts. Not for human consumption
+  (^:private charts [parser input]) ; Yields raw charts. Not for human consumption
   (print-charts [parser input] "Prints this parser's charts to *out*.
                                Format is not fixed. A good explanation of parse charts
                                (for an Earley parser, but same idea) is at
                                http://www.wikipedia.org/wiki/Earley_parser."))
 
 (defn parser
-  "Constructs a parser given a grammar and goal clause."
-  ;"Constructs a parser given a grammar, a goal clause, and an optional tokenizer."
+  "Constructs a parser given a grammar and goal symbol."
+  ;"Constructs a parser given a grammar, a goal symbol., and an optional tokenizer."
   ([goal grammar]
    ;(parser goal identity grammar))
   ;([goal tokenizer grammar]
    (let [mem-atom (atom {})
          mem-atom-2 (atom {})
-         parse-fn #(earley/parse-charts % grammar identity
-                                     #_tokenizer goal mem-atom mem-atom-2)]
+         goal (backtick/resolve-symbol goal)
+         parse-fn #(earley/parse-charts % grammar identity #_tokenizer goal
+                                        mem-atom mem-atom-2)]
    (reify
      Parser
      (parse [_ input]

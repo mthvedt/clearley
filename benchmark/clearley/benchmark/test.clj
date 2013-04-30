@@ -2,7 +2,7 @@
   (require [clojure.java.io :as io]
            [clearley.examples.json :as json]
            [clearley.examples.calculator :as calc])
-  (use [clearley core defrule]
+  (use [clearley core defmatch]
        [criterium core]))
 
 (def prefix "clearley/benchmark/")
@@ -27,7 +27,7 @@
     (bench-str name parser loaded-file)))
 
 ; Snakes... why did it have to be snakes? Ssssssss!
-(defrule S
+(defmatch S
   ([(s1 S) (s2 S)] (str s1 s2))
   ([(s1 S) (s2 S) (s3 S)] (str s1 s2 s3))
   ([\s] "s"))
