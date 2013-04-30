@@ -30,7 +30,6 @@
 (defn new-item [rule seed? follow]
   (Item. rule nil 0 seed? follow))
 
-; TODO test parsing the empty string
 (defn eager-advance [item prediction?]
   (if item
     (if-let [rule2 (rules/eager-advance (:rule item))]
@@ -105,7 +104,7 @@
                  (some identity (map acceptor follow))))
           items)))
 
-(defprotocol GlrState (is-goal [self]))
+(defprotocol GlrState (goals [self]))
 
 (defn new-item-set [seed-items mem-atom]
   (loop []
@@ -130,7 +129,7 @@
                   (npda/bounce [_ output] (bounces (:backlink output)))
                   (npda/return [_ input-token] (returns input-token))
                   GlrState
-                  (is-goal [_] (some #(rules/goal? (:rule %)) all-items))
+                  (goals [_] (filter #(rules/goal? (:rule %)) all-items))
                   npda/IPrinting
                   (npda/pstr [self]
                     (with-out-str
@@ -173,7 +172,10 @@
 (defn pstr-charts [charts]
   (dorun (map-> charts npda/pstr println)))
 
+(defn goal-streams [state]
+  (map #(->> state npda/rstream (cons %) reverse reduce-ostream)
+       (goals (npda/peek state))))
+
 ; Searches states for completed parse of the goal rule, returning all matches
 (defn scan-goal [chart]
-  (map (fn-> npda/stream reduce-ostream)
-       (filter #(is-goal (npda/peek %)) (npda/states chart))))
+  (mapcat goal-streams (npda/states chart)))

@@ -56,7 +56,6 @@
   (peek [self])
   (pop [self count]) ; Returns a seq of states
   (stack-count [self])
-  (stream [self])
   (rstream [self]) ; private accessor
   (prevs [self])
   (unify [self other-state]))
@@ -106,7 +105,6 @@
                     (prevs my-prev)))
          (drop c (om/vals stack-map))))
   (stack-count [_] (om/count stack-map))
-  (stream [self] (reverse my-rstream))
   (rstream [_] my-rstream)
   (prevs [_] stack-map) ; TODO rename
   (unify [self ostate]

@@ -31,9 +31,6 @@
 (defn rule? [x]
   (instance? clearley.rules.CfgRule x))
 
-(defn goal? [cfg-rule]
-  (-> cfg-rule :raw-rule :name (= ::goal)))
-
 (defn goal-rule [r grammar]
   (CfgRule. 0 {:name ::goal, :tag :seq, :value [(clearley.grammar/normalize r nil)],
                :action identity} {} grammar))
@@ -93,6 +90,10 @@
   (= dot (count value)))
 (defmethod is-complete? :default [{:keys [dot]}]
   (= 1 dot))
+
+(defn goal? [cfg-rule]
+  (and (is-complete? cfg-rule)
+       (-> cfg-rule :raw-rule :name (= ::goal))))
 
 (defn clause-strs
   ([clauses] (clause-strs clauses 0))

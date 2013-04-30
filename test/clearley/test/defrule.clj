@@ -2,7 +2,8 @@
   (use clearley.core clearley.defrule clearley.grammar clearley.test.utils
        uncore.test.utils lazytest.deftest))
 
-; TODO tests for match and bind
+; TODO tests for match
+; TODO simplify def-parser-test
 
 ; === Just a smoke test ===
 (defrule sum
@@ -31,10 +32,6 @@
 (def-parser-test parsing1 parser1
     (is-parsing "3+3")
     (not-parsing "4+4"))
-
-#_(def-parser-test match1 parser1
-    (is-ast [[[\3]]] "3")
-    (is-ast [[[[\3]]] \+ [[[\3]] \* [\3]]] "3+3*3"))
 
 (def-parser-test defrule-test parser1
   (with-parser parser1
@@ -135,4 +132,15 @@
   (is-action "xxwyy" "xxwyy")
   (is-action "wyy" "wyy"))
 
-; TODO 'practical earley parsing' test
+; Test from 'Practical Earley Parsing'
+; http://courses.engr.illinois.edu/cs421/sp2012/project/PracticalEarleyParsing.pdf
+
+(defbind S [a1 A a2 A a3 A a4 A] (str a1 a2 a3 a4))
+(def A `(:or \a (:seq)))
+(def pep-tester (build-parser S))
+(def-parser-test practical-earley-parsing pep-tester
+  (is-action "" "")
+  (is-action "a" "a")
+  (is-action "aa" "aa")
+  (is-action "aaa" "aaa")
+  (is-action "aaaa" "aaaa"))
