@@ -13,7 +13,7 @@
 ; The NPDA is a nondeterministic stack machine.
 ; A node may: shift (call a subnode), goto (return a new subnode in place),
 ; return (return a value and pop this node), or continue (accept a return value
-; from a shift). Only return may be a vector (TODO).
+; from a shift). Only return may be a vector.
 (defprotocol Node
   (node-key [self])
   (shift [self input]) ; Accept input and put a new state ont stack

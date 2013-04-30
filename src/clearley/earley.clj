@@ -1,4 +1,4 @@
-(ns clearley.glr
+(ns clearley.earley
   (require clojure.set
            [uncore.collections.worm-ordered-set :as os]
            [uncore.collections.worm-ordered-multimap :as omm]
@@ -6,7 +6,8 @@
            [clearley.rules :as rules]
            [uncore.str :as s])
   (use uncore.core))
-; A GLR automaton.
+; A PEP automaton. Implementing Aycock and Horspool's
+; Practical Earley Parsing, with minor changes.
 
 ; ===
 ; Parse items
@@ -104,7 +105,7 @@
                  (some identity (map acceptor follow))))
           items)))
 
-(defprotocol GlrState (goals [self]))
+(defprotocol EarleyState (goals [self]))
 
 (defn new-item-set [seed-items mem-atom]
   (loop []
@@ -128,7 +129,7 @@
                   (npda/continue [_ output] (continues (:backlink output)))
                   (npda/bounce [_ output] (bounces (:backlink output)))
                   (npda/return [_ input-token] (returns input-token))
-                  GlrState
+                  EarleyState
                   (goals [_] (filter #(rules/goal? (:rule %)) all-items))
                   npda/IPrinting
                   (npda/pstr [self]
@@ -149,7 +150,7 @@
     (pr-str (rules/take-action* val))
     (pr-str val)))
 (defn reduce-ostream-helper [ostream val]
-  (if (instance? clearley.glr.Item val)
+  (if (instance? clearley.earley.Item val)
     (let [{:keys [rule match-count]} val]
       (cons (rules/match (rules/get-original rule)
                          (vec (reverse (take match-count ostream))))

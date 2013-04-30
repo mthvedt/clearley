@@ -8,7 +8,7 @@
   See the high-level docs for a further background and overview." 
   (require [clojure string pprint]
            [clearley.rules :as rules]
-           [clearley.glr :as glr]
+           [clearley.earley :as earley]
            [uncore.throw :as t])
   (use [clearley defrule grammar] uncore.core))
 ; TODO integreate defrule
@@ -32,16 +32,16 @@
   ;([goal tokenizer grammar]
    (let [mem-atom (atom {})
          mem-atom-2 (atom {})
-         parse-fn #(glr/parse-charts % grammar identity
+         parse-fn #(earley/parse-charts % grammar identity
                                      #_tokenizer goal mem-atom mem-atom-2)]
    (reify
      Parser
      (parse [_ input]
        ; For now, only return first match. If failure, last chart will be empty
-       (-> (parse-fn input) last glr/scan-goal first))
+       (-> (parse-fn input) last earley/scan-goal first))
      ChartParser
      (charts [_ input] (parse-fn input))
-     (print-charts [_ input] (glr/pstr-charts (parse-fn input)))))))
+     (print-charts [_ input] (earley/pstr-charts (parse-fn input)))))))
 
 ; TODO work on this
 (defn print-match
