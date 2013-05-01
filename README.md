@@ -1,5 +1,7 @@
 # Clearley
 
+_N.B.: Version 3.0 is beta, and unstable._
+
 ```
 [clearley "0.3.0-SNAPSHOT"]
 ```
@@ -33,10 +35,8 @@ Of course there is a defmatch macro also. It works kind of like defn. There is a
 
 Here is a calculator written in Clearley:
 
-[ TODO ]
-
 ```clojure
-(use 'clearley.core 'clearley.defmatch)
+(use 'clearley.core 'clearley.match 'clearley.lib)
 
 (defmatch sum
   ([sum \+ term] (+ sum term))
@@ -147,61 +147,49 @@ You can mix-and-match shorthand:
 
 (def foo `(:or bar baz \x (:seq ~(star-rule 'bitcoin) satoshi)))
 
-but note that tagged sequences don't work in match/defmatch, because that's how match names subrules. [ TODO keep this behavior? ]
+but note that tagged sequences don't work in match/defmatch, because that's how match names subrules.
 
 ## Working with match trees
 
-The goal of Clearley is to work with parse actions directly, but if you want, you can get a match tree directly from the parser in the following way:
+The goal of Clearley is to work with parse actions directly, but if you want, you can get a match tree directly from the parser in the following way (truncated for brevity):
 
 ```clojure
-user=> (parse my-calculator "1+2")
-#clearley.rules.Match{:rule #clearley.rules.RuleImpl{:kernel ...}}
+user=> (clojure.pprint/pprint (parse my-calculator "1+2"))
+{:name :clearley.rules/goal,
+  :tag :seq,
+  :value
+  [{:name "sum",
+    :tag :symbol,
+    :value [user/sum],
+    :action #<core$identity clojure.core$identity@6adaf50c>,
+    :original user/sum}],
+  :action #<core$identity clojure.core$identity@6adaf50c>},
+ :submatches
+ [{:rule
+   {:name sum
+...}}
 ```
 
-There's some crude pretty printing for matches. If your rules don't have names, Clearley will invent names for them.
-
-[ TODO the format has changed ]
-```clojure
-user=> (print-match (parse my-calculator "1+2"))
- sum
-   sum
-     term
-       pow
-         numexpr
-           number
-             clearley.rules.RuleImpl@4b2e1a6c
-               '1'
-   '+'
-   term
-     pow
-       numexpr
-         number
-           clearley.rules.RuleImpl@4b2e1a6c
-             '2'
-```
+I hope to introduce better, more readable match pretty-printing in the future.
 
 ## Working with grammars and rule objects
 
-A grammar is a map from symbols to rules.
+A grammar is a map from symbols to rules. The grammar builder will 'normalize' all rules, converting them to maps, converting symbols to qualified symbols, and looking up any symbol in the current namespace. These grammars are maps and can be manipulated like any other. If a rule is normalized, the original rule will be mapped to :original. It looks like this (truncated for brevity):
 
-[ TODO the format has changed ]
 ```clojure
-user=> (build-grammar sum)
-{digit (#clearley.rules.RuleImpl{:kernel (...) })}
-user=> (pprint *1)
-{digit
- ({:kernel
-   {:rulefn
-    #<core$char_range$fn__1939 clearley.core$char_range$fn__1939@5f36ba9b>,
-    :scanned false},
-   :name nil,
-   :action
-   #<calculator$fn__2309 clearley.examples.calculator$fn__2309@21546f3>}),
- number
- ...}
+user=> (def g (clearley.grammar/build-grammar sum))
+#'user/g
+user=> (clojure.pprint/pprint g)
+{clearley.lib/natnum
+ {:original
+  {:name nil ... },
+  :name "natnum",
+  :tag :star,
+  :value [ ... ]},
+ user/term { ... },
+ user/sum { ... },
+...}
 ```
-
-You can manipulate it as you'd manipulate any other map. For nondeterministic grammars, the order of rules might make a difference, but exact behavior is unspecified for now.
 
 ## What's under the hood
 
