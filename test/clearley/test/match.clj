@@ -1,5 +1,5 @@
-(ns clearley.test.defmatch
-  (use clearley.core [clearley.match :exclude [digit]] clearley.grammar
+(ns clearley.test.match
+  (use clearley.core clearley.match [clearley.lib :exclude [digit]] clearley.grammar
        clearley.test.utils uncore.test.utils lazytest.deftest))
 
 ; TODO tests for match
@@ -18,9 +18,9 @@
 
 (deftest build-grammar-smoke-test
   (is grammar1 true)
-  (is (get grammar1 'clearley.test.defmatch/sum))
-  (is (get grammar1 'clearley.test.defmatch/times))
-  (is (get grammar1 'clearley.test.defmatch/digit)))
+  (is (get grammar1 'clearley.test.match/sum))
+  (is (get grammar1 'clearley.test.match/times))
+  (is (get grammar1 'clearley.test.match/digit)))
 
 ; Testing the parser
 (def parser1 (build-parser sum))

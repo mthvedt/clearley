@@ -1,7 +1,6 @@
 (ns clearley.examples.calculator
-  (use clearley.match clojure.math.numeric-tower))
+  (use clearley.match clearley.lib clojure.math.numeric-tower))
 
-; TODO do we even need this?
 (defmatch sum
   ([sum \+ term] (+ sum term))
   ([sum \- term] (- sum term)) ; left associative
@@ -19,12 +18,8 @@
 (defmatch numexpr
   ([\- numexpr] (- numexpr))
   parenexpr
-  number)
-(defmatch parenexpr
-  ([\( sum \)] sum))
-(defmatch number
-  ([number digit] (+ (* 10 number) digit))
-  digit)
+  natnum)
+(def parenexpr (parens sum))
 
 (def my-calculator (clearley.core/build-parser sum))
 

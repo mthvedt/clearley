@@ -1,5 +1,5 @@
 (ns clearley.examples.simplest-calculator
-  (use clearley.match))
+  (use clearley.match clearley.lib))
 
 (defmatch sum
   ([sum \+ term] (+ sum term)) ; left associative
@@ -11,8 +11,7 @@
   number)
 (defmatch number
   ([\- number] (- number))
-  ([number digit] (+ (* 10 number) digit))
-  digit)
+  natnum)
 
 (def my-calculator (clearley.core/build-parser sum))
 

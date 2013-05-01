@@ -35,10 +35,15 @@
 
 (defn opt
   "Creates a rule that matches a subrule, or nothing. The action will be passed
-  the subrule's value, or nil. The default action is the identity."
+  the subrule's value, or a default value (nil if unspecified).
+  The default action is the identity."
   ([subrule] (opt subrule identity))
-  ([subrule action]
-   {:tag :or :value [subrule empty-rule] :action action}))
+  ([subrule action] (opt nil subrule identity))
+  ([name subrule action]
+   {:name name, :tag :or :value [subrule empty-rule] :action action})
+  ([name subrule action default]
+   {:name name, :tag :or :value [subrule (assoc empty-rule :action (fn [] default))],
+    :action action}))
 
 (defn char-range
   "Creates a rule that accepts any one character within a given range
@@ -103,7 +108,7 @@
 (def natnum
   "Matches a positive number, returning the number. Any number of leading zeroes
   is allowed."
-  (star digit #(make-num %&)))
+  (plus digit #(make-num %&)))
 
 (defmatch ^{:doc "Matches a positive number with no leading zeroes,
                 returning the number. (0 is a matching number.)"}
@@ -128,11 +133,12 @@
 (defmacro defsurrounder [sym in-what open close]
   `(defrulefn ~sym
      ~(str "Surround a rule in " in-what ".")
-     a-rule# identity
-     (surround ~'name ~open a-rule# ~close ~'action)))
+     ~'a-rule identity
+     (surround ~'name ~open ~'a-rule ~close ~'action)))
 
 (defsurrounder quotes "quotes" \" \")
 (defsurrounder brackets "brackets: []" \[ \])
 (defsurrounder braces "braces: {}" \{ \})
+(defsurrounder parens "parens: ()" \( \))
 (defsurrounder angle-brackets "angle brackets: <>" \< \>)
 (defsurrounder single-quotes "single quotes" \' \')

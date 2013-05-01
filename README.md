@@ -20,7 +20,7 @@ Sitting on top is a macro library to make parsing as easy as pattern matching. A
 
 Parsing is for whenever you have a stream of structured input that you want to turn into output. This is what it looks like with Clearley:
 
-```
+```clojure
 (def h (match [\h] "Hello, "))
 (def w (match [\w] "world!"))
 (def goal (match [h w] (str h w)))
@@ -122,9 +122,9 @@ tag	| description	| behavior	| default action	| notes
 :seq	| sequence	| matches all given subrules, in order	| returns a seq	| if empty, matches the empty string
 :or	| choice	| matches any one of the given subrules	| identity	| if empty, always fails
 :star	| zero-or-more	| matches zero or more of one given subrule	| returns a seq
-:symbol	| rule reference | matches the rule the symbol refres to	| if the symbol can't be found by the grammar/parser builder, that's an error
-:token	| matches one item of input using = |	returns the matched item	|
-:scanner	| given a fn, matches one item of input if (fn input) is true	| returns the matched input
+:symbol	| rule reference | matches the rule the symbol refres to	| the action of the subrule | if the symbol can't be found by the grammar/parser builder, that's an error
+:token	| matches one item of input using = |	returns the matched item	| none
+:scanner	| given a fn, matches one item of input if (fn input) is true	| returns the matched input | none
 
 ### Shorthand
 
