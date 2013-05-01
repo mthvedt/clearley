@@ -1,5 +1,5 @@
 (ns clearley.examples.calculator
-  (use clearley.defmatch clojure.math.numeric-tower))
+  (use clearley.match clojure.math.numeric-tower))
 
 ; TODO do we even need this?
 (defmatch sum

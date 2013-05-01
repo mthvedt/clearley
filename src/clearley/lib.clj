@@ -1,17 +1,7 @@
-; Standard library, included in clearley.defmatch
-; TODO maybe own namespace?
-; then tutorial can include lib/ ..whateer
-
-(def ^{:doc "The empty rule. Returns nil."}
-  empty-rule {:name "empty" :tag :seq :value [] :action (fn [] nil)})
-
-; TODO arguments-checking
-(defrulefn scanner
-  "Creates a rule that accepts input tokens. For a token t, if (scanner-fn t)
-  is logical true, this rule matches that token.
-  The default action returns the token."
-  scanner-fn identity
-  {:name name, :tag :scanner, :value [scanner-fn], :action action})
+(ns clearley.lib
+  "More fns and macros for context-free grammars."
+  (require [uncore.throw :as t])
+  (use clearley.match))
 
 (defrulefn token
   "Creates a rule that matches a token. The default action returns the token."

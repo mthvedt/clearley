@@ -1,5 +1,5 @@
 (ns clearley.test.defmatch
-  (use clearley.core [clearley.defmatch :exclude [digit]] clearley.grammar
+  (use clearley.core [clearley.match :exclude [digit]] clearley.grammar
        clearley.test.utils uncore.test.utils lazytest.deftest))
 
 ; TODO tests for match

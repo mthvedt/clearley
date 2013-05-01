@@ -5,7 +5,7 @@
            [clearley.earley :as earley]
            [uncore.throw :as t]
            backtick)
-  (use clearley.defmatch clearley.grammar uncore.core))
+  (use clearley.match clearley.grammar uncore.core))
 
 (defprotocol Parser
   (parse [parser input] "Parse the given input with the given parser,

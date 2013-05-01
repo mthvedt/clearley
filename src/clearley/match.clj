@@ -1,15 +1,20 @@
-(ns clearley.defmatch
+(ns clearley.match
   "Fns and macros to define context-free grammars.
   Emphasis is on power, flexibility, and ease of use."
   (require [uncore.throw :as t])
   (use uncore.core))
-; TODO include in core
 
+; TODO put in core?
+
+; TODO arguments-checking?
 (defmacro defrulefn [sym doc arg1 default-action & full-body]
   `(defn ~sym ~doc
      ([~arg1] (~sym nil ~arg1 ~default-action))
      ([~arg1 ~'action] (~sym nil ~arg1 ~'action))
      ([~'name ~arg1 ~'action] ~@full-body)))
+
+(def ^{:doc "The empty rule. Returns nil."}
+  empty-rule {:name "empty" :tag :seq :value [] :action (fn [] nil)})
 
 (defrulefn rule
   "Creates a context-free grammar rule. A rule has a required seq of clauses,
@@ -17,6 +22,13 @@
   If not supplied, the default action bundles the args into a list."
   clauses list-identity
   {:name name, :tag :seq, :value (vec clauses), :action action})
+
+(defrulefn scanner
+  "Creates a rule that accepts input tokens. For a token t, if (scanner-fn t)
+  is logical true, this rule matches that token.
+  The default action returns the token."
+  scanner-fn identity
+  {:name name, :tag :scanner, :value [scanner-fn], :action action})
 
 ; Macro helper fn for def rule. Returns a pair of
 ; [appropriate-symbol-for-action-body, rule-or-rulename]
@@ -135,5 +147,3 @@
   "Like bind but defs a variable."
   [sym & body]
   `(def ~sym (assoc (bind ~@body) :name '~sym)))
-
-(load "core_stdlib")

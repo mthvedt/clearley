@@ -1,5 +1,5 @@
 (ns clearley.examples.simplest-calculator
-  (use clearley.defmatch))
+  (use clearley.match))
 
 (defmatch sum
   ([sum \+ term] (+ sum term)) ; left associative

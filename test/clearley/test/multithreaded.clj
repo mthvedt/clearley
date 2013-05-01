@@ -1,5 +1,5 @@
 (ns clearley.test.multithreaded
-  (use clearley.core clearley.defmatch clearley.test.utils uncore.test.utils
+  (use clearley.core clearley.match clearley.test.utils uncore.test.utils
        lazytest.deftest [clearley.examples.json :exclude [json-parser]]))
 ; This tests multithreading parsers (important if you're memoizing)
 
@@ -9,8 +9,12 @@
   ([\s] "s"))
 
 ; Fresh parser (don't use json's)
-(def json-parser (build-parser whitespace-object))
-(def json-parser-parallel (build-parser whitespace-object))
+(def json-ns (find-ns 'clearley.examples.json))
+(def json-parser (build-parser-with-ns 'clearley.examples.json/whitespace-object
+                                       json-ns))
+(def json-parser-parallel (build-parser-with-ns
+                            'clearley.examples.json/whitespace-object
+                            json-ns))
 
 (def-parser-test multithreaded-parser-test json-parser
   (let [r-atom (atom [])
