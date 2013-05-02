@@ -15,12 +15,15 @@
 ; and wants to match subrule2. An rule is said to be 'complete' if it has
 ; no more subrules to match.
 
-; Items can have lookahead. For a complete item, an item to be 'complete with lookahead'
+; Items can have lookahead. For a complete item,
+; an item to be 'complete with lookahead'
 ; means that it doesn't count as complete unless the next token in the input
 ; matches the lookahead. This is very useful for avoiding so-called 'shift reduce'
 ; conflicts, which are performance issues even in nondeterministic parsers.
-; In particular, 'zero or more' items, like something that matches zero or more spaces,
-; can decide whether it's complete or not based on whether a space is in the next input.
+; In particular, 'zero or more' items,
+; like something that matches zero or more spaces,
+; can decide whether it's complete or not based on whether a space is
+; in the next input.
 
 ; An item set is a set of unique items, together with 'backlinks'
 ; recording item dependencies. An item 'predicts' subrules. If we have
@@ -71,23 +74,30 @@
                            :backlink #(if % % item)})
          :seed? true))
 
+(defn shifter [item]
+  ; Assumption: an item can only have one scanner
+  (first (filter fn? (rules/predict (:rule item)))))
+
 (defn scan-item [item input-token]
   (if (some #(% input-token)
             (filter fn? (rules/predict (:rule item))))
     (advance-item item)))
 
+(defn goal-item [goal grammar]
+  (new-item (rules/goal-rule goal grammar) true #{::term}))
+
 ; === Item sets ===
 
 (defrecord ItemSet [items backlink-map])
 
-(defn item-str-set-item [item backlink-map]
+(defn item-set-item-str [item backlink-map]
   (let [predictor-str (->> item (omm/get-vec backlink-map)
                         (map item-str) (s/separate-str ", ") s/cutoff)]
     (str (item-str-follow item) (if (seq predictor-str) (str " | " predictor-str)))))
 
-(defn item-str-set [{:keys [items backlink-map]}]
+(defn item-set-str [{:keys [items backlink-map]}]
   (with-out-str
-    (runmap println (map #(item-str-set-item % backlink-map) items))))
+    (runmap println (map #(item-set-item-str % backlink-map) items))))
 
 (defn predict-into-item-set [{:keys [items backlink-map] :as item-set} item predictor]
   (if (empty? (omm/get-vec backlink-map item))
@@ -110,6 +120,9 @@
 ; 1. goal -> whatever
 ; 2. whatever -> whatever | called by 1, 3
 
+(defn shifters [{items :items}]
+  (remove nil? (map shifter items)))
+
 ; Returns the result of an item set shift, or nil
 (defn shift-item-set [items input-token]
   (seq (remove nil? (map #(scan-item % input-token) items))))
@@ -121,12 +134,12 @@
 
 ; The returns (reduces) of some seed items
 (defn returns [seed-items lookahead]
-  (let [acceptor (if (= lookahead :clearley.npda/term)
+  (let [acceptor (if (= lookahead ::term)
                    ; Special handling. We don't want to surprise pass ::term
                    ; to someone's scanner
                    #(= % lookahead)
                    #(and (ifn? %) (% lookahead)))]
-  (filter (fn [{:keys [rule follow]}]
-            (and (rules/is-complete? rule)
-                 (some identity (map acceptor follow))))
-          seed-items)))
+    (seq (filter (fn [{:keys [rule follow]}]
+                   (and (rules/is-complete? rule)
+                        (some identity (map acceptor follow))))
+                 seed-items))))

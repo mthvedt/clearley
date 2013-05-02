@@ -41,7 +41,7 @@
                     EarleyState
                     (goals [_] (filter #(rules/goal? (:rule %)) (:items item-set)))
                     npda/IPrinting
-                    (npda/pstr [self] (clr/pstr-item-set item-set)))]
+                    (npda/pstr [self] (clr/item-set-str item-set)))]
             (if (compare-and-set! mem-atom old-atom (assoc old-atom seed-items r))
               r
               (recur))))))))

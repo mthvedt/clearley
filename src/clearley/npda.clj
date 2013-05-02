@@ -204,7 +204,8 @@
         (lazy-seq
           (when-let [thechar (first input)]
             (let [rest-input (rest input)
-                  char2 (if (seq rest-input) (tokenizer (first rest-input)) ::term)
+                  char2 (if (seq rest-input) (tokenizer (first rest-input))
+                          :clearley.clr/term)
                   next-chart (process-chart current-chart
                                             (tokenizer thechar) thechar char2 pos)]
               (if (seq (states next-chart))

@@ -83,6 +83,8 @@
   (predict-singleton :scanner value))
 (defmethod predict* :token [{dot :dot {value :value} :raw-rule}]
   (predict-singleton :token [(fn [x] (= x (first value)))]))
+(defmethod predict* :default [rule]
+  (t/RE "Don't know how to predict:" rule))
 
 (defn predict [cfg-rule]
   ;(prn "Predicting " cfg-rule)

@@ -3,6 +3,7 @@
   (require [clojure string pprint]
            [clearley.rules :as rules]
            [clearley.earley :as earley]
+           [clearley.quentin :as q]
            [uncore.throw :as t]
            backtick)
   (use clearley.match clearley.grammar uncore.core))
@@ -24,16 +25,17 @@
    (let [mem-atom (atom {})
          mem-atom-2 (atom {})
          goal (backtick/resolve-symbol goal)
-         parse-fn #(earley/parse-charts % grammar identity goal mem-atom mem-atom-2
-                                        %2)]
+         #_parse-fn #_#(earley/parse-charts % grammar identity #_tokenizer goal
+                                        mem-atom mem-atom-2)]
    (reify
      Parser
      (parse [_ input]
        ; For now, only return first match. If failure, last chart will be empty
-       (-> (parse-fn input false) earley/scan-goal first))
-     ChartParser
-     (charts [_ input] (parse-fn input true))
-     (print-charts [self input] (earley/pstr-charts (charts self input)))))))
+       ;(-> (parse-fn input) last earley/scan-goal first))
+       (q/finalize-state (q/parse grammar goal input)))
+     #_ChartParser
+     #_(charts [_ input] (parse-fn input))
+     #_(print-charts [_ input] (earley/pstr-charts (parse-fn input)))))))
 
 ; TODO work on this
 (defn print-match

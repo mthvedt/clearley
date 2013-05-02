@@ -25,7 +25,7 @@
 ; Testing the parser
 (def parser1 (build-parser sum))
 
-(deftest parser-smoke-test
+#_(deftest parser-smoke-test
   (is (with-out-str (print-charts parser1 "3+3"))))
 
 ; === Test the basics ===
