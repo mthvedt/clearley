@@ -42,7 +42,7 @@
 ; backlink: the item from the original item set, before shifts
 ; (but including initial eager advances)
 ; match-count: the number of times this rule has been scanned or advanced
-; follow: the follow set of this item = any terminal that can follow this item
+; follow: a terminal that can follow this item
 ; (depends on predicting items)
 (defrecord Item [rule backlink match-count seed? follow])
 
@@ -50,7 +50,7 @@
   (str (if seed? "" "+ ") (rules/rule-str rule)))
 
 (defn item-str-follow [{follow :follow :as item}]
-  (str (item-str item) " : " (s/separate-str " " (map hexhash follow))))
+  (str (item-str item) " : " (hexhash follow)))
 
 (defn new-item [rule seed? follow]
   (->Item rule nil 0 seed? follow))
@@ -65,9 +65,12 @@
 (defn eager-advances [item prediction?]
   (take-while identity (iterate #(eager-advance % prediction?) item)))
 
+; TODO don't need rules/follow-first to be a set
 (defn predict-item [{:keys [rule follow]}]
-  (mapcat #(eager-advances (new-item % false (rules/follow-first rule follow)) true)
-          (remove fn? (rules/predict rule))))
+  (mapcat #(eager-advances % true)
+          (for [prediction (remove fn? (rules/predict rule))
+                follow-terminal (rules/follow-first rule follow)]
+            (new-item prediction false follow-terminal))))
 
 (defn advance-item [item]
   (assoc (update-all item {:rule rules/advance, :match-count inc,
@@ -84,7 +87,7 @@
     (advance-item item)))
 
 (defn goal-item [goal grammar]
-  (new-item (rules/goal-rule goal grammar) true #{::term}))
+  (new-item (rules/goal-rule goal grammar) true ::term))
 
 ; === Item sets ===
 
@@ -137,9 +140,9 @@
   (let [acceptor (if (= lookahead ::term)
                    ; Special handling. We don't want to surprise pass ::term
                    ; to someone's scanner
-                   #(= % lookahead)
+                   #(= % ::term)
                    #(and (ifn? %) (% lookahead)))]
     (seq (filter (fn [{:keys [rule follow]}]
                    (and (rules/is-complete? rule)
-                        (some identity (map acceptor follow))))
+                        (acceptor follow)))
                  seed-items))))

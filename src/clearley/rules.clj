@@ -10,12 +10,13 @@
 ; will overwrite higher ones; this is intentional
 (def ^:dynamic *mem-atom* nil)
 (defmacro local-memo [key datum & body]
-  `(let [m# (get @*mem-atom* ~key {})]
-     (if (contains? m# ~datum)
-       (get m# ~datum)
-       (let [r# (do ~@body)]
-         (swap! *mem-atom* #(assoc % ~key (assoc (get % ~key {}) ~datum r#)))
-         r#))))
+  `(if *mem-atom*
+     (let [m# (get @*mem-atom* ~key {})]
+       (if (contains? m# ~datum)
+         (get m# ~datum)
+         (let [r# (do ~@body)]
+           (swap! *mem-atom* #(assoc % ~key (assoc (get % ~key {}) ~datum r#)))
+           r#)))))
 
 ; just for speed
 (defrecord Match [rule submatches])
@@ -84,10 +85,9 @@
 (defmethod predict* :token [{dot :dot {value :value} :raw-rule}]
   (predict-singleton :token [(fn [x] (= x (first value)))]))
 (defmethod predict* :default [rule]
-  (t/RE "Don't know how to predict:" rule))
+  (t/RE "Don't know how to predict:" (pr-str rule)))
 
 (defn predict [cfg-rule]
-  ;(prn "Predicting " cfg-rule)
   (local-memo :predict cfg-rule (predict* cfg-rule)))
 
 ; Is this rule complete?
@@ -178,7 +178,7 @@
 (defn follow-first [rule parent-follow]
   (let [follow-set (first-set (advance rule))]
     (if (follow-set ::empty)
-      (disj (clojure.set/union follow-set parent-follow) ::empty)
+      (disj (conj follow-set parent-follow) ::empty)
       follow-set)))
 
 (defn take-action* [match]
