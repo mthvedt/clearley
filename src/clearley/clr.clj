@@ -41,10 +41,13 @@
 ; match-count: the number of times this rule has been scanned or advanced
 ; follow: the follow set of this item = any terminal that can follow this item
 ; (depends on predicting items)
-(defrecord Item [rule backlink match-count seed? follow]
-  npda/IPrinting
-  (npda/pstr [_] (str (if seed? "" "+ ") (rules/rule-str rule)
-                      " : " (s/separate-str " " (map hexhash follow)))))
+(defrecord Item [rule backlink match-count seed? follow])
+
+(defn item-str [{:keys [rule seed? follow]}]
+  (str (if seed? "" "+ ") (rules/rule-str rule)))
+
+(defn item-str-follow [{follow :follow :as item}]
+  (str (item-str item) " : " (s/separate-str " " (map hexhash follow))))
 
 (defn new-item [rule seed? follow]
   (->Item rule nil 0 seed? follow))
@@ -77,14 +80,14 @@
 
 (defrecord ItemSet [items backlink-map])
 
-(defn pstr-item-set-item [item backlink-map]
+(defn item-str-set-item [item backlink-map]
   (let [predictor-str (->> item (omm/get-vec backlink-map)
-                        (map npda/pstr) (s/separate-str ", ") s/cutoff)]
-    (str (npda/pstr item) (if (seq predictor-str) (str " | " predictor-str)))))
+                        (map item-str) (s/separate-str ", ") s/cutoff)]
+    (str (item-str-follow item) (if (seq predictor-str) (str " | " predictor-str)))))
 
-(defn pstr-item-set [{:keys [items backlink-map]}]
+(defn item-str-set [{:keys [items backlink-map]}]
   (with-out-str
-    (runmap println (map #(pstr-item-set-item % backlink-map) items))))
+    (runmap println (map #(item-str-set-item % backlink-map) items))))
 
 (defn predict-into-item-set [{:keys [items backlink-map] :as item-set} item predictor]
   (if (empty? (omm/get-vec backlink-map item))
