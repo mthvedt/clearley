@@ -1,6 +1,6 @@
 # Clearley
 
-_N.B.: Version 3.0 is beta, and unstable._
+_N.B.: Version 0.3.0 is beta, and unstable._
 
 ```
 [clearley "0.3.0-SNAPSHOT"]
