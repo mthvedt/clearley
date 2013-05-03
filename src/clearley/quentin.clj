@@ -2,9 +2,24 @@
   (require [uncore.throw :as t]
            [uncore.str :as s]
            [clearley.rules :as rules])
-  (use clearley.clr uncore.core))
+  (use clearley.clr uncore.core clojure.stacktrace))
 
-(defrecord ParseStream [input output pos])
+(defprotocol IParseStream
+  (shift [self output])
+  (return [self output])
+  (get-input [self])
+  (get-output [self])
+  (get-position [self]))
+
+(defrecord ParseStream [input output pos]
+  IParseStream
+  (shift [_ output2]
+    (->ParseStream (rest input) (conj output output2) (inc pos)))
+  (return [_ output2]
+    (->ParseStream input (conj output output2) pos))
+  (get-input [_] input)
+  (get-output [_] output)
+  (get-position [_] pos))
 
 (defn parse-stream [input]
   (->ParseStream input [] 0))
@@ -22,42 +37,35 @@
 (defn item-parser-fn* [seeds mem]
   (let [more-seeds (mapcat #(eager-advances % false) seeds)
         {item-set-items :items :as item-set} (closed-item-set more-seeds)
-
-        shifter-fn (memoize #(shift-item-set item-set-items %))
+        shifter-fn (memoize #(item-parser-fn (shift-item-set item-set-items %) mem))
         return-fn (memoize #(returns more-seeds %))
         continuer (continue-parsing item-set mem)]
-    (fn [{:keys [input output pos] :as stream} continuation]
-      (let [current-input (first input)
-            shift (if (seq input) (shifter-fn current-input))
-            current-input (if (seq input) current-input :clearley.clr/term)
+    (fn [stream continuation]
+      (let [current-istream (get-input stream)
+            current-input (first current-istream)
+            shift-result (if (seq current-istream) (shifter-fn current-input))
+            current-input (if (seq current-istream) current-input :clearley.clr/term)
             return-set (return-fn current-input)]
         ;(println "===")
         ;(println "Input: " current-input)
         ;(print (item-set-str item-set))
         ; TODO
-        (if (and shift return-set)
+        (if (and shift-result return-set)
           (println "Shift-reduce conflict in item set\n" (item-set-str item-set)))
         (if (and return-set (> (count return-set) 1))
           (println "Reduce-reduce conflict: "
                    (s/separate-str " " (map item-str-follow return-set))))
-        (cond shift
-              (fn []
-                ((item-parser-fn shift mem)
-                   (update-all stream {:input rest, :output #(conj % current-input),
-                                        :pos inc})
-                  #(continuer % continuation)))
-              #_(continuer
-                 ((item-parser-fn shift mem) 
-                    (update-all stream {:input rest, :output #(conj % current-input),
-                                        :pos inc})))
+        (cond shift-result
+              (fn [] (shift-result (shift stream current-input)
+                                   #(continuer % continuation)))
 
               return-set
               ; TODO don't ignore reduce-reduce
               ; TODO put rule in output.
               (fn []
-                (continuation (update stream :output #(conj % (first return-set)))))
+                (continuation (return stream (first return-set))))
 
-              true (t/RE "Failure to parse at position" pos))))))
+              true (t/RE "Failure to parse at position " (get-position stream)))))))
 
 (defn item-parser-fn [seeds mem]
   (if (seq seeds)
@@ -70,10 +78,13 @@
             (recur seeds mem))))))) ; Spin loop
 
 (defn continue-parsing [item-set mem]
-  (let [shift-advancer (memoize #(advance-item-set item-set % false))
-        continue-advancer (memoize #(advance-item-set item-set % true))]
-    (fn f [{:keys [input output pos] :as stream} continuation]
-      (let [current-backlink (:backlink (peek output))
+  (let [shift-advancer (memoize #(item-parser-fn (advance-item-set item-set % false)
+                                                mem))
+        continue-advancer (memoize #(item-parser-fn (advance-item-set item-set % true)
+                                                    mem))]
+    (fn f [stream continuation]
+      (let [current-output (get-output stream)
+            current-backlink (:backlink (peek current-output))
             shift-advance (shift-advancer current-backlink)
             continue-advance (continue-advancer current-backlink)]
         ;(println "Stack top: " (-> current-backlink :rule :raw-rule :original))
@@ -81,15 +92,15 @@
           (println "Stack split in item set\n" (item-set-str item-set)))
         (cond shift-advance
               ;(recur ((item-parser-fn shift-advance mem) stream))
-              (fn [] ((item-parser-fn shift-advance mem) stream #(f % continuation)))
+              (fn [] (shift-advance stream #(f % continuation)))
               ; Keep us on the stack, see what comes next
 
               continue-advance
-              #((item-parser-fn continue-advance mem) stream continuation)
+              #(continue-advance stream continuation)
               ;((item-parser-fn continue-advance mem) stream)
               ; Basically a tailcall
 
-              true (t/RE "Failure to parse at position" pos))))))
+              true (t/RE "Failure to parse at position" (get-position stream)))))))
 
 (defn parse [grammar goal input mem mem2]
   (try
@@ -97,7 +108,8 @@
       (tramp #((item-parser-fn [(goal-item goal grammar)] mem)
                  (parse-stream input)
                  identity)))
-    (catch RuntimeException e nil))) ; TODO this is a hack
+    (catch RuntimeException e (print-stack-trace e))))
+    ;(catch RuntimeException e nil))) ; TODO this is a hack
 
 (defn pprint-parse-stream [{:keys [input output] :as stream}]
   ;(println "Input:" input)
