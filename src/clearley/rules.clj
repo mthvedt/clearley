@@ -8,6 +8,7 @@
 ; A somewhat ugly hack to make calculating first sets and null advances O(1)
 ; Note that if body is recrusive, returns lower on the stack
 ; will overwrite higher ones; this is intentional
+; TODO this is dangerous. safe if done right, but can introduce bugs. kill with fire.
 (def ^:dynamic *mem-atom* nil)
 (defmacro local-memo [key datum & body]
   `(if *mem-atom*

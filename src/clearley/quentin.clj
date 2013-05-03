@@ -11,65 +11,76 @@
 
 ; Parse stream handler: parse stream -> parse stream
 
-(declare continue-parsing)
+(declare continue-parsing item-parser-fn)
 
-(defn item-parser-fn [seeds]
-  ;shift-fn (mem-new clr/shift-item-set (:items item-set) %)
-  ;returns (memoize #(clr/returns more-seed-items %))
-  ;continues (mem-new clr/advance-item-set item-set % true)
-  ;bounces (mem-new clr/advance-item-set item-set % false)
+(defn item-parser-fn* [seeds mem]
+  (let [more-seeds (mapcat #(eager-advances % false) seeds)
+        {item-set-items :items :as item-set} (closed-item-set more-seeds)
 
-  (fn [{:keys [input output pos] :as stream}]
-    (let [current-input (first input)
-          more-seeds (mapcat #(eager-advances % false) seeds)
-          item-set (closed-item-set more-seeds)
-          shift (if (seq input)
-                  (shift-item-set (:items item-set) current-input)
-                  nil)
-          current-input (if (seq input) current-input :clearley.clr/term)
-          return-set (returns more-seeds current-input)]
-      ;(println "===")
-      ;(println "Input: " current-input)
-      ;(print (item-set-str item-set))
-      ; TODO
-      (if (and shift return-set)
-        (println "Shift-reduce conflict in item set\n" (item-set-str item-set)))
-      (if (and return-set (> (count return-set) 1))
-        (println "Reduce-reduce conflict: "
-                 (s/separate-str " " (map item-str-follow return-set))))
-      (cond shift
-            ((continue-parsing item-set)
-               ((item-parser-fn shift) 
-                  (update-all stream {:input rest, :output #(conj % current-input),
-                                      :pos inc})))
+        shifter-fn (memoize #(shift-item-set item-set-items %))
+        return-fn (memoize #(returns more-seeds %))
+        continuer (continue-parsing item-set mem)]
+    (fn [{:keys [input output pos] :as stream}]
+      (let [current-input (first input)
+            shift (if (seq input) (shifter-fn current-input))
+            ;(shift-item-set (:items item-set) current-input)
+            current-input (if (seq input) current-input :clearley.clr/term)
+            ;return-set (returns more-seeds current-input)]
+            return-set (return-fn current-input)]
+        ;(println "===")
+        ;(println "Input: " current-input)
+        ;(print (item-set-str item-set))
+        ; TODO
+        (if (and shift return-set)
+          (println "Shift-reduce conflict in item set\n" (item-set-str item-set)))
+        (if (and return-set (> (count return-set) 1))
+          (println "Reduce-reduce conflict: "
+                   (s/separate-str " " (map item-str-follow return-set))))
+        (cond shift
+              ((continue-parsing item-set mem)
+                 ((item-parser-fn shift mem) 
+                    (update-all stream {:input rest, :output #(conj % current-input),
+                                        :pos inc})))
 
-            return-set
-            ; TODO don't ignore reduce-reduce
-            ; TODO put rule in output.
-            (update stream :output #(conj % (first return-set)))
+              return-set
+              ; TODO don't ignore reduce-reduce
+              ; TODO put rule in output.
+              (update stream :output #(conj % (first return-set)))
 
-            true (t/RE "Failure to parse at position" pos)))))
+              true (t/RE "Failure to parse at position" pos))))))
 
-(defn continue-parsing [item-set]
-  (fn [{:keys [input output pos] :as stream}]
-    (let [current-backlink (:backlink (peek output))
-          shift-advance (advance-item-set item-set current-backlink false)
-          continue-advance (advance-item-set item-set current-backlink true)]
-      ;(println "Stack top: " (-> current-backlink :rule :raw-rule :original))
-      (if (and shift-advance continue-advance)
-        (println "Stack split in item set\n" (item-set-str item-set)))
-      (cond shift-advance (recur ((item-parser-fn shift-advance) stream))
-            ; Keep us on the stack, see what comes next
+(defn item-parser-fn [seeds mem]
+  (if (seq seeds)
+    (let [old-mem @mem]
+      (if-let [r (get old-mem seeds)]
+        r
+        (let [r2 (item-parser-fn* seeds mem)]
+          (if (compare-and-set! mem old-mem (assoc old-mem seeds r2))
+            r2
+            (recur seeds mem))))))) ; Spin loop
 
-            continue-advance ((item-parser-fn continue-advance) stream)
-            ; Basically a tailcall
+(defn continue-parsing [item-set mem]
+  (let [shift-advancer (memoize #(advance-item-set item-set % false))
+        continue-advancer (memoize #(advance-item-set item-set % true))]
+    (fn [{:keys [input output pos] :as stream}]
+      (let [current-backlink (:backlink (peek output))
+            shift-advance (shift-advancer current-backlink)
+            continue-advance (continue-advancer current-backlink)]
+        ;(println "Stack top: " (-> current-backlink :rule :raw-rule :original))
+        (if (and shift-advance continue-advance)
+          (println "Stack split in item set\n" (item-set-str item-set)))
+        (cond shift-advance (recur ((item-parser-fn shift-advance mem) stream))
+              ; Keep us on the stack, see what comes next
 
-            true (t/RE "Failure to parse at position" pos)))))
+              continue-advance ((item-parser-fn continue-advance mem) stream)
+              ; Basically a tailcall
 
-(defn parse [grammar goal input]
+              true (t/RE "Failure to parse at position" pos))))))
+
+(defn parse [grammar goal input mem mem2]
   (try
-    (binding [rules/*mem-atom* (atom {})]
-      ((item-parser-fn [(goal-item goal grammar)]) (parse-stream input)))
+    (binding [rules/*mem-atom* mem2]
+      ((item-parser-fn [(goal-item goal grammar)] mem) (parse-stream input)))
     (catch RuntimeException e nil))) ; TODO this is a hack
 
 (defn pprint-parse-stream [{:keys [input output] :as stream}]

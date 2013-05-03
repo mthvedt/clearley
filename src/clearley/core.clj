@@ -32,7 +32,7 @@
      (parse [_ input]
        ; For now, only return first match. If failure, last chart will be empty
        ;(-> (parse-fn input) last earley/scan-goal first))
-       (q/finalize-state (q/parse grammar goal input)))
+       (q/finalize-state (q/parse grammar goal input mem-atom mem-atom-2)))
      #_ChartParser
      #_(charts [_ input] (parse-fn input))
      #_(print-charts [_ input] (earley/pstr-charts (parse-fn input)))))))
