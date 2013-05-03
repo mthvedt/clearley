@@ -70,8 +70,8 @@
 (def object (braces (match ([whitespace] {}) pairs)))
 
 ; Put it all together...
-(def value (surround whitespace `(:or json-keyword string number array object)))
-(def whitespace-object (surround whitespace object))
+(def value (surround `whitespace `(:or json-keyword string number array object)))
+(def whitespace-object (surround `whitespace object))
 
 ; And we are done
 (def json-parser (clearley.core/build-parser whitespace-object))

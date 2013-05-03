@@ -114,7 +114,7 @@
                 returning the number. (0 is a matching number.)"}
   canonical-natnum
   ([\0] 0)
-  digit1-9
+  ;digit1-9
   ([digit1-9 (digits `(:star digit))] (make-num (cons digit1-9 digits))))
 
 (defn surround 
