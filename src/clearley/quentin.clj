@@ -39,29 +39,26 @@
 
 ; Parse stream handler: parse stream -> parse stream
 
-(declare continue-parsing item-parser-fn)
+(declare continue-parsing get-item-parser-ref)
 
 (defn get-all-advances [{backlink-map :backlink-map :as item-set} seed? mem]
   (let [all-backlinks (omm/keys backlink-map)]
     (into {}
           (remove (fn-> second nil?)
-            (map (fn [backlink] [backlink (item-parser-fn
+            (map (fn [backlink] [backlink (get-item-parser-ref
                                             (advance-item-set item-set backlink seed?)
                                             mem)])
                  all-backlinks)))))
 
 (def nilref (delay nil))
 
-(defn item-parser-fn* [seeds mem]
+(defn get-item-parser* [seeds myns]
   (let [more-seeds (mapcat #(eager-advances % false) seeds)
         item-set (closed-item-set more-seeds)
-        get-shift-parser (memoize #(item-parser-fn (shift-item-set item-set %) mem))
-        shift-advances (get-all-advances item-set false mem)
-        continue-advances (get-all-advances item-set true mem)
-        #_get-shift-advancer #_(memoize #(item-parser-fn
-                                       (advance-item-set item-set % false) mem))
-        #_get-continue-advancer #_(memoize #(item-parser-fn
-                                          (advance-item-set item-set % true) mem))
+        get-shift-parser (memoize #(get-item-parser-ref (shift-item-set item-set %)
+                                                        myns))
+        shift-advances (get-all-advances item-set false myns)
+        continue-advances (get-all-advances item-set true myns)
         get-return-set (memoize #(returns more-seeds %))]
     (fn [stream]
       (let [istream (get-input stream)
@@ -97,20 +94,34 @@
 
               true (t/RE "Failure to parse at position " (get-pos stream)))))))
 
-(defn item-parser-fn [seeds mem]
-  (let [old-mem @mem]
-    (if-let [r (get old-mem seeds)]
-      r
-      (let [r2 (if (seq seeds) (delay (item-parser-fn* seeds mem)) nilref)]
-        (if (compare-and-set! mem old-mem (assoc old-mem seeds r2))
-          r2
-          (recur seeds mem)))))) ; Spin loop--each item parser should exist only once
+(defn get-item-parser-ref [seeds myns]
+  (if (seq seeds)
+    (let [item-set-var-map @(ns-resolve myns 'item-set-var-map)
+          ns-lock @(ns-resolve myns 'ns-lock)]
+      (locking ns-lock
+        (let [sym (symbol (str "item-set-" (count @item-set-var-map)))]
+          (if-let [sym0 (get @item-set-var-map seeds)]
+            @(ns-resolve myns sym0)
+            (let [r (delay (get-item-parser* seeds myns))]
+              (intern myns sym r)
+              (swap! item-set-var-map #(assoc % seeds sym))
+              r)))))
+    (delay nil)))
+
+(defn new-ns []
+  (let [sym (gensym "quentin")
+        r (create-ns sym)]
+    (remove-ns sym)
+    (intern r 'item-set-var-map (atom {})) ; map: seeds -> symbol
+    (intern r 'ns-lock (Object.))
+    r))
 
 (defn parse [grammar goal input mem mem2]
-  (try
-    (binding [rules/*mem-atom* mem2]
-      (@(item-parser-fn [(goal-item goal grammar)] mem) (parse-stream input)))
-    (catch RuntimeException e (clojure.stacktrace/print-stack-trace e)))) ; TODO
+  (let [myns (new-ns)]
+    (try
+      (binding [rules/*mem-atom* mem2]
+        (@(get-item-parser-ref [(goal-item goal grammar)] myns) (parse-stream input)))
+      (catch RuntimeException e (clojure.stacktrace/print-stack-trace e))))) ; TODO
 
 (defn pprint-parse-stream [{:keys [input output] :as stream}]
   ;(println "Input:" input)
