@@ -2,6 +2,7 @@
   (require [uncore.throw :as t]
            [uncore.str :as s]
            [clearley.rules :as rules]
+           [uncore.collections.worm-ordered-multimap :as omm]
            clojure.stacktrace)
   (use clearley.clr uncore.core))
 
@@ -40,20 +41,32 @@
 
 (declare continue-parsing item-parser-fn)
 
+(defn get-all-advances [{backlink-map :backlink-map :as item-set} seed? mem]
+  (let [all-backlinks (omm/keys backlink-map)]
+    (into {}
+          (remove (fn-> second nil?)
+            (map (fn [backlink] [backlink (item-parser-fn
+                                            (advance-item-set item-set backlink seed?)
+                                            mem)])
+                 all-backlinks)))))
+
+(def nilref (delay nil))
+
 (defn item-parser-fn* [seeds mem]
   (let [more-seeds (mapcat #(eager-advances % false) seeds)
-        {item-set-items :items :as item-set} (closed-item-set more-seeds)
-        get-shift-parser (memoize #(item-parser-fn (shift-item-set item-set-items %)
-                                                   mem))
-        get-shift-advancer (memoize #(item-parser-fn
+        item-set (closed-item-set more-seeds)
+        get-shift-parser (memoize #(item-parser-fn (shift-item-set item-set %) mem))
+        shift-advances (get-all-advances item-set false mem)
+        continue-advances (get-all-advances item-set true mem)
+        #_get-shift-advancer #_(memoize #(item-parser-fn
                                        (advance-item-set item-set % false) mem))
-        get-continue-advancer (memoize #(item-parser-fn
+        #_get-continue-advancer #_(memoize #(item-parser-fn
                                           (advance-item-set item-set % true) mem))
-        get-return-set (memoize #(returns more-seeds %))] 
+        get-return-set (memoize #(returns more-seeds %))]
     (fn [stream]
       (let [istream (get-input stream)
             current-input (first istream)
-            shift-parser (if (seq istream) (get-shift-parser current-input))
+            shift-parser (if (seq istream) @(get-shift-parser current-input))
             current-input (if (seq istream) current-input :clearley.clr/term)
             return-set (get-return-set current-input)]
         ;(println "===")
@@ -67,18 +80,16 @@
         (cond shift-parser
               (loop [result (shift-parser (shift stream current-input))]
                 (let [returned (:backlink (peek (get-output result)))
-                      shift-advancer (get-shift-advancer returned)
-                      continue-advancer (get-continue-advancer returned)]
-                  (if (and shift-advancer continue-advancer)
+                      shift-advance @(get shift-advances returned nilref)
+                      continue-advance @(get continue-advances returned nilref)]
+                  (if (and shift-advance continue-advance)
                     (println "Stack split in item set\n" (item-set-str item-set)))
-                  (cond shift-advancer
+                  (cond shift-advance
                         ; Keep us on the stack, see what comes next
-                        (recur (shift-advancer result))
+                        (recur (shift-advance result))
 
                         ; Tail-call (not really) the next parser fn
-                        continue-advancer (continue-advancer result)
-
-                        true (t/RE "Failure to parse at position " (get-pos result)))))
+                        continue-advance (continue-advance result))))
 
               return-set
               ; TODO put rule in output.
@@ -87,19 +98,18 @@
               true (t/RE "Failure to parse at position " (get-pos stream)))))))
 
 (defn item-parser-fn [seeds mem]
-  (if (seq seeds)
-    (let [old-mem @mem]
-      (if-let [r (get old-mem seeds)]
-        r
-        (let [r2 (item-parser-fn* seeds mem)]
-          (if (compare-and-set! mem old-mem (assoc old-mem seeds r2))
-            r2
-            (recur seeds mem))))))) ; Spin loop
+  (let [old-mem @mem]
+    (if-let [r (get old-mem seeds)]
+      r
+      (let [r2 (if (seq seeds) (delay (item-parser-fn* seeds mem)) nilref)]
+        (if (compare-and-set! mem old-mem (assoc old-mem seeds r2))
+          r2
+          (recur seeds mem)))))) ; Spin loop--each item parser should exist only once
 
 (defn parse [grammar goal input mem mem2]
   (try
     (binding [rules/*mem-atom* mem2]
-      ((item-parser-fn [(goal-item goal grammar)] mem) (parse-stream input)))
+      (@(item-parser-fn [(goal-item goal grammar)] mem) (parse-stream input)))
     (catch RuntimeException e (clojure.stacktrace/print-stack-trace e)))) ; TODO
 
 (defn pprint-parse-stream [{:keys [input output] :as stream}]

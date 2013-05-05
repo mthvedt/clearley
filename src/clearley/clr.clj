@@ -77,10 +77,6 @@
                            :backlink #(if % % item)})
          :seed? true))
 
-(defn shifter [item]
-  ; Assumption: an item can only have one scanner
-  (first (filter fn? (rules/predict (:rule item)))))
-
 (defn scan-item [item input-token]
   (if (some #(% input-token)
             (filter fn? (rules/predict (:rule item))))
@@ -123,11 +119,25 @@
 ; 1. goal -> whatever
 ; 2. whatever -> whatever | called by 1, 3
 
-(defn shifters [{items :items}]
-  (remove nil? (map shifter items)))
+(defn term-scanner [x] (= x ::term))
+
+(defn action-map [item-set]
+  (reduce (fn [themap {:keys [rule follow] :as item}]
+            (let [shifters (filter fn? (rules/predict rule))
+                  shifters (map #(vector :shift %) shifters)
+                  return-lookahead (if (= follow ::term)
+                                     term-scanner
+                                     follow)]
+              (omm/assoc
+                (reduce #(omm/assoc % %2 item) themap shifters)
+                return-lookahead [:return item])))
+          omm/empty (:items item-set)))
+
+(defn has-shifters? [{items :items}]
+  (some fn? (mapcat rules/predict (map :rule items))))
 
 ; Returns the result of an item set shift, or nil
-(defn shift-item-set [items input-token]
+(defn shift-item-set [{items :items} input-token]
   (seq (remove nil? (map #(scan-item % input-token) items))))
 
 ; continuations an item given a stack-top item-set
@@ -140,9 +150,18 @@
   (let [acceptor (if (= lookahead ::term)
                    ; Special handling. We don't want to surprise pass ::term
                    ; to someone's scanner
-                   #(= % ::term)
+                   term-scanner
                    #(and (ifn? %) (% lookahead)))]
     (seq (filter (fn [{:keys [rule follow]}]
                    (and (rules/is-complete? rule)
                         (acceptor follow)))
                  seed-items))))
+
+(defn single-return [seed-items]
+  (let [returns (filter (fn-> :rule rules/is-complete?) seed-items)]
+    (if (= 1 (count returns))
+      (first returns)
+      nil)))
+
+(defn has-returns? [seed-items]
+  (some (fn-> :rule rules/is-complete?) seed-items))
