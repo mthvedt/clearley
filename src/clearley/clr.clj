@@ -123,26 +123,30 @@
 
 ; Returns a map. Keys are the next token. Values are one of
 ; [:shift shifting-item] or [:return item-to-return].
-(defn action-map [item-set]
-  (reduce (fn [themap {:keys [rule follow] :as item}]
-            (let [shift-fns (filter fn? (rules/predict rule))
-                  return-lookahead (if (= follow ::term)
-                                     term-scanner
-                                     follow)]
-              (omm/assoc
-                (reduce #(omm/assoc % %2 [:shift item]) themap shift-fns)
-                return-lookahead [:return item])))
-          omm/empty (:items item-set)))
+(defn action-map [seed-items item-set]
+  (let [rmap (reduce
+               (fn [themap {:keys [rule] :as item}]
+                 (let [shift-fns (filter fn? (rules/predict rule))]
+                   (reduce #(omm/assoc % %2 [:shift item]) themap shift-fns)))
+        ;(if (rules/is-complete? rule)
+        ; (omm/assoc themap return-lookahead [:return item])
+        ;themap))))
+        omm/empty (:items item-set))]
+    (reduce (fn [themap {:keys [rule follow] :as seed}]
+              (if (rules/is-complete? rule)
+                (omm/assoc themap follow [:return seed])
+                themap))
+            rmap seed-items)))
 
-(defn shift-with-shift-fn [key action-map]
-  (for [[tag action] (omm/get-vec action-map key) :when (= tag :shift)]
+(defn get-actions-for-tag [key action-map tag]
+  (for [[tag1 action] (omm/get-vec action-map key) :when (= tag tag1)]
     action))
 
 ; stopgap
 (defn shift-action-map [input action-map]
   (let [r (some seq (map (fn [shift-fn]
                            (if (shift-fn input)
-                             (shift-with-shift-fn shift-fn action-map)))
+                             (get-actions-for-tag shift-fn action-map :shift)))
                          (omm/keys action-map)))]
     (map advance-item r)))
 

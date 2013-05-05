@@ -1,23 +1,36 @@
 (ns clearley.examples.calculator
   (use clearley.match clearley.lib clojure.math.numeric-tower))
 
+; It turns out making ordinary arithmetic an LR(1) grammar is pretty tough!
 (defmatch sum
   ([sum \+ term] (+ sum term))
   ([sum \- term] (- sum term)) ; left associative
   term)
 (defmatch term
   ([term \* pow] (* term pow))
-  ([term parenexpr] (* term parenexpr))
-  ([parenexpr term] (* parenexpr term))
-  ([term parenexpr (term2 term)] (* term parenexpr term2)) ; need an alias
   ([term \/ pow] (/ term pow))
-  pow)
+  ([\- parenexpr] (- parenexpr))
+  parenexpr
+  term-lparen)
+(defmatch term-lparen
+  ([term-lparen parenexpr] (* term-lparen parenexpr))
+  ([parenexpr term-rparen] (* parenexpr term-rparen))
+  ([(p1 parenexpr) (p2 parenexpr)] (* p1 p2))
+  ([term-lparen parenexpr pow-noparen] (* term-lparen parenexpr pow-noparen))
+  pow-noparen)
+(defmatch term-rparen ; neccesary for LR(1)
+  ([parenexpr term-rparen] (* parenexpr term-rparen))
+  ([\- parenexpr term-rparen] (- (* parenexpr term-rparen)))
+  pow-noparen)
 (defmatch pow
+  parenexpr
+  ([\- parenexpr] (- parenexpr))
+  pow-noparen)
+(defmatch pow-noparen
   ([numexpr \^ pow] (expt numexpr pow)) ; right associative
   numexpr)
 (defmatch numexpr
   ([\- numexpr] (- numexpr))
-  parenexpr
   natnum)
 (def parenexpr (parens sum))
 
@@ -40,6 +53,7 @@
     (is-action 16 "(2+2)(2+2)")
     (is-action 16 "2(2+2)2")
     (is-action 16 "2(2+2)(1+1-1)2")
+    (is-action 32 "2(2)2(2)2")
     (is-action 2 "(((((2)))))")
     (is-action 4 "2--2")
     (is-action 0 "2-----2")

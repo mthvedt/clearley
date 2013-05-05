@@ -23,16 +23,13 @@
   "Constructs a parser given a grammar and goal symbol."
   ([goal grammar]
    (let [mem-atom (atom {})
-         mem-atom-2 (atom {})
-         goal (backtick/resolve-symbol goal)
-         #_parse-fn #_#(earley/parse-charts % grammar identity #_tokenizer goal
-                                        mem-atom mem-atom-2)]
+         myns (q/new-ns)
+         goal (backtick/resolve-symbol goal)]
    (reify
      Parser
      (parse [_ input]
        ; For now, only return first match. If failure, last chart will be empty
-       ;(-> (parse-fn input) last earley/scan-goal first))
-       (q/finalize-state (q/parse grammar goal input mem-atom mem-atom-2)))
+       (q/finalize-state (q/parse grammar goal input myns mem-atom)))
      #_ChartParser
      #_(charts [_ input] (parse-fn input))
      #_(print-charts [_ input] (earley/pstr-charts (parse-fn input)))))))
