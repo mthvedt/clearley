@@ -55,7 +55,8 @@
 (defn get-item-parser* [seeds myns]
   (let [more-seeds (mapcat #(eager-advances % false) seeds)
         item-set (closed-item-set more-seeds)
-        get-shift-parser (memoize #(get-item-parser-ref (shift-item-set item-set %)
+        action-map (action-map item-set)
+        get-shift-parser (memoize #(get-item-parser-ref (shift-action-map % action-map)
                                                         myns))
         shift-advances (get-all-advances item-set false myns)
         continue-advances (get-all-advances item-set true myns)

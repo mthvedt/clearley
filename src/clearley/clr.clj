@@ -121,17 +121,30 @@
 
 (defn term-scanner [x] (= x ::term))
 
+; Returns a map. Keys are the next token. Values are one of
+; [:shift shifting-item] or [:return item-to-return].
 (defn action-map [item-set]
   (reduce (fn [themap {:keys [rule follow] :as item}]
-            (let [shifters (filter fn? (rules/predict rule))
-                  shifters (map #(vector :shift %) shifters)
+            (let [shift-fns (filter fn? (rules/predict rule))
                   return-lookahead (if (= follow ::term)
                                      term-scanner
                                      follow)]
               (omm/assoc
-                (reduce #(omm/assoc % %2 item) themap shifters)
+                (reduce #(omm/assoc % %2 [:shift item]) themap shift-fns)
                 return-lookahead [:return item])))
           omm/empty (:items item-set)))
+
+(defn shift-with-shift-fn [key action-map]
+  (for [[tag action] (omm/get-vec action-map key) :when (= tag :shift)]
+    action))
+
+; stopgap
+(defn shift-action-map [input action-map]
+  (let [r (some seq (map (fn [shift-fn]
+                           (if (shift-fn input)
+                             (shift-with-shift-fn shift-fn action-map)))
+                         (omm/keys action-map)))]
+    (map advance-item r)))
 
 (defn has-shifters? [{items :items}]
   (some fn? (mapcat rules/predict (map :rule items))))
