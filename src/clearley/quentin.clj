@@ -94,18 +94,24 @@
 
               true (t/RE "Failure to parse at position " (get-pos stream)))))))
 
+; Gets the value referred to by obj, creating the value with the given factory
+; if it can't be found in the master ns-map. Will map it in ns-map prefixed
+; with the given str.
+(defn get-ref [obj factory myns a-str]
+  (let [item-set-var-map @(ns-resolve myns 'item-set-var-map)
+        ns-lock @(ns-resolve myns 'ns-lock)]
+    (locking ns-lock
+      (let [sym (symbol (str a-str (count (get @item-set-var-map a-str {}))))]
+        (if-let [sym0 (get-in @item-set-var-map [a-str obj])]
+          @(ns-resolve myns sym0)
+          (let [r (factory obj)]
+            (intern myns sym r)
+            (swap! item-set-var-map #(assoc-in % [a-str obj] sym))
+            r))))))
+
 (defn get-item-parser-ref [seeds myns]
   (if (seq seeds)
-    (let [item-set-var-map @(ns-resolve myns 'item-set-var-map)
-          ns-lock @(ns-resolve myns 'ns-lock)]
-      (locking ns-lock
-        (let [sym (symbol (str "item-set-" (count @item-set-var-map)))]
-          (if-let [sym0 (get @item-set-var-map seeds)]
-            @(ns-resolve myns sym0)
-            (let [r (delay (get-item-parser* seeds myns))]
-              (intern myns sym r)
-              (swap! item-set-var-map #(assoc % seeds sym))
-              r)))))
+    (get-ref seeds #(delay (get-item-parser* % myns)) myns "item-set")
     (delay nil)))
 
 (defn new-ns []
