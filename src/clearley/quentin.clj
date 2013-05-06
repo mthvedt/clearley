@@ -4,33 +4,17 @@
            [clearley.rules :as rules]
            [uncore.collections.worm-ordered-multimap :as omm]
            clojure.stacktrace clojure.pprint)
+  (import clearley.TransientParseState)
   (use clearley.clr uncore.core))
 
-(defprotocol IParseStream
-  (shift [self output])
-  (return [self output])
-  (get-input [self])
-  (get-output [self])
-  (get-pos [self]))
-
-(defrecord ParseStream [input output pos]
-  IParseStream
-  (shift [_ output2]
-    (->ParseStream (rest input) (conj output output2) (inc pos)))
-  (return [_ output2]
-    (->ParseStream input (conj output output2) pos))
-  (get-input [_] input)
-  (get-output [_] output)
-  (get-pos [_] pos))
-
 (defn parse-stream [input]
-  (->ParseStream input [] 0))
+  (TransientParseState. (seq input)))
 
 ; The core abstraction is
 ; Parse stream handler: parse stream -> parse stream
 (declare continue-parsing get-item-parser-ref get-continuer-ref item-parser-sym)
 
-(defn fail [stream] (t/RE "Failure to parse at position: " (get-pos stream)))
+(defn fail [stream] (t/RE "Failure to parse at position: " (.pos stream)))
 
 (defn get-all-advances [{backlink-map :backlink-map :as item-set} seed? mem]
   (let [all-backlinks (omm/keys backlink-map)]
@@ -48,7 +32,7 @@
   (let [shift-advances (get-all-advances item-set false myns)
         continue-advances (get-all-advances item-set true myns)]
     (fn [result]
-      (let [returned (:backlink (peek (get-output result)))
+      (let [returned (:backlink (.peek result))
             shift-advance @(get shift-advances returned nilref)
             continue-advance @(get continue-advances returned nilref)]
         (if (and shift-advance continue-advance)
@@ -79,7 +63,7 @@
 (defn continuer-ref [item-set myns]
   (get-or-bind item-set #(continuer % myns) myns "continuer"))
 
-; Anaphoric, requiring a 'current-input, 'stream, and a 'continuer--the current input
+; Anaphoric, requiring a 'current-input, 'state, and a 'continuer--the current input
 ; may be ::term.
 ; The code that should be executed if a scanner is matched.
 ; Can either return or call a continuer returning the result.
@@ -96,10 +80,10 @@
         (if (seq return)
           (println "Shift-reduce conflict in item set\n" (item-set-str item-set)))
         `(~continuer-sym (@~(item-parser-sym (map advance-item shift) myns)
-                              (shift ~'stream ~'current-input))))
+                              (.shift ~'state ~'current-input))))
       ; TODO perhaps return an item num
       (if (seq return)
-        `(return ~'stream ~(get-or-bind (first return) identity myns "item"))))))
+        `(.reduce ~'state ~(get-or-bind (first return) identity myns "item") 0)))))
 
 ; A cond chain for all actions
 (defn get-actions-code [item-set action-map continuer-sym myns]
@@ -111,12 +95,12 @@
     `(if (seq ~'istream)
        (cond ~@(mapcat pair-constructor (remove #(= :clearley.clr/term %)
                                                 (omm/keys action-map)))
-             true (fail ~'stream))
+             true (fail ~'state))
        ; Special handling for terminus
        ~(if-let [term-action-code (get-action-code :clearley.clr/term item-set
                                                    action-map continuer-sym myns)]
           term-action-code
-          `(fail ~'stream)))))
+          `(fail ~'state)))))
 
 ; Sets up all the stuff to execute get-actions-code
 (defn gen-parser-body [seeds myns]
@@ -124,8 +108,8 @@
         item-set (closed-item-set more-seeds)
         action-map (action-map more-seeds item-set)
         continuer-sym (continuer-ref item-set myns)]
-    `(fn [~'stream]
-       (let [~'istream (get-input ~'stream)
+    `(fn [~'state]
+       (let [~'istream (.input ~'state)
              ~'current-input (first ~'istream)]
          ~(get-actions-code item-set action-map continuer-sym myns)))))
 
@@ -185,5 +169,6 @@
 (defn reduce-ostream [ostream]
   (first (reduce reduce-ostream-helper '() ostream)))
 
-(defn finalize-state [{output :output}]
-  (reduce-ostream output))
+; TODO make thread safe
+(defn finalize-state [state]
+  (reduce-ostream (if state (.output state) nil)))
