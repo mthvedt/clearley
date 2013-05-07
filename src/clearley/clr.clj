@@ -132,9 +132,6 @@
                (fn [themap {:keys [rule] :as item}]
                  (let [shift-fns (filter fn? (rules/predict rule))]
                    (reduce #(omm/assoc % %2 [:shift item]) themap shift-fns)))
-        ;(if (rules/is-complete? rule)
-        ; (omm/assoc themap return-lookahead [:return item])
-        ;themap))))
         omm/empty (:items item-set))]
     (reduce (fn [themap {:keys [rule follow] :as seed}]
               (if (rules/is-complete? rule)
@@ -186,3 +183,15 @@
 
 (defn has-returns? [seed-items]
   (some (fn-> :rule rules/is-complete?) seed-items))
+
+; === Item set generation
+
+; Returns a coll of all item sets reachable from seed
+#_(defn generate-all-item-sets [seeds]
+  (loop [work-stack [seed] r #{}]
+    (if-let [i (peek work-stack)]
+      (let [seeds (map #(if (:seed-num %) % (assoc % :seed-num %2)) seeds (range))
+            more-seeds (mapcat #(eager-advances % false) seeds)
+            item-set (closed-item-set more-seeds)]
+
+      (r)))))

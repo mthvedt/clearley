@@ -8,6 +8,7 @@
   (use clearley.clr uncore.core))
 ; TODO what does aot do?
 ; TODO eliminate state, then have parser return results.
+; TODO do we need locking?
 
 (defn parse-stream [input]
   (TransientParseState. (seq input)))
@@ -16,9 +17,9 @@
 ; Parse stream handler: parse stream -> parse stream
 (declare continue-parsing item-parser-ref item-parser-sym)
 
-; Gets the value referred to by obj, creating the value with the given factory
-; if it can't be found in the master ns-map. Will map it in ns-map prefixed
-; with the given str.
+; For a factory seed, obj, and a factory method, factory,
+; looks up the value created by the seed obj in the given namespace's map.
+; If it doesn't exist, creates it, interns it, and returns the sym.
 (defn get-or-bind [obj factory myns a-str]
   (let [item-set-var-map @(ns-resolve myns 'item-set-var-map)
         ns-lock @(ns-resolve myns 'ns-lock)]
@@ -28,6 +29,23 @@
           sym0
           (let [r (factory obj)]
             (intern myns sym r)
+            (swap! item-set-var-map #(assoc-in % [a-str obj] sym))
+            sym))))))
+
+; An evil way to def a thunk that, when called, generates a fn and redefs the sym
+; to the fn! Returns the bound symbol.
+(defn lookup-thunk [obj factory myns a-str]
+  (let [item-set-var-map @(ns-resolve myns 'item-set-var-map)
+        ns-lock @(ns-resolve myns 'ns-lock)]
+    (locking ns-lock
+      (let [sym (symbol (str a-str "-" (count (get @item-set-var-map a-str {}))))]
+        (if-let [sym0 (get-in @item-set-var-map [a-str obj])]
+          sym0
+          (let [thunk (fn [& args]
+                        (let [r (factory obj)]
+                         (intern myns sym r)
+                         (apply r args)))]
+            (intern myns sym thunk)
             (swap! item-set-var-map #(assoc-in % [a-str obj] sym))
             sym))))))
 
@@ -58,14 +76,14 @@
           (println "Stack split in item set\n" (item-set-str item-set)
                    "for return value " (item-str backlink)))
         ; Create a subtable
-        `(case (.lastReturnId (@~(item-parser-sym shift-advance-seeds myns)
+        `(case (.lastReturnId (~(item-parser-sym shift-advance-seeds myns)
                                       ~'state))
            ~@(mapcat
                (fn [id continuance]
                  `(~id (recur ~(get branch-code-map (:backlink continuance)))))
            (range) shift-advance-seeds)))
         ; Just call the continuance
-        `(@~(item-parser-sym continue-advance-seeds myns) ~'state))))
+        `(~(item-parser-sym continue-advance-seeds myns) ~'state))))
 
 ; Anaphoric: requires ~'branch
 ; TODO we can make this smaller since we know
@@ -91,29 +109,12 @@
     (binding [*ns* myns]
       (eval r))))
 
-#_(defn advance-looper [item-set myns]
-  (let [shift-advances (get-all-advances item-set false myns)
-        continue-advances (get-all-advances item-set true myns)]
-    (fn [^ParseState result]
-      (let [returned (:backlink (.peek result))
-            shift-advance @(get shift-advances returned nilref)
-            continue-advance @(get continue-advances returned nilref)]
-        (if (and shift-advance continue-advance)
-          (println "Stack split in item set\n" (item-set-str item-set)
-                   "for return value " (item-str returned)))
-        (cond shift-advance
-              ; Keep us on the stack, see what comes next
-              (recur (shift-advance result))
-
-              ; Tail-call (not really) the next parser fn
-              continue-advance (continue-advance result))))))
-
 (defn get-advancer-sym [item-set branch-nums myns]
   (get-or-bind item-set #(advance-looper % branch-nums myns) myns "advancer"))
 
 ; For an initial shift, looks up a branch num to branch to in the continuing loop.
 (defn gen-shift-subtable [item-set shift-item-seeds branch-code-map myns]
-  `(case (.lastReturnId (@~(item-parser-sym shift-item-seeds myns)
+  `(case (.lastReturnId (~(item-parser-sym shift-item-seeds myns)
                                 (.shift ~'state ~'input)))
      ~@(mapcat
          (fn [id seed]
@@ -182,21 +183,17 @@
         (clojure.pprint/pprint r)
         (apply f args)))))
 
-(defn get-item-parser* [seeds myns]
+(defn item-parser* [seeds myns]
   ; TODO get rid of myns everywhere!
-  (let [ns-lock @(ns-resolve myns 'ns-lock)]
-    (locking ns-lock
-      (gen-parser-body seeds myns))))
+  (gen-parser-body seeds myns))
+
+(defn item-parser [seeds myns]
+  (if (seq seeds)
+    @(ns-resolve myns (item-parser-sym seeds myns))))
 
 (defn item-parser-sym [seeds myns]
-  (get-or-bind seeds #(delay (get-item-parser* % myns)) myns "item-set"))
-
-; Gets a delay pointing to an item parser for the given seeds
-(defn item-parser-ref [seeds myns]
   (if (seq seeds)
-    @(ns-resolve myns (get-or-bind seeds #(delay (get-item-parser* % myns))
-                                   myns "item-set"))
-    (delay nil)))
+    (lookup-thunk seeds #(item-parser* % myns) myns "item-set")))
 
 (defn new-ns []
   (let [sym (gensym "quentin")
@@ -212,7 +209,7 @@
 (defn parse [grammar goal input myns mem]
   (try
     (binding [rules/*mem-atom* mem]
-      (@(item-parser-ref [(goal-item goal grammar)] myns) (parse-stream input)))
+      ((item-parser [(goal-item goal grammar)] myns) (parse-stream input)))
     (catch RuntimeException e (clojure.stacktrace/print-stack-trace e)))) ; TODO
 
 (defn pprint-parse-stream [{:keys [input output] :as stream}]
