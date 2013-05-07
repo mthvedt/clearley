@@ -46,8 +46,8 @@
 ; (depends on predicting items)
 (defrecord Item [rule backlink match-count seed? follow])
 
-(defn item-str [{:keys [rule seed? follow]}]
-  (str (if seed? "" "+ ") (rules/rule-str rule)))
+(defn item-str [{:keys [rule seed? follow] :as item}]
+  (str (if seed? (:seed-num item) "+") " " (rules/rule-str rule)))
 
 (defn item-str-follow [{follow :follow :as item}]
   (str (item-str item) " : " (hexhash follow)))
@@ -109,9 +109,13 @@
 (defn current-item [{items :items} dot]
   (when-not (>= dot (count items)) (get items dot)))
 
-; Closes an item set, also numbering the seed items
+; TODO encapsulate item set more. Shouldn't have to deal with seed lists.
+; Creates a closed item set given some seed items. Numbers them
+; if they aren't numbered.
+; TODO rename
 (defn closed-item-set [seed-items]
-  (let [seed-items (map #(assoc % :seed-num %2) seed-items (range))]
+  (let [seed-items (map #(if (:seed-num %) % (assoc % :seed-num %2))
+                        seed-items (range))]
     (loop [c (->ItemSet seed-items (vec seed-items) omm/empty), dot 0]
       (if-let [s (current-item c dot)]
         (recur (reduce #(predict-into-item-set % %2 s)

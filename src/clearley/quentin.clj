@@ -169,18 +169,22 @@
                (let [~'istream (.input ~'state)
                      ~'input (first ~'istream)]
                  ; TODO rename
-                 ~(gen-initial-shift item-set action-map branch-nums myns)))]
-      (println (item-set-str item-set))
-      (clojure.pprint/pprint r)
-      r)))
+                 ~(gen-initial-shift item-set action-map branch-nums myns)))
+          ;(println (item-set-str item-set))
+          ;(clojure.pprint/pprint r)
+          f (binding [*ns* myns] (eval r))]
+      (fn [& args]
+        (println "Parsing item set")
+        (print (item-set-str item-set))
+        (println "with code")
+        (clojure.pprint/pprint r)
+        (apply f args)))))
 
 (defn get-item-parser* [seeds myns]
   ; TODO get rid of myns everywhere!
   (let [ns-lock @(ns-resolve myns 'ns-lock)]
     (locking ns-lock
-      (let [body (gen-parser-body seeds myns)]
-        (binding [*ns* myns]
-          (eval body))))))
+      (gen-parser-body seeds myns))))
 
 (defn item-parser-sym [seeds myns]
   (get-or-bind seeds #(delay (get-item-parser* % myns)) myns "item-set"))
