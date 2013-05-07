@@ -89,7 +89,7 @@
 
 ; items; the items in teh set
 ; backlink-map: maps items -> predictors
-(defrecord ItemSet [items backlink-map])
+(defrecord ItemSet [seed-items items backlink-map])
 
 (defn item-set-item-str [item backlink-map]
   (let [predictor-str (->> item (omm/get-vec backlink-map)
@@ -109,13 +109,15 @@
 (defn current-item [{items :items} dot]
   (when-not (>= dot (count items)) (get items dot)))
 
+; Closes an item set, also numbering the seed items
 (defn closed-item-set [seed-items]
-  (loop [c (->ItemSet (vec seed-items) omm/empty), dot 0]
-    (if-let [s (current-item c dot)]
-      (recur (reduce #(predict-into-item-set % %2 s)
-                     c (predict-item s))
-             (inc dot))
-      c)))
+  (let [seed-items (map #(assoc % :seed-num %2) seed-items (range))]
+    (loop [c (->ItemSet seed-items (vec seed-items) omm/empty), dot 0]
+      (if-let [s (current-item c dot)]
+        (recur (reduce #(predict-into-item-set % %2 s)
+                       c (predict-item s))
+               (inc dot))
+        c))))
 
 ; TODO Item set format:
 ; 1. goal -> whatever
@@ -125,7 +127,7 @@
 
 ; Returns a map. Keys are the next token. Values are one of
 ; [:shift shifting-item] or [:return item-to-return].
-(defn action-map [seed-items item-set]
+(defn action-map [item-set]
   (let [rmap (reduce
                (fn [themap {:keys [rule] :as item}]
                  (let [shift-fns (filter fn? (rules/predict rule))]
@@ -138,7 +140,7 @@
               (if (rules/is-complete? rule)
                 (omm/assoc themap follow [:return seed])
                 themap))
-            rmap seed-items)))
+            rmap (:seed-items item-set))))
 
 (defn get-actions-for-tag [key action-map tag]
   (for [[tag1 action] (omm/get-vec action-map key) :when (= tag tag1)]

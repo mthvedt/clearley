@@ -7,7 +7,7 @@ import java.util.List;
 
 public class TransientParseState implements ParseState {
 	public int pos = 0;
-	public int lastReturnId = -1;
+	public int lastReturnId = -1;   // todo rename
 	public ISeq input;
 	public ArrayList<Object> output = new ArrayList<Object>();
 
