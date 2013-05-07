@@ -110,18 +110,14 @@
   (when-not (>= dot (count items)) (get items dot)))
 
 ; TODO encapsulate item set more. Shouldn't have to deal with seed lists.
-; Creates a closed item set given some seed items. Numbers them
-; if they aren't numbered.
 ; TODO rename
 (defn closed-item-set [seed-items]
-  (let [seed-items (map #(if (:seed-num %) % (assoc % :seed-num %2))
-                        seed-items (range))]
-    (loop [c (->ItemSet seed-items (vec seed-items) omm/empty), dot 0]
-      (if-let [s (current-item c dot)]
-        (recur (reduce #(predict-into-item-set % %2 s)
-                       c (predict-item s))
-               (inc dot))
-        c))))
+  (loop [c (->ItemSet seed-items (vec seed-items) omm/empty), dot 0]
+    (if-let [s (current-item c dot)]
+      (recur (reduce #(predict-into-item-set % %2 s)
+                     c (predict-item s))
+             (inc dot))
+      c)))
 
 ; TODO Item set format:
 ; 1. goal -> whatever

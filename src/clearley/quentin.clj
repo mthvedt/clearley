@@ -87,7 +87,7 @@
 (defn advance-looper [item-set branch-nums myns]
   (let [r `(fn [~(apply symbol '(^ParseState state)) ~'branch]
              ~(gen-advance-loop item-set branch-nums myns))]
-    (clojure.pprint/pprint r)
+    ;(clojure.pprint/pprint r)
     (binding [*ns* myns]
       (eval r))))
 
@@ -161,7 +161,8 @@
 
 ; Sets up all the stuff to execute gen-initial-shift
 (defn gen-parser-body [seeds myns]
-  (let [more-seeds (mapcat #(eager-advances % false) seeds)
+  (let [seeds (map #(if (:seed-num %) % (assoc % :seed-num %2)) seeds (range))
+        more-seeds (mapcat #(eager-advances % false) seeds)
         item-set (closed-item-set more-seeds)
         action-map (action-map item-set)
         branch-nums (zipmap (omm/keys (:backlink-map item-set)) (range))]
@@ -173,7 +174,8 @@
           ;(println (item-set-str item-set))
           ;(clojure.pprint/pprint r)
           f (binding [*ns* myns] (eval r))]
-      (fn [& args]
+      f
+      #_(fn [& args]
         (println "Parsing item set")
         (print (item-set-str item-set))
         (println "with code")
