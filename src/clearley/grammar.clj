@@ -59,7 +59,8 @@
     ::rule (let [name (if (:name rule) (:name rule) candidate-name)
                  value (map-normalize (:value rule) name (:tag rule))]
              (merge rule {:name name, :value value, :original rule}))
-    ::symbol {:name (name rule), :tag :symbol, :value [(backtick/resolve-symbol rule)],
+    ::symbol {:name (name rule), :tag :symbol,
+              :value [(backtick/resolve-symbol rule)],
               :action identity, :original rule}
     ::token {:name (pr-str rule), :tag :token, :value [rule],
              :action (TokenAction. rule), :original rule}))

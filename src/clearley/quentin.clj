@@ -14,7 +14,7 @@
 
 ; The core abstraction is
 ; Parse stream handler: parse stream -> parse stream
-(declare continue-parsing get-item-parser-ref get-continuer-ref item-parser-sym)
+(declare continue-parsing item-parser-ref advancer-sym item-parser-sym)
 
 (defn fail [^ParseState stream] (t/RE "Failure to parse at position: " (.pos stream)))
 
@@ -24,17 +24,25 @@
     (into {}
           (filter second
                   (map (fn [backlink]
-                         [backlink (get-item-parser-ref
+                         [backlink (item-parser-ref
                                      (advance-item-set item-set backlink seed?)
                                                   myns)])
                        all-backlinks)))))
 
 (def nilref (delay nil))
 
+; For an initial shift, looks up a branch num to branch to in the continuing loop.
+(defn get-shift-subtable [item-set shift-item-seeds branch-code-map myns]
+  `(case (.getLastReturnId (~(item-parser-sym shift-item-seeds myns) ~'state))
+     ~@(mapcat
+         (fn [id seed]
+           `(~id ~(get branch-code-map (:backlink seed))))
+         (range) shift-item-seeds)))
+
 ; Anaphoric, needs a ~'result and a wrapping loop/recur and a ~'state
 ; For a backlink, calls the item-parser represented by that advance,
 ; and either looks up and recurs to a main branch, or calls the continuance.
-(defn get-continuing-subtable [item-set backlink branch-code-map myns]
+(defn gen-advance-handler [item-set backlink branch-code-map myns]
   (let [shift-advance-seeds (advance-item-set item-set backlink false)
         continue-advance-seeds (advance-item-set item-set backlink true)]
     (if (seq shift-advance-seeds)
@@ -60,20 +68,20 @@
 ; to the appropriate branch. The appropriate branch either sets up a subtable
 ; (if it is a shift) to capture the result and goto the main branch
 ; or calls the continue.
-(defn get-continuing-table [{backlink-map :backlink-map :as item-set} myns]
+(defn gen-advance-loop [{backlink-map :backlink-map :as item-set} myns]
   (let [main-branch-numbers (zipmap (omm/keys backlink-map) (range))]
     (when-not (seq main-branch-numbers) nil);(assert false))
     `(loop [~'branch ~'branch]
        (case ~'branch
          ~@(mapcat (fn [[backlink id]]
-                     `(~id ~(get-continuing-subtable item-set backlink
+                     `(~id ~(gen-advance-handler item-set backlink
                                                      main-branch-numbers myns)))
                    main-branch-numbers)))))
 
-(defn continuer [item-set myns]
+(defn advance-looper [item-set myns]
   (let [shift-advances (get-all-advances item-set false myns)
         continue-advances (get-all-advances item-set true myns)]
-    (clojure.pprint/pprint (get-continuing-table item-set myns))
+    ;(clojure.pprint/pprint (gen-advance-loop item-set myns))
     (fn [^ParseState result]
       (let [returned (:backlink (.peek result))
             shift-advance @(get shift-advances returned nilref)
@@ -103,14 +111,14 @@
             (swap! item-set-var-map #(assoc-in % [a-str obj] sym))
             sym))))))
 
-(defn continuer-ref [item-set myns]
-  (get-or-bind item-set #(continuer % myns) myns "continuer"))
+(defn advancer-sym [item-set myns]
+  (get-or-bind item-set #(advance-looper % myns) myns "advancer"))
 
-; Anaphoric, requiring a 'current-input, 'state, and a 'continuer--the current input
+; Anaphoric, requiring a 'current-input, 'state, and a 'advancer--current input
 ; may be ::term.
 ; The code that should be executed if a scanner is matched.
-; Can either return or call a continuer returning the result.
-(defn get-action-code [scanner item-set action-map continuer-sym myns]
+; Can either return or call a advancer returning the result.
+(defn gen-scanner-handler [scanner item-set action-map advancer-sym myns]
   (let [shift (get-actions-for-tag scanner action-map :shift)
         return (get-actions-for-tag scanner action-map :return)]
     ; TODO inspect for shift-shift, shift-reduce
@@ -122,39 +130,39 @@
       (do
         (if (seq return)
           (println "Shift-reduce conflict in item set\n" (item-set-str item-set)))
-        `(~continuer-sym (@~(item-parser-sym (map advance-item shift) myns)
+        `(~advancer-sym (@~(item-parser-sym (map advance-item shift) myns)
                               (.shift ~'state ~'current-input))))
       ; TODO perhaps return an item num
       (if (seq return)
         `(.reduce ~'state ~(get-or-bind (first return) identity myns "item") 0)))))
 
 ; A cond chain for all actions
-(defn get-actions-code [item-set action-map continuer-sym myns]
-  (let [pair-constructor (fn [scanner]
+(defn gen-initial-shift [item-set action-map advancer-sym myns]
+  (let [cond-pair-fn (fn [scanner]
                            [(list (get-or-bind scanner identity myns "scanner")
                                   'current-input)
-                            (get-action-code scanner item-set action-map continuer-sym
-                                             myns)])]
+                            (gen-scanner-handler scanner item-set action-map
+                                                 advancer-sym myns)])]
     `(if (seq ~'istream)
-       (cond ~@(mapcat pair-constructor (remove #(= :clearley.clr/term %)
+       (cond ~@(mapcat cond-pair-fn (remove #(= :clearley.clr/term %)
                                                 (omm/keys action-map)))
              true (fail ~'state))
        ; Special handling for terminus
-       ~(if-let [term-action-code (get-action-code :clearley.clr/term item-set
-                                                   action-map continuer-sym myns)]
+       ~(if-let [term-action-code (gen-scanner-handler :clearley.clr/term item-set
+                                                   action-map advancer-sym myns)]
           term-action-code
           `(fail ~'state)))))
 
-; Sets up all the stuff to execute get-actions-code
+; Sets up all the stuff to execute gen-initial-shift
 (defn gen-parser-body [seeds myns]
   (let [more-seeds (mapcat #(eager-advances % false) seeds)
         item-set (closed-item-set more-seeds)
         action-map (action-map more-seeds item-set)
-        continuer-sym (continuer-ref item-set myns)]
+        advancer-sym (advancer-sym item-set myns)]
     `(fn [~(apply symbol '(^ParseState state))]
        (let [~'istream (.input ~'state)
              ~'current-input (first ~'istream)]
-         ~(get-actions-code item-set action-map continuer-sym myns)))))
+         ~(gen-initial-shift item-set action-map advancer-sym myns)))))
 
 (defn get-item-parser* [seeds myns]
   ;(clojure.pprint/pprint (gen-parser-body seeds myns))
@@ -167,7 +175,7 @@
   (get-or-bind seeds #(delay (get-item-parser* % myns)) myns "item-set"))
 
 ; Gets a delay pointing to an item parser for the given seeds
-(defn get-item-parser-ref [seeds myns]
+(defn item-parser-ref [seeds myns]
   (if (seq seeds)
     @(ns-resolve myns (get-or-bind seeds #(delay (get-item-parser* % myns))
                                    myns "item-set"))
@@ -187,7 +195,7 @@
 (defn parse [grammar goal input myns mem]
   (try
     (binding [rules/*mem-atom* mem]
-      (@(get-item-parser-ref [(goal-item goal grammar)] myns) (parse-stream input)))
+      (@(item-parser-ref [(goal-item goal grammar)] myns) (parse-stream input)))
     (catch RuntimeException e (clojure.stacktrace/print-stack-trace e)))) ; TODO
 
 (defn pprint-parse-stream [{:keys [input output] :as stream}]
