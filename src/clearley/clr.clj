@@ -87,6 +87,8 @@
 
 ; === Item sets ===
 
+; items; the items in teh set
+; backlink-map: maps items -> predictors
 (defrecord ItemSet [items backlink-map])
 
 (defn item-set-item-str [item backlink-map]

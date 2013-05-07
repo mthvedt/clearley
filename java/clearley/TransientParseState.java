@@ -6,8 +6,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class TransientParseState implements ParseState {
-	public int pos;
-	public int rval;
+	public int pos = 0;
+	public int lastReturnId = -1;
 	public ISeq input;
 	public ArrayList<Object> output = new ArrayList<Object>();
 
@@ -22,9 +22,9 @@ public class TransientParseState implements ParseState {
 		return this;
 	}
 
-	public TransientParseState reduce(Object o, int rval) {
+	public TransientParseState reduce(Object o, int lastReturnId) {
 		output.add(o);
-		this.rval = rval;
+		this.lastReturnId = lastReturnId;
 		return this;
 	}
 
@@ -32,8 +32,8 @@ public class TransientParseState implements ParseState {
 		return output.get(output.size() - 1);
 	}
 
-	public int rval() {
-		return rval;
+	public int lastReturnId() {
+		return lastReturnId;
 	}
 
 	public ISeq input() {

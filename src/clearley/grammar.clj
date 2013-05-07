@@ -67,7 +67,7 @@
 (defn- map-normalize [rules parent-name parent-tag]
   (if (contains? #{:token :scanner} parent-tag)
     rules
-    (vec (map normalize rules (map #(str parent-name "." %)
+    (vec (map normalize rules (map #(str parent-name "-" %)
                               (range))))))
 
 (defn- deps [{:keys [tag value]}]

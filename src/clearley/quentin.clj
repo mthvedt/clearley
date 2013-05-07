@@ -4,8 +4,10 @@
            [clearley.rules :as rules]
            [uncore.collections.worm-ordered-multimap :as omm]
            clojure.stacktrace clojure.pprint)
-  (import clearley.TransientParseState)
+  (import clearley.ParseState clearley.TransientParseState)
   (use clearley.clr uncore.core))
+; TODO what does aot do?
+; TODO eliminate state, then have parser return results.
 
 (defn parse-stream [input]
   (TransientParseState. (seq input)))
@@ -14,24 +16,65 @@
 ; Parse stream handler: parse stream -> parse stream
 (declare continue-parsing get-item-parser-ref get-continuer-ref item-parser-sym)
 
-(defn fail [stream] (t/RE "Failure to parse at position: " (.pos stream)))
+(defn fail [^ParseState stream] (t/RE "Failure to parse at position: " (.pos stream)))
 
-(defn get-all-advances [{backlink-map :backlink-map :as item-set} seed? mem]
+; Generate a map from return value to item set parser
+(defn get-all-advances [{backlink-map :backlink-map :as item-set} seed? myns]
   (let [all-backlinks (omm/keys backlink-map)]
     (into {}
-          (remove (fn-> second nil?)
+          (filter second
                   (map (fn [backlink]
                          [backlink (get-item-parser-ref
                                      (advance-item-set item-set backlink seed?)
-                                                  mem)])
+                                                  myns)])
                        all-backlinks)))))
 
 (def nilref (delay nil))
 
+; Anaphoric, needs a ~'result and a wrapping loop/recur and a ~'state
+; For a backlink, calls the item-parser represented by that advance,
+; and either looks up and recurs to a main branch, or calls the continuance.
+(defn get-continuing-subtable [item-set backlink branch-code-map myns]
+  (let [shift-advance-seeds (advance-item-set item-set backlink false)
+        continue-advance-seeds (advance-item-set item-set backlink true)]
+    (if (seq shift-advance-seeds)
+      (do
+        (if (seq continue-advance-seeds)
+          (println "Stack split in item set\n" (item-set-str item-set)
+                   "for return value " (item-str backlink)))
+        ; Create a subtable
+        `(case (.getLastReturnId (~(item-parser-sym shift-advance-seeds myns) ~'state))
+           ~@(mapcat
+               (fn [id continuance]
+                 `(~id (recur ~(get branch-code-map (:backlink continuance)))))
+           (range) shift-advance-seeds)))
+        ; Just call the continuance
+        `(~(item-parser-sym continue-advance-seeds myns) ~'state))))
+
+; Anaphoric: requires ~'branch
+; TODO we can make this smaller since we know
+; a token consuming shift only happens once
+; For an item set, builds the 'continuing table' which handles all steps after
+; the first initial shift. Implemented as a loop/recur with a case branch.
+; The branch table matches all possible advances (advancing shifts, continues)
+; to the appropriate branch. The appropriate branch either sets up a subtable
+; (if it is a shift) to capture the result and goto the main branch
+; or calls the continue.
+(defn get-continuing-table [{backlink-map :backlink-map :as item-set} myns]
+  (let [main-branch-numbers (zipmap (omm/keys backlink-map) (range))]
+    (when-not (seq main-branch-numbers) nil);(assert false))
+    `(loop [~'branch ~'branch]
+       (case ~'branch
+         ~@(mapcat (fn [[backlink id]]
+                     `(~id ~(get-continuing-subtable item-set backlink
+                                                     main-branch-numbers myns)))
+                   main-branch-numbers)))))
+
 (defn continuer [item-set myns]
   (let [shift-advances (get-all-advances item-set false myns)
         continue-advances (get-all-advances item-set true myns)]
-    (fn [result]
+    (clojure.pprint/pprint (get-continuing-table item-set myns))
+    (fn [^ParseState result]
       (let [returned (:backlink (.peek result))
             shift-advance @(get shift-advances returned nilref)
             continue-advance @(get continue-advances returned nilref)]
@@ -108,7 +151,7 @@
         item-set (closed-item-set more-seeds)
         action-map (action-map more-seeds item-set)
         continuer-sym (continuer-ref item-set myns)]
-    `(fn [~'state]
+    `(fn [~(apply symbol '(^ParseState state))]
        (let [~'istream (.input ~'state)
              ~'current-input (first ~'istream)]
          ~(get-actions-code item-set action-map continuer-sym myns)))))
@@ -123,6 +166,7 @@
 (defn item-parser-sym [seeds myns]
   (get-or-bind seeds #(delay (get-item-parser* % myns)) myns "item-set"))
 
+; Gets a delay pointing to an item parser for the given seeds
 (defn get-item-parser-ref [seeds myns]
   (if (seq seeds)
     @(ns-resolve myns (get-or-bind seeds #(delay (get-item-parser* % myns))
@@ -133,7 +177,9 @@
   (let [sym (gensym "quentin")
         r (create-ns sym)]
     ;(remove-ns sym) ; TODO
-    (binding [*ns* r] (use 'clojure.core 'clearley.quentin))
+    (binding [*ns* r]
+      (use 'clojure.core 'clearley.quentin)
+      (import 'clearley.ParseState))
     (intern r 'item-set-var-map (atom {})) ; map: seeds -> symbol
     (intern r 'ns-lock (Object.))
     r))
@@ -170,5 +216,5 @@
   (first (reduce reduce-ostream-helper '() ostream)))
 
 ; TODO make thread safe
-(defn finalize-state [state]
+(defn finalize-state [^ParseState state]
   (reduce-ostream (if state (.output state) nil)))
