@@ -5,7 +5,7 @@
            [uncore.collections.worm-ordered-multimap :as omm]
            clojure.stacktrace clojure.pprint)
   (import clearley.ParseState clearley.TransientParseState)
-  (use clearley.clr uncore.core))
+  (use clearley.clr uncore.core uncore.memo))
 ; TODO what does aot do?
 ; TODO eliminate state, then have parser return results.
 ; TODO do we need locking?
@@ -34,6 +34,7 @@
         (if-let [sym0 (get-in @item-set-var-map [a-str obj])]
           sym0
           (let [r (factory obj)]
+            (println "Creating" sym)
             (intern *myns* sym r)
             (swap! item-set-var-map #(assoc-in % [a-str obj] sym))
             sym))))))
@@ -50,6 +51,7 @@
           (let [thunk (fn [& args] (let [r (candidate-thunk)]
                                      (intern *myns* sym r)
                                      (apply r args)))]
+            (println "Creating" sym)
             (intern *myns* sym thunk)
             (swap! item-set-var-map #(assoc-in % [a-str key] sym))
             sym))))))
@@ -176,7 +178,7 @@
         (apply f args)))))
 
 ; TODO too many are being generated.
-(defn item-parser-sym [item-set]
+(defn item-parser-sym [^clearley.clr.ItemSet item-set]
   (if item-set
     (lookup-thunk (:seeds item-set) #(gen-parser-body item-set) "item-set")))
 
@@ -193,10 +195,10 @@
 
 (defn parse [grammar goal input myns mem]
   (try
-    (binding [rules/*mem-atom* mem
-              *myns* myns]
+    (with-memoizer mem
+    (binding [*myns* myns]
       (@(ns-resolve *myns* (item-parser-sym (pep-item-set [(goal-item goal grammar)])))
-          (parse-stream input)))
+          (parse-stream input))))
     (catch RuntimeException e (clojure.stacktrace/print-stack-trace e)))) ; TODO
 
 (defn pprint-parse-stream [{:keys [input output] :as stream}]

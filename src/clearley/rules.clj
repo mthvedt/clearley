@@ -2,22 +2,8 @@
   (require clearley.grammar clojure.string uncore.rpartial clojure.set
            [uncore.throw :as t]
            [uncore.str :as s])
-  (use uncore.core))
+  (use uncore.core uncore.memo))
 ; Core stuff for context free grammar parsing.
-
-; A somewhat ugly hack to make calculating first sets and null advances O(1)
-; Note that if body is recrusive, returns lower on the stack
-; will overwrite higher ones; this is intentional
-; TODO this is dangerous. safe if done right, but can introduce bugs. kill with fire.
-(def ^:dynamic *mem-atom* nil)
-(defmacro local-memo [key datum & body]
-  `(if *mem-atom*
-     (let [m# (get @*mem-atom* ~key {})]
-       (if (contains? m# ~datum)
-         (get m# ~datum)
-         (let [r# (do ~@body)]
-           (swap! *mem-atom* #(assoc % ~key (assoc (get % ~key {}) ~datum r#)))
-           r#)))))
 
 ; just for speed
 (defrecord Match [rule submatches])
@@ -88,8 +74,7 @@
 (defmethod predict* :default [rule]
   (t/RE "Don't know how to predict:" (pr-str rule)))
 
-(defn predict [cfg-rule]
-  (local-memo :predict cfg-rule (predict* cfg-rule)))
+(defnmem predict [cfg-rule] (predict* cfg-rule))
 
 ; Is this rule complete?
 (defmulti is-complete? (fn-> :raw-rule :tag))
@@ -128,55 +113,56 @@
        ")"
        (if (zero? dot) "" " ✓")))
 
+; TODO: test something of the form a -> x -> b -> y -> a for legal/illegal matches,
+; where x and y are nullable.
 (def ^:dynamic *breadcrumbs*)
-; Basically, this does an LL match on the empty string
+; Basically, this does an LL match on the empty string for a rule. If more than one
+; LL match is possible, returns eagerly.
 (defn null-result* [rule-or-fn]
-  (if (rule? rule-or-fn)
-    (if (contains? *breadcrumbs* rule-or-fn)
-      (get *breadcrumbs* rule-or-fn)
-      (local-memo :null-result rule-or-fn
-                  (set! *breadcrumbs* (assoc *breadcrumbs* rule-or-fn nil))
-                  (let [r (if (is-complete? rule-or-fn)
-                            (match (:raw-rule rule-or-fn) [])
-                            (if-let [r (some identity (map null-result*
-                                                           (predict rule-or-fn)))]
-                              (if-let [r2 (null-result* (advance rule-or-fn))]
-                                (match (:raw-rule rule-or-fn)
-                                       (apply vector r (:submatches r2))))))]
-                    (set! *breadcrumbs* (assoc *breadcrumbs* rule-or-fn r))
-                    r)))
-    nil))
-(defn null-result [rule]
+  (cond (not (rule? rule-or-fn)) nil
+        (contains? *breadcrumbs* rule-or-fn) (get *breadcrumbs* rule-or-fn)
+        true
+        (do
+          (set! *breadcrumbs* (assoc *breadcrumbs* rule-or-fn nil))
+          (let [r (if (is-complete? rule-or-fn)
+                    (match (:raw-rule rule-or-fn) [])
+                    (if-let [r (some identity (map null-result*
+                                                   (predict rule-or-fn)))]
+                      (if-let [r2 (null-result* (advance rule-or-fn))]
+                        (match (:raw-rule rule-or-fn)
+                               (apply vector r (:submatches r2))))))]
+            (set! *breadcrumbs* (assoc *breadcrumbs* rule-or-fn r))
+            r))))
+(defnmem null-result [^CfgRule rule]
   (binding [*breadcrumbs* {}]
     (null-result* rule)))
 
 (def ^:dynamic *breadcrumbs-firsts*)
 ; Gets the first set of an item, including ::empty if item is nullable
 (defn first-set* [rule-or-fn]
-  (if (rule? rule-or-fn)
-    (if (contains? *breadcrumbs-firsts* rule-or-fn)
-      (get *breadcrumbs-firsts* rule-or-fn)
-      (local-memo :first-set rule-or-fn
-                  (set! *breadcrumbs-firsts* (assoc *breadcrumbs-firsts*
-                                                    rule-or-fn #{}))
-                  (let [r (apply clojure.set/union (map first-set* (predict
-                                                                     rule-or-fn)))
-                        r (cond (null-result rule-or-fn) (conj r ::empty)
-                                (r ::empty) (disj
-                                              (clojure.set/union
-                                                r (first-set* (advance rule-or-fn)))
-                                              ::empty)
-                                true r)]
-                    (set! *breadcrumbs-firsts* (assoc *breadcrumbs-firsts*
-                                                      rule-or-fn r))
-                    r)))
-    #{rule-or-fn}))
-(defn first-set [rule]
-  (binding [*breadcrumbs-firsts* {}]
-    (first-set* rule)))
+  (cond
+    (not (rule? rule-or-fn)) #{rule-or-fn}
+    (lookup ::canon-first-set rule-or-fn) (lookup ::canon-first-set rule-or-fn)
+    (get *breadcrumbs-firsts* rule-or-fn) (get *breadcrumbs-firsts* rule-or-fn)
+    true
+    (do
+      (set! *breadcrumbs-firsts* (assoc *breadcrumbs-firsts* rule-or-fn #{}))
+      (let [r (apply clojure.set/union (map first-set* (predict rule-or-fn)))
+            r (cond (null-result rule-or-fn) (conj r ::empty)
+                    (r ::empty) (disj (clojure.set/union
+                                        r (first-set* (advance rule-or-fn)))
+                                      ::empty)
+                    true r)]
+        (set! *breadcrumbs-firsts* (assoc *breadcrumbs-firsts* rule-or-fn r))
+        r))))
+(defn first-set [^CfgRule rule]
+  (if-let [r (lookup ::canon-first-set rule)]
+    r
+    (binding [*breadcrumbs-firsts* {}]
+      (save! ::canon-first-set rule (first-set* rule)))))
 
 ; For a rule R that predicts items R1..N, calculates the follow set for those items.
-(defn follow-first [rule parent-follow]
+(defn follow-first [^CfgRule rule parent-follow]
   (let [follow-set (first-set (advance rule))]
     (if (follow-set ::empty)
       (disj (conj follow-set parent-follow) ::empty)
