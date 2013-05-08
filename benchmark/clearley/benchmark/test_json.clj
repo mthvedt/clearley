@@ -4,8 +4,9 @@
 
 (defn -main []
   ; JSON grammar is relatively complex--LR parsers should tend to do well
-  ;(bench-from-file "JSON" json/json-parser "small-test.json")
   ; With no lookahead, each consecutive space adds O(1) ambiguity
   (print-sep)
-  (bench-from-file "Formatted JSON" json/json-parser "small-test-formatted.json")
-  )
+  (bench-recognizer "Formatted JSON: recognizing"
+                    json/json-parser "small-test-formatted.json")
+  (bench-from-file "Formatted JSON: parsing"
+                   json/json-parser "small-test-formatted.json"))

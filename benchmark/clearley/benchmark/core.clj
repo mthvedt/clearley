@@ -9,20 +9,27 @@
 (defn print-sep []
   (println (apply str (repeat 80 \=))))
 
-(defn bench-str [name parser str]
+(defn bench-str [name parser str parse?]
   (println "Benchmark:" name)
   (println "Input size:" (count str))
   (if-let [r (parse parser str)]
     (do
       (println "Benchmarking")
-      (bench (parse parser str))
+      (if parse?
+        (bench (parse parser str))
+        (bench (parse-state parser str)))
       (print-sep))
     (println "!!!!Failure to parse!!!!")))
 
 (defn get-resource [filename]
   (utils/get-resource (str prefix filename)))
 
+(defn bench-recognizer [name parser filename]
+  (println "Loading" filename "into memory")
+  (let [loaded-file (slurp (get-resource filename))]
+    (bench-str name parser loaded-file false)))
+
 (defn bench-from-file [name parser filename]
   (println "Loading" filename "into memory")
   (let [loaded-file (slurp (get-resource filename))]
-    (bench-str name parser loaded-file)))
+    (bench-str name parser loaded-file true)))
