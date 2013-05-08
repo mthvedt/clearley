@@ -2,7 +2,6 @@
   "The Clearley parser and related fns."
   (require [clojure string pprint]
            [clearley.rules :as rules]
-           [clearley.earley :as earley]
            [clearley.quentin :as q]
            [uncore.throw :as t]
            backtick)

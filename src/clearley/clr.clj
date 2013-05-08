@@ -65,7 +65,6 @@
 (defn eager-advances [item prediction?]
   (take-while identity (iterate #(eager-advance % prediction?) item)))
 
-; TODO don't need rules/follow-first to be a set
 (defn predict-item [{:keys [rule follow]}]
   (mapcat #(eager-advances % true)
           (for [prediction (remove fn? (rules/predict rule))
@@ -89,7 +88,7 @@
 
 ; items; the items in teh set
 ; backlink-map: maps items -> predictors
-(defrecord ItemSet [seed-items items backlink-map])
+(defrecord ItemSet [seeds more-seeds items backlink-map])
 
 (defn item-set-item-str [item backlink-map]
   (let [predictor-str (->> item (omm/get-vec backlink-map)
@@ -106,14 +105,9 @@
                           :backlink-map #(omm/assoc % item predictor)})
     (update item-set :backlink-map #(omm/assoc % item predictor))))
 
-(defn current-item [{items :items} dot]
-  (when-not (>= dot (count items)) (get items dot)))
-
-; TODO encapsulate item set more. Shouldn't have to deal with seed lists.
-; TODO rename
-(defn closed-item-set [seed-items]
-  (loop [c (->ItemSet seed-items (vec seed-items) omm/empty), dot 0]
-    (if-let [s (current-item c dot)]
+(defn closed-item-set [seeds more-seeds]
+  (loop [c (->ItemSet seeds more-seeds (vec more-seeds) omm/empty), dot 0]
+    (if-let [s (get (:items c) dot)]
       (recur (reduce #(predict-into-item-set % %2 s)
                      c (predict-item s))
              (inc dot))
@@ -137,52 +131,28 @@
               (if (rules/is-complete? rule)
                 (omm/assoc themap follow [:return seed])
                 themap))
-            rmap (:seed-items item-set))))
+            rmap (:more-seeds item-set))))
 
 (defn get-actions-for-tag [key action-map tag]
   (for [[tag1 action] (omm/get-vec action-map key) :when (= tag tag1)]
     action))
 
-; stopgap
-(defn shift-action-map [input action-map]
-  (let [r (some seq (map (fn [shift-fn]
-                           (if (shift-fn input)
-                             (get-actions-for-tag shift-fn action-map :shift)))
-                         (omm/keys action-map)))]
-    (map advance-item r)))
+; Closes an item set, adding eager advances
+(defn pep-item-set [seeds]
+  (if (seq seeds)
+    (let [seeds (map #(if (:seed-num %) % (assoc % :seed-num %2)) seeds (range))
+          more-seeds (mapcat #(eager-advances % false) seeds)]
+      (closed-item-set seeds more-seeds))))
 
-(defn has-shifters? [{items :items}]
-  (some fn? (mapcat rules/predict (map :rule items))))
-
-; Returns the result of an item set shift, or nil
-(defn shift-item-set [{items :items} input-token]
-  (seq (remove nil? (map #(scan-item % input-token) items))))
-
-; continuations an item given a stack-top item-set
+; Gets the next item set for some backlink
 (defn advance-item-set [{backlink-map :backlink-map} backlink seed?]
-  (seq (map advance-item (filter #(= seed? (:seed? %))
-                                 (omm/get-vec backlink-map backlink)))))
+  (pep-item-set (map advance-item (filter #(= seed? (:seed? %))
+                                          (omm/get-vec backlink-map backlink)))))
 
-; The returns (reduces) of some seed items
-(defn returns [seed-items lookahead]
-  (let [acceptor (if (= lookahead ::term)
-                   ; Special handling. We don't want to surprise pass ::term
-                   ; to someone's scanner
-                   term-scanner
-                   #(and (ifn? %) (% lookahead)))]
-    (seq (filter (fn [{:keys [rule follow]}]
-                   (and (rules/is-complete? rule)
-                        (acceptor follow)))
-                 seed-items))))
-
-(defn single-return [seed-items]
-  (let [returns (filter (fn-> :rule rules/is-complete?) seed-items)]
-    (if (= 1 (count returns))
-      (first returns)
-      nil)))
-
-(defn has-returns? [seed-items]
-  (some (fn-> :rule rules/is-complete?) seed-items))
+; Some key not dependent on order. Any item set with the same seeds is the same set
+; TODO Need to cache, unify based on seeds w/o initial item no.?
+#_(defn item-set-key [item-set]
+  (into #{} (:seeds item-set)))
 
 ; === Item set generation
 
