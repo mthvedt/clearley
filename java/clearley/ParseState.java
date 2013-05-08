@@ -18,5 +18,6 @@ public interface ParseState {
 	List<Object> output();
 	int pos();
 	Object peek();  // todo obsolete
-	public int lastReturnId();
+	public int getGoto();
+	public ParseState setGoto(int theGoto);
 }

@@ -7,7 +7,7 @@ import java.util.List;
 
 public class TransientParseState implements ParseState {
 	public int pos = 0;
-	public int lastReturnId = -1;   // todo rename
+	public int theGoto = -1;
 	public ISeq input;
 	public ArrayList<Object> output = new ArrayList<Object>();
 
@@ -22,9 +22,9 @@ public class TransientParseState implements ParseState {
 		return this;
 	}
 
-	public TransientParseState reduce(Object o, int lastReturnId) {
+	public TransientParseState reduce(Object o, int theGoto) {
 		output.add(o);
-		this.lastReturnId = lastReturnId;
+		this.theGoto = theGoto;
 		return this;
 	}
 
@@ -32,8 +32,13 @@ public class TransientParseState implements ParseState {
 		return output.get(output.size() - 1);
 	}
 
-	public int lastReturnId() {
-		return lastReturnId;
+	public int getGoto() {
+		return theGoto;
+	}
+
+	public TransientParseState setGoto(int theGoto) {
+		this.theGoto = theGoto;
+		return this;
 	}
 
 	public ISeq input() {

@@ -9,6 +9,10 @@
 ; TODO what does aot do?
 ; TODO eliminate state, then have parser return results.
 ; TODO do we need locking?
+;
+; TODO a lot of this is ugly. One thing we can do is put deterministic item parsers
+; in protocols (we will need to do this anyway). Then extra generated methods
+; can be statically linked.
 
 (defn parse-stream [input]
   (TransientParseState. (seq input)))
@@ -76,16 +80,17 @@
           (println "Stack split in item set\n" (item-set-str item-set)
                    "for return value " (item-str backlink)))
         ; Create a subtable
-        `(case (.lastReturnId (~(item-parser-sym shift-advance-seeds myns)
-                                      ~'state))
-           ~@(mapcat
-               (fn [id continuance]
-                 `(~id (recur ~(get branch-code-map (:backlink continuance)))))
-           (range) shift-advance-seeds)))
-        ; Just call the continuance
-        `(~(item-parser-sym continue-advance-seeds myns) ~'state))))
+        `(let [~'state (~(item-parser-sym shift-advance-seeds myns) ~'state)]
+           (case (.getGoto ~(apply symbol '(^ParseState state)))
+             ~@(mapcat
+                 (fn [id continuance]
+                   `(~id (recur (.setGoto ~(apply symbol '(^ParseState state))
+                                          ~(get branch-code-map
+                                                (:backlink continuance))))))
+                 (range) shift-advance-seeds))))
+      ; Just call the continuance
+      `(~(item-parser-sym continue-advance-seeds myns) ~'state))))
 
-; Anaphoric: requires ~'branch
 ; TODO we can make this smaller since we know
 ; a token consuming shift only happens once
 ; For an item set, builds the 'continuing table' which handles all steps after
@@ -96,14 +101,14 @@
 ; or calls the continue.
 (defn gen-advance-loop [{backlink-map :backlink-map :as item-set} branch-nums myns]
   (when-not (seq branch-nums) nil);(assert false)) TODO
-  `(loop [~'branch ~'branch]
-     (case ~'branch
+  `(loop [~'state ~'state]
+     (case (.getGoto ~(apply symbol '(^ParseState state)))
        ~@(mapcat (fn [[backlink id]]
                    `(~id ~(gen-advance-handler item-set backlink branch-nums myns)))
                  branch-nums))))
 
 (defn advance-looper [item-set branch-nums myns]
-  (let [r `(fn [~(apply symbol '(^ParseState state)) ~'branch]
+  (let [r `(fn [~(apply symbol '(^ParseState state))]
              ~(gen-advance-loop item-set branch-nums myns))]
     ;(clojure.pprint/pprint r)
     (binding [*ns* myns]
@@ -114,13 +119,15 @@
 
 ; For an initial shift, looks up a branch num to branch to in the continuing loop.
 (defn gen-shift-subtable [item-set shift-item-seeds branch-code-map myns]
-  `(case (.lastReturnId (~(item-parser-sym shift-item-seeds myns)
-                                (.shift ~'state ~'input)))
-     ~@(mapcat
-         (fn [id seed]
-           `(~id (~(get-advancer-sym item-set branch-code-map myns)
-                     ~'state ~(get branch-code-map (:backlink seed)))))
-         (range) shift-item-seeds)))
+  `(let [~'state (~(item-parser-sym shift-item-seeds myns)
+                     (.shift ~'state ~'input))]
+     (case (.getGoto ~(apply symbol '(^ParseState state)))
+       ~@(mapcat
+           (fn [id seed]
+             `(~id (~(get-advancer-sym item-set branch-code-map myns)
+                       (.setGoto ~(apply symbol '(^ParseState state))
+                                 ~(get branch-code-map (:backlink seed))))))
+           (range) shift-item-seeds))))
 
 ; Anaphoric, requiring a 'input, 'state, and a 'advancer--current input
 ; may be ::term.
@@ -172,8 +179,6 @@
                      ~'input (first ~'istream)]
                  ; TODO rename
                  ~(gen-initial-shift item-set action-map branch-nums myns)))
-          ;(println (item-set-str item-set))
-          ;(clojure.pprint/pprint r)
           f (binding [*ns* myns] (eval r))]
       f
       #_(fn [& args]
