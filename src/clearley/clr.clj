@@ -4,7 +4,7 @@
            [clearley.rules :as rules]
            [uncore.collections.worm-ordered-multimap :as omm]
            [uncore.str :as s])
-  (use uncore.core))
+  (use uncore.core uncore.memo))
 
 ; Tools for CLR(1) grammars.
 
@@ -47,7 +47,7 @@
 (defrecord Item [rule backlink match-count seed? follow])
 
 (defn item-str [{:keys [rule seed? follow] :as item}]
-  (str (if seed? (:seed-num item) "+") " " (rules/rule-str rule)))
+  (str (if seed? "" "+") " " (rules/rule-str rule)))
 
 (defn item-str-follow [{follow :follow :as item}]
   (str (item-str item) " : " (hexhash follow)))
@@ -140,8 +140,7 @@
 ; Closes an item set, adding eager advances
 (defn pep-item-set [seeds]
   (if (seq seeds)
-    (let [seeds (map #(if (:seed-num %) % (assoc % :seed-num %2)) seeds (range))
-          more-seeds (mapcat #(eager-advances % false) seeds)]
+    (let [more-seeds (mapcat #(eager-advances % false) seeds)]
       (closed-item-set seeds more-seeds))))
 
 ; Gets the next item set for some backlink
@@ -151,8 +150,7 @@
 
 ; Some key not dependent on order. Any item set with the same seeds is the same set
 ; TODO Need to cache, unify based on seeds w/o initial item no.?
-#_(defn item-set-key [item-set]
-  (into #{} (:seeds item-set)))
+(defn item-set-key [item-set] (into #{} (:seeds item-set)))
 
 ; === Item set generation
 

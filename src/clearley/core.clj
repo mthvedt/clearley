@@ -8,7 +8,7 @@
   (use clearley.match clearley.grammar uncore.core))
 
 (defprotocol Parser
-  (parse [parser input] "Parse the given input with the given parser,
+  (parse-state [parser input] "Parse the given input with the given parser,
                         yielding a match tree."))
 
 (defprotocol ChartParser
@@ -18,6 +18,11 @@
                                (for an Earley parser, but same idea) is at
                                http://www.wikipedia.org/wiki/Earley_parser."))
 
+(defn parse
+  "Parse the given input with the given parser, yielding a match tree."
+  [parser input]
+  (q/finalize-state (parse-state parser input)))
+
 (defn parser
   "Constructs a parser given a grammar and goal symbol."
   ([goal grammar]
@@ -26,9 +31,7 @@
          goal (backtick/resolve-symbol goal)]
    (reify
      Parser
-     (parse [_ input]
-       ; For now, only return first match. If failure, last chart will be empty
-       (q/finalize-state (q/parse grammar goal input myns mem-atom)))
+     (parse-state [_ input] (q/parse grammar goal input myns mem-atom))
      #_ChartParser
      #_(charts [_ input] (parse-fn input))
      #_(print-charts [_ input] (earley/pstr-charts (parse-fn input)))))))

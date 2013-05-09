@@ -9,6 +9,8 @@
 ; TODO what does aot do?
 ; TODO eliminate state, then have parser return results.
 ; TODO do we need locking?
+; TODO kill the double switch--instead assign each item a global int. int switches
+; is a neccesary however.
 ;
 ; TODO a lot of this is ugly. One thing we can do is put deterministic item parsers
 ; in protocols (we will need to do this anyway). Then extra generated methods
@@ -56,6 +58,9 @@
             (swap! item-set-var-map #(assoc-in % [a-str key] sym))
             sym))))))
 
+(defn item-id [item]
+  (generate ::item item (fn [_ id] id)))
+
 (defn fail [^ParseState stream] (t/RE "Failure to parse at position: " (.pos stream)))
 
 ; === Advance loops ===
@@ -63,7 +68,7 @@
 ; Anaphoric, needs a ~'result and a wrapping loop/recur and a ~'state
 ; For a backlink, calls the item-parser represented by that advance,
 ; and either looks up and recurs to a main branch, or calls the continuance.
-(defn gen-advance-handler [item-set backlink branch-code-map]
+(defn gen-advance-handler [item-set backlink]
   (let [shift-advance (advance-item-set item-set backlink false)
         continue-advance (advance-item-set item-set backlink true)]
     (if shift-advance
@@ -71,15 +76,7 @@
         (if continue-advance
           (println "Stack split in item set\n" (item-set-str item-set)
                    "for return value " (item-str backlink)))
-        ; Create a subtable
-        `(let [~'state (~(item-parser-sym shift-advance) ~'state)]
-           (case (.getGoto ~(apply symbol '(^ParseState state)))
-             ~@(mapcat (fn [continuance]
-                         [(:seed-num continuance)
-                          `(recur (.setGoto ~(apply symbol '(^ParseState state))
-                                            ~(get branch-code-map
-                                                  (:backlink continuance))))])
-                       (:seeds shift-advance)))))
+        `(recur (~(item-parser-sym shift-advance) ~'state)))
       ; Just call the continuance
       `(~(item-parser-sym continue-advance) ~'state))))
 
@@ -91,33 +88,22 @@
 ; to the appropriate branch. The appropriate branch either sets up a subtable
 ; (if it is a shift) to capture the result and goto the main branch
 ; or calls the continue.
-(defn gen-advance-loop [{backlink-map :backlink-map :as item-set} branch-nums]
+(defn gen-advance-loop [{backlink-map :backlink-map :as item-set}]
   `(loop [~'state ~'state]
      (case (.getGoto ~(apply symbol '(^ParseState state)))
-       ~@(mapcat (fn [[backlink id]]
-                   `(~id ~(gen-advance-handler item-set backlink branch-nums)))
-                 branch-nums))))
+       ~@(mapcat (fn [backlink]
+                   `(~(item-id backlink) ~(gen-advance-handler item-set backlink)))
+                 (omm/keys backlink-map)))))
 
-(defn advance-looper [item-set branch-nums]
+(defn advance-looper [item-set]
   (let [r `(fn [~(apply symbol '(^ParseState state))]
-             ~(gen-advance-loop item-set branch-nums))]
+             ~(gen-advance-loop item-set))]
+    ;(println "Advancer:") (clojure.pprint/pprint r)
     (binding [*ns* *myns*]
       (eval r))))
 
-(defn get-advancer-sym [item-set branch-nums]
-  (get-or-bind item-set #(advance-looper % branch-nums) "advancer"))
-
-; For an initial shift, looks up a branch num to branch to in the continuing loop.
-(defn gen-shift-subtable [item-set item-set-2 branch-code-map]
-  `(let [~'state (~(item-parser-sym item-set-2)
-                     (.shift ~'state ~'input))]
-     (case (.getGoto ~(apply symbol '(^ParseState state)))
-       ~@(mapcat (fn [seed]
-                   [(:seed-num seed)
-                    `(~(get-advancer-sym item-set branch-code-map)
-                         (.setGoto ~(apply symbol '(^ParseState state))
-                                   ~(get branch-code-map (:backlink seed))))])
-                 (:seeds item-set-2)))))
+(defn get-advancer-sym [item-set]
+  (get-or-bind item-set advance-looper "advancer"))
 
 ; === Shifts and scanning
 
@@ -125,7 +111,7 @@
 ; may be ::term.
 ; The code that should be executed if a scanner is matched.
 ; Can either return or call a advancer returning the result.
-(defn gen-scanner-handler [scanner item-set action-map branch-nums]
+(defn gen-scanner-handler [scanner item-set action-map]
   (let [shift (get-actions-for-tag scanner action-map :shift)
         return (get-actions-for-tag scanner action-map :return)]
     (if (> (count return) 1)
@@ -136,38 +122,36 @@
       (do
         (if (seq return)
           (println "Shift-reduce conflict in item set\n" (item-set-str item-set)))
-        (gen-shift-subtable item-set (pep-item-set (map advance-item shift))
-                            branch-nums))
-      ; TODO perhaps return an item num
+        `(~(get-advancer-sym item-set)
+             (~(item-parser-sym (pep-item-set (map advance-item shift)))
+                 (.shift ~'state ~'input))))
       (if (seq return)
         `(.reduce ~'state ~(get-or-bind (first return) identity "item")
-                  ~(-> return first :seed-num))))))
+                  ~(-> return first :backlink item-id))))))
 
 ; A cond chain for all actions
-(defn gen-initial-shift [item-set action-map branch-nums]
+; TODO unify with gen-parser-body
+(defn gen-initial-shift [item-set action-map]
   (let [cond-pair-fn (fn [scanner]
                        [(list (get-or-bind scanner identity "scanner") 'input)
-                        (gen-scanner-handler scanner item-set action-map
-                                             branch-nums)])]
+                        (gen-scanner-handler scanner item-set action-map)])]
     `(if (seq ~'istream)
        (cond ~@(mapcat cond-pair-fn (remove #(= :clearley.clr/term %)
                                             (omm/keys action-map)))
              true (fail ~'state))
        ; Special handling for terminus
        ~(if-let [term-handler (gen-scanner-handler :clearley.clr/term item-set
-                                                   action-map branch-nums)]
+                                                   action-map)]
           term-handler
           `(fail ~'state)))))
 
 ; Sets up all the stuff to execute gen-initial-shift
 (defn gen-parser-body [item-set]
-  (let [action-map (action-map item-set)
-        branch-nums (zipmap (omm/keys (:backlink-map item-set)) (range))]
-    (when-not (seq action-map) (prn "!!!" item-set))
+  (let [action-map (action-map item-set)]
     (let [r `(fn [~(apply symbol '(^ParseState state))]
                (let [~'istream (.input ~'state)
                      ~'input (first ~'istream)]
-                 ~(gen-initial-shift item-set action-map branch-nums)))
+                 ~(gen-initial-shift item-set action-map)))
           f (binding [*ns* *myns*] (eval r))]
       f
       #_(fn [& args]
@@ -177,10 +161,12 @@
         (clojure.pprint/pprint r)
         (apply f args)))))
 
-; TODO too many are being generated.
 (defn item-parser-sym [^clearley.clr.ItemSet item-set]
-  (if item-set
-    (lookup-thunk (:seeds item-set) #(gen-parser-body item-set) "item-set")))
+  (when item-set
+    (lookup-thunk (item-set-key item-set) (fn []
+                                            ;(println "Loading code for item set:")
+                                            ;(println (item-set-str item-set))
+                                            (gen-parser-body item-set)) "item-set")))
 
 (defn new-ns []
   (let [sym (gensym "quentin")
