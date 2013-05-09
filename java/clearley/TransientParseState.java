@@ -10,6 +10,7 @@ public class TransientParseState implements ParseState {
 	public int theGoto = -1;
 	public ISeq input;
 	public ArrayList<Object> output = new ArrayList<Object>();
+	public Object returnValue;
 
 	public TransientParseState(ISeq input) {
 		this.input = input;
@@ -39,6 +40,14 @@ public class TransientParseState implements ParseState {
 	public TransientParseState setGoto(int theGoto) {
 		this.theGoto = theGoto;
 		return this;
+	}
+
+	public Object returnValue() {
+		return returnValue;
+	}
+
+	public void setReturnValue(Object returnValue) {
+		this.returnValue = returnValue;
 	}
 
 	public ISeq input() {

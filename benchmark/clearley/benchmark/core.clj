@@ -12,12 +12,12 @@
 (defn bench-str [name parser str parse?]
   (println "Benchmark:" name)
   (println "Input size:" (count str))
-  (if-let [r (parse parser str)]
+  (if (execute parser str)
     (do
       (println "Benchmarking")
       (if parse?
-        (bench (parse parser str))
-        (bench (parse-state parser str)))
+        (bench (execute parser str))
+        (bench (execute parser str)))
       (print-sep))
     (println "!!!!Failure to parse!!!!")))
 

@@ -20,4 +20,6 @@ public interface ParseState {
 	Object peek();  // todo obsolete
 	public int getGoto();
 	public ParseState setGoto(int theGoto);
+	public Object returnValue(); // todo obsolete
+	public void setReturnValue(Object returnValue);
 }

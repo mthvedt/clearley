@@ -19,7 +19,7 @@
        ~@forms)))
 
 (defn parses? [input]
-  (not (nil? (parse local-parser input))))
+  (execute local-parser input))
 
 (defmacro is-parsing [input]
   `(is (parses? ~input)))
@@ -28,7 +28,7 @@
   `(is (not (parses? ~input))))
 
 (defmacro action-throws [exception-type input]
-  `(is (thrown? ~exception-type (take-action (parse local-parser ~input)))))
+  `(is (thrown? ~exception-type (execute local-parser ~input))))
 
 ; valued trees of the form (value & branches)
 ; neccesary for comparing heterogeneous seqables (here, vec vs lazy-seq)
@@ -64,14 +64,14 @@
        (first m)))
      (match-tree match)))
 
-(defmacro is-ast [expected testval]
+#_(defmacro is-ast [expected testval]
   `(is= ~expected (stripped-match-tree (parse local-parser ~testval))))
 
-(defmacro is-parse [expected testval]
+#_(defmacro is-parse [expected testval]
   `(is (tree-eq ~expected (match-tree (parse local-parser ~testval)))))
 
 (defmacro is-action [expected testval]
-  `(is= ~expected (take-action (parse local-parser ~testval))))
+  `(is= ~expected (execute local-parser ~testval)))
 
 (defn get-resource [filename]
   (-> filename io/resource io/reader))

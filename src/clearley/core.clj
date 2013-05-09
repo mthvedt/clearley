@@ -8,8 +8,8 @@
   (use clearley.match clearley.grammar uncore.core))
 
 (defprotocol Parser
-  (parse-state [parser input] "Parse the given input with the given parser,
-                        yielding a match tree."))
+  (execute [parser input] "Parse the given input with the given parser, yielding
+                          a result."))
 
 (defprotocol ChartParser
   (^:private charts [parser input]) ; Yields raw charts. Not for human consumption
@@ -18,10 +18,12 @@
                                (for an Earley parser, but same idea) is at
                                http://www.wikipedia.org/wiki/Earley_parser."))
 
-(defn parse
+#_(defn parse
   "Parse the given input with the given parser, yielding a match tree."
   [parser input]
   (q/finalize-state (parse-state parser input)))
+
+;(def parse-state parse) ; TODO kill
 
 (defn parser
   "Constructs a parser given a grammar and goal symbol."
@@ -31,13 +33,13 @@
          goal (backtick/resolve-symbol goal)]
    (reify
      Parser
-     (parse-state [_ input] (q/parse grammar goal input myns mem-atom))
+     (execute [_ input] (q/parse grammar goal input myns mem-atom))
      #_ChartParser
      #_(charts [_ input] (parse-fn input))
      #_(print-charts [_ input] (earley/pstr-charts (parse-fn input)))))))
 
 ; TODO work on this
-(defn print-match
+#_(defn print-match
   "Rudimentary match-tree pretty printing to *out*."
   [match]
   ((fn f [{:keys [rule submatches]} depth]
@@ -46,12 +48,12 @@
      match 0)
   nil)
 
-(defn take-action
+#_(defn take-action
   "Executes the parse actions for a parser match."
   [match]
   (rules/take-action* match))
 
-(defn execute
+#_(defn execute
   "Parses some input and executes the parse actions."
   [parser input]
   (rules/take-action* (parse parser input)))
