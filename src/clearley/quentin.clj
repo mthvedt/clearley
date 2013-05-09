@@ -23,7 +23,7 @@
 
 ; The core abstraction is
 ; Parse stream handler: parse stream -> parse stream
-(declare continue-parsing item-parser-sym)
+(declare continue-parsing item-parser-sym embed-parser-with-lookahead)
 
 ; For a factory seed, obj, and a factory method, factory,
 ; looks up the value created by the seed obj in the given namespace's map.
@@ -76,18 +76,21 @@
         (if continue-advance
           (println "Stack split in item set\n" (item-set-str item-set)
                    "for return value " (item-str backlink)))
-        `(recur (~(item-parser-sym shift-advance) ~'state)))
+        (if-let [known-lookahead (:follow backlink)]
+          `(recur ~(embed-parser-with-lookahead shift-advance known-lookahead))
+          `(recur (~(item-parser-sym shift-advance) ~'state))))
       ; Just call the continuance
-      `(~(item-parser-sym continue-advance) ~'state))))
+      (if-let [known-lookahead (:follow backlink)]
+        (embed-parser-with-lookahead continue-advance known-lookahead)
+        `(~(item-parser-sym continue-advance) ~'state)))))
 
 ; TODO we can make this smaller since we know
 ; a token consuming shift only happens once
 ; For an item set, builds the 'continuing table' which handles all steps after
 ; the first initial shift. Implemented as a loop/recur with a case branch.
 ; The branch table matches all possible advances (advancing shifts, continues)
-; to the appropriate branch. The appropriate branch either sets up a subtable
-; (if it is a shift) to capture the result and goto the main branch
-; or calls the continue.
+; to the appropriate branch. The appropriate branch either recurs (advancing shift)
+; or calls the next item set (continue).
 (defn gen-advance-loop [{backlink-map :backlink-map :as item-set}]
   `(loop [~'state ~'state]
      (case (.getGoto ~(apply symbol '(^ParseState state)))
@@ -98,12 +101,12 @@
 (defn advance-looper [item-set]
   (let [r `(fn [~(apply symbol '(^ParseState state))]
              ~(gen-advance-loop item-set))]
-    ;(println "Advancer:") (clojure.pprint/pprint r)
+    (println "Advancer:") (clojure.pprint/pprint r)
     (binding [*ns* *myns*]
       (eval r))))
 
 (defn get-advancer-sym [item-set]
-  (get-or-bind item-set advance-looper "advancer"))
+  (lookup-thunk item-set #(advance-looper item-set) "advancer"))
 
 ; === Shifts and scanning
 
@@ -145,6 +148,14 @@
           term-handler
           `(fail ~'state)))))
 
+; For when we already know the lookahead state (resolved from a lookahead reduce).
+; This is compact enough we can put it inline.
+(defn embed-parser-with-lookahead [item-set lookahead]
+  (if (= :clearley.clr/term lookahead)
+    (gen-scanner-handler lookahead item-set (action-map item-set))
+    `(let [~'input (first (.input ~'state))]
+       ~(gen-scanner-handler lookahead item-set (action-map item-set)))))
+
 ; Sets up all the stuff to execute gen-initial-shift
 (defn gen-parser-body [item-set]
   (let [action-map (action-map item-set)]
@@ -163,10 +174,11 @@
 
 (defn item-parser-sym [^clearley.clr.ItemSet item-set]
   (when item-set
-    (lookup-thunk (item-set-key item-set) (fn []
-                                            ;(println "Loading code for item set:")
-                                            ;(println (item-set-str item-set))
-                                            (gen-parser-body item-set)) "item-set")))
+    (lookup-thunk (item-set-key item-set)
+                  (fn []
+                    ;(println "Loading code for item set:")
+                    ;(println (item-set-str item-set))
+                    (gen-parser-body item-set)) "item-parser")))
 
 (defn new-ns []
   (let [sym (gensym "quentin")
