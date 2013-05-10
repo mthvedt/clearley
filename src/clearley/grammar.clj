@@ -26,11 +26,13 @@
         (symbol? rule) ::symbol
         true ::token))
 
+; TODO this is evil
 (defrecord ^{:doc "An IFn record that matches a token. Is a record
                   to support =."}
   TokenAction [token]
   clojure.lang.IFn
   (invoke [_] token)
+  (invoke [_ _] token) ; TODO which of these?
   (applyTo [_ args] token))
 
 (defmulti default-action

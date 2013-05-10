@@ -33,6 +33,7 @@ public class TransientParseState implements ParseState {
 
 	public TransientParseState reduce(Object o, int theGoto) {
 		output.add(o);
+		System.out.println("setting goto" + theGoto);
 		this.theGoto = theGoto;
 		return this;
 	}
@@ -46,6 +47,7 @@ public class TransientParseState implements ParseState {
 	}
 
 	public TransientParseState setGoto(int theGoto) {
+		System.out.println("setting goto" + theGoto);
 		this.theGoto = theGoto;
 		return this;
 	}
