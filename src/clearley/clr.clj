@@ -133,6 +133,10 @@
                 themap))
             rmap (:more-seeds item-set))))
 
+(defn untag [tagged-vals tag]
+  (for [[tag1 val] tagged-vals :when (= tag1 tag)] val))
+
+; TODO kill
 (defnmem get-actions-for-tag [key action-map tag]
   (for [[tag1 action] (omm/get-vec action-map key) :when (= tag tag1)]
     action))
@@ -154,6 +158,7 @@
 
 ; Some key not dependent on order. Any item set with the same seeds is the same set
 ; TODO Need to cache, unify based on seeds w/o initial item no.?
+; TODO do we need this?
 (defn item-set-key [item-set] (into #{} (:seeds item-set)))
 
 ; === Item set generation

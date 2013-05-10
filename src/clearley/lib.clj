@@ -5,7 +5,7 @@
 
 (defrulefn token
   "Creates a rule that matches a token. The default action returns the token."
-  a-token (fn [] a-token)
+  a-token (fn [_] a-token)
   {:name name, :tag :token, :value [a-token], :action action})
 
 (defrulefn symbol-rule
@@ -20,18 +20,42 @@
   rules identity
   {:name name, :tag :or, :value (vec rules), :action action})
 
-(defrulefn star
-  "Creates a rule that matches a subrule zero or more times.
-  The default action returns a seq of the matches."
-  subrule identity
-  {:name name, :tag :star, :value [subrule], :action action})
+#_(defrulefn star
+    "Creates a rule that matches a subrule zero or more times.
+    The default action returns a seq of the matches."
+    subrule identity
+    {:name name, :tag :star, :value [subrule], :action action})
 
-(defn plus
-  "Creates a rule that matches a subrule one or more times.
-  The defalt action returns a seq of the matches"
-  ([subrule] (plus subrule (fn [& args] args)))
-  ([subrule action]
-   (rule [subrule [:star subrule]] (fn [f r] (apply action f r)))))
+#_(defn plus
+    "Creates a rule that matches a subrule one or more times.
+    The defalt action returns a seq of the matches"
+    ([subrule] (plus subrule (fn [& args] args)))
+    ([subrule action]
+     (rule [subrule [:star subrule]] (fn [f r] (apply action f r)))))
+
+(defmacro defplus
+  "Creates a rule that matches one or more of a given rule. Because
+  CFGs don't support star rules directly, actually defs a recursive
+  rule (that's why it needs to be a macro, you can't make self-referential plain
+  old data structures). The rule is left-recursive
+  and the action should have 1 or 2 args, and is applied a la core/reduce."
+  [name subrule action]
+  `(let [action# ~action]
+     (def ~name (or-rule [(rule [~subrule] action#)
+                          (rule ['~name ~subrule] action#)]))))
+
+(defmacro defstar
+  "Creates a rule that matches zero or more of a given rule. Because
+  CFGs don't support star rules directly, actually defs a pair of mutually recursive
+  rules (that's why it needs to be a macro). The rule is left-recursive
+  and the action should have 0, 1, or 2 args, and is applied a la core/reduce."
+  [name subrule action]
+  (let [name-plus (symbol (str name "-plus"))]
+    `(do
+       (let [action# ~action]
+         (def ~name-plus (or-rule [(rule [~subrule] action#)
+                                     (rule ['~name ~subrule] action#)]))
+           (def ~name (or-rule [(rule [] action#) ~name-plus]))))))
 
 (defn opt
   "Creates a rule that matches a subrule, or nothing. The action will be passed
@@ -65,12 +89,16 @@
   ([str action]
    {:tag :seq, :action action, :value (vec str)}))
 
-(defn delimit [a-rule delimiter action]
+(defmacro defdelimit
   "Creates a rule that matches 1 or more of a given subrule, separated
   by the given delimiter which is invisible to the parse action.
-  Trailing delimiters don't get matched."
-  (let [sep-subrule (rule [delimiter a-rule] (fn [_ x] x))]
-    (rule [a-rule `(:star ~sep-subrule)] (fn [a b] (apply action a b)))))
+  Trailing delimiters don't get matched. The parse action should take
+  1 or 2 arguments, as with defplus."
+  [name a-rule delimiter action]
+  `(let [action# ~action]
+     (def ~name (or-rule [(rule [~a-rule] action#)
+                          (rule ['~name ~delimiter ~a-rule]
+                                (fn [x# _# y#] (action# x# y#)))]))))
 
 (defn char-to-num
   "Maps chars to numbers linearally. Default maps \\0 to 0.
@@ -97,7 +125,7 @@
         ~(char-range \a \f #(char-to-num % \a 10))
         ~(char-range \A \F #(char-to-num % \A 10))))
 
-(defn make-num
+#_(defn make-num
   "Turns a bunch of digits into a number.
   An optional radix can be supplied (default 10).
   Useful for plugging into parse actions."
@@ -105,17 +133,33 @@
   ([digits radix]
    (reduce #(+ (* radix %) %2) 0 digits)))
 
-(def natnum
-  "A rule that matches a positive number, returning the number.
-  Any number of leading zeroes are allowed."
-  (plus `digit #(make-num %&)))
+(defn num-reducer
+  ; TODO better doc
+  ; TODO codox linking source?
+  "Creates a (0,1,2)-ary num reducer useful in plus/star rules."
+  ([] (num-reducer 10))
+  ([radix] (fn ([] 0)
+             ([^long x] x)
+             ([^long x ^long y] (+ (* x radix) y)))))
+
+(defplus
+  ^{:doc "Matches a bunch of digits. Returns an ArrayList of digits. The usual
+         Java collections caveates apply..."}
+  digits-ar
+  digit (fn ([x] (doto (java.util.ArrayList.) (.add x)))
+          ([l x] (doto l (.add x)))))
+
+(defplus
+  ^{:doc "Matches a positive number, returning the number. Any number of leading
+         zeroes is allowed."}
+  natnum digit (num-reducer))
 
 (defmatch ^{:doc "Matches a positive number with no leading zeroes,
-                returning the number. (0 is a matching number.)"}
+                 returning the number. (0 is a matching number.)"}
   canonical-natnum
   ([\0] 0)
-  ;digit1-9
-  ([digit1-9 (digits `(:star digit))] (make-num (cons digit1-9 digits))))
+  digit1-9
+  ([digit1-9 digits-ar] (reduce (num-reducer) digit1-9 digits-ar)))
 
 (defn surround 
   "Surrounds a rule with one or two other rules.

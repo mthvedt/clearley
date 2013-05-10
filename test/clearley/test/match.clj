@@ -93,21 +93,19 @@
   (is-action 6 "1+2+3"))
 
 ; star test
-(defmatch number [(digits (plus 'digit))]
-  (reduce #(+ % (* %2 10)) digits))
 (defmatch times
-  ([times \* number] (* times number))
-  ([number] number))
+  ([times \* natnum] (* times natnum))
+  ([natnum] natnum))
 
-(def star-parser (build-parser sum))
+(def plus-parser (build-parser sum))
 
-(def-parser-test star-test star-parser
+(def-parser-test plus-test plus-parser
   (is-action 2 "1+1")
   (is-action 22 "11+11")
   (is-action 771 "1+22*33+44"))
 
 ; opt test
-(def foo `(:star (:seq \x ~(opt \y))))
+(defstar foo `(:seq \x ~(opt \y)) (fn ([] []) ([x] [x]) ([arr x] (conj arr x))))
 (def foo-parser (build-parser foo))
 
 (def-parser-test opt-test foo-parser

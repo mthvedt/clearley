@@ -7,7 +7,8 @@
 
 ; Start with whitepsace. JSON has fewer whitespace chars than Java.
 ; At the end, we will define a JSON value as 'value, surrounded by whitespace.
-(def whitespace '(:star (:or \space \tab \newline \return)))
+(defstar whitespace '(:or \space \tab \newline \return)
+  (fn ([] nil) ([_] nil) ([_ _] nil)))
 
 ; JSON recognizes 7 types of value. Three are represented by keywords.
 (defmatch json-keyword ("true" true) ("false" false) ("null" nil))
@@ -23,7 +24,7 @@
 (defmatch hex [\\ \u
               (r (rule "unicode-hex" [hex-digit hex-digit hex-digit hex-digit]
                      ; hex-char returns an int... we turn that into Unicode char
-                     (fn [& chars] (char (make-num chars 16)))))]
+                     (fn [& chars] (char (reduce (num-reducer 16) chars)))))]
   r)
 
 ; A string character can be an escaped char, a hex char, or anything else.
@@ -31,14 +32,19 @@
   ([\\ (escaped-char '(:or \" \\ \/ \b \f \n \r \t))] escaped-char)
   hex char-scanner)
 
-(def string (quotes [:star string-char] #(java.lang.String. (char-array %))))
+(defstar string-body string-char (fn ([] "")
+                                   ([c] (doto (java.lang.StringBuilder.) (.append c)))
+                                   ([arr c] (.append arr c))))
+
+(def string (quotes string-body #(.toString %)))
 
 ; Fifth, the Number, the most complex. JSON accepts canonical integers,
 ; decimals, and scientific notation.
 (defmatch decimal
   canonical-natnum
-  ([canonical-natnum \. (digits `(:star digit))]
-   (+ canonical-natnum (/ (make-num digits) (expt 10 (count digits))))))
+  ([canonical-natnum \. digits-ar]
+   (+ canonical-natnum (/ (reduce (num-reducer) digits-ar)
+                          (expt 10 (count digits-ar))))))
 
 ; A mantiss uses 'natnum' because it may start with an arbitrary number of 0s.
 ; Which is odd if you think about it.
@@ -58,14 +64,17 @@
   ([\- posnum] (- posnum)))
 
 ; The sixth type is the array.
-(def array-values (delimit `value \, #(vec %&)))
+(defdelimit array-values 'value \, (fn ([x] (transient [x]))
+                                    ([arr y] (conj! arr y))))
 
-(def array (brackets (match ([whitespace] []) array-values)))
+(def array (brackets (match ([whitespace] []) ([array-values]
+                                               (persistent! array-values)))))
 
 ; and the seventh (and also the goal type): Object.
 (defmatch pair [whitespace string whitespace \: value] [string value])
 
-(def pairs (delimit pair \, #(apply hash-map (apply concat %&))))
+(defdelimit pairs 'pair \, (fn ([m] (apply hash-map m))
+                             ([m p] (conj m p))))
 
 (def object (braces (match ([whitespace] {}) pairs)))
 
