@@ -6,18 +6,26 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class TransientParseState implements ParseState {
-	public int pos = 0;
-	public int theGoto = -1;
-	public ISeq input;
-	public ArrayList<Object> output = new ArrayList<Object>();
-	public Object returnValue;
+	int pos = 0;
+	int theGoto = -1;
+	ISeq input;
+	Object current;
+	ArrayList<Object> output = new ArrayList<Object>();  // todo obsolete
+	Object returnValue;
 
 	public TransientParseState(ISeq input) {
+		assert input == null || clojure.lang.RT.seq(input) != null;
 		this.input = input;
+		if (input != null) {
+			this.current = input.first();
+		}
 	}
 
 	public TransientParseState shift(Object o) {
 		input = input.next();
+		if (input != null) {
+			current = input.first();
+		}
 		pos++;
 		output.add(o);
 		return this;
@@ -48,6 +56,14 @@ public class TransientParseState implements ParseState {
 
 	public void setReturnValue(Object returnValue) {
 		this.returnValue = returnValue;
+	}
+
+	public Object getCurrent() {
+		return current;
+	}
+
+	public Object hasCurrent() {
+		return input;
 	}
 
 	public ISeq input() {

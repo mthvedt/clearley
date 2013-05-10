@@ -52,8 +52,9 @@
         (if-let [sym0 (get-in @item-set-var-map [a-str key])]
           sym0
           (let [thunk (fn [& args] (let [r (candidate-thunk)]
-                                     (intern *myns* sym r)
-                                     (apply r args)))]
+                                     (locking ns-lock
+                                       (intern *myns* sym r)
+                                       (apply r args))))]
             (println "Creating" sym)
             (intern *myns* sym thunk)
             (swap! item-set-var-map #(assoc-in % [a-str key] sym))
@@ -78,15 +79,18 @@
           (println "Stack split in item set\n" (item-set-str item-set)
                    "for return value " (item-str backlink)))
         ; TODO re-enable
-        ;(if-let [known-lookahead (:follow backlink)]
-         ; `(recur ~(embed-parser-with-lookahead shift-advance known-lookahead))
+        (if-let [known-lookahead (:follow backlink)]
+          `(let [~'partial-match (doto (ArrayList.) (.add (.returnValue ~'state)))]
+             (recur ~(embed-parser-with-lookahead shift-advance known-lookahead)))
           `(recur (~(item-parser-sym shift-advance) ~'state
-                      (doto (ArrayList.) (.add (.returnValue ~'state))))))
+                      (doto (ArrayList.) (.add (.returnValue ~'state)))))))
       ; Just call the continuance
-      ;(if-let [known-lookahead (:follow backlink)]
-       ; (embed-parser-with-lookahead continue-advance known-lookahead)
+      (if-let [known-lookahead (:follow backlink)]
+        `(do
+           (.add ~'partial-match (.returnValue ~'state))
+           ~(embed-parser-with-lookahead continue-advance known-lookahead))
         `(~(item-parser-sym continue-advance) ~'state
-             (doto ~'partial-match (.add (.returnValue ~'state)))))))
+             (doto ~'partial-match (.add (.returnValue ~'state))))))))
 
 ; TODO we can make this smaller since we know
 ; a token consuming shift only happens once
@@ -134,11 +138,6 @@
                            (.shift ~'state ~'input)
                            (doto (ArrayList.) (.add ~'input)))]
            (~(get-advancer-sym item-set) ~'state ~'partial-match)))
-        ;`(~(get-advancer-sym item-set)
-         ;    (~(item-parser-sym (pep-item-set (map advance-item shift)))
-          ;       (.shift ~'state ~'input)
-           ;      (doto (ArrayList.) (.add (.returnValue ~'state))))
-            ; ~'partial-match))
       (let [returned (first return)] ; Guaranteed to exist
         `(do
            (.setReturnValue ~'state 
@@ -149,13 +148,13 @@
                     ~(-> return first :backlink item-id)))))))
 
 ; Parses an item-set together with a partial match. Needs a 'state,
-; 'istream, 'input, and 'partial-match.
+; 'hasNext, 'input, and 'partial-match.
 (defn gen-initial-shift [item-set action-map]
   (let [action-map (action-map item-set)
         cond-pair-fn (fn [scanner]
                        [(list (get-or-bind scanner identity "scanner") 'input)
                         (gen-scanner-handler scanner item-set action-map)])]
-    `(if (seq ~'istream)
+    `(if ~'hasCurrent
        (cond ~@(mapcat cond-pair-fn (remove #(= :clearley.clr/term %)
                                             (omm/keys action-map)))
              true (fail ~'state))
@@ -170,16 +169,16 @@
 (defn embed-parser-with-lookahead [item-set lookahead]
   (if (= :clearley.clr/term lookahead)
     (gen-scanner-handler lookahead item-set (action-map item-set))
-    `(let [~'input (first (.input ~'state))]
-       ~(gen-scanner-handler lookahead item-set (action-map item-set)))))
+    `(let [~'input (.getCurrent ~'state)]
+      ~(gen-scanner-handler lookahead item-set (action-map item-set)))))
 
 ; Creates an fn that takes in a ParseState and a partial-match. Emits a fn that
 ; matches the whole thing.
 (defn gen-parser-body [item-set]
     (let [r `(fn [~(apply symbol '(^ParseState state))
                   ~(apply symbol '(^ArrayList partial-match))]
-               (let [~'istream (.input ~'state)
-                     ~'input (first ~'istream)]
+               (let [~'hasCurrent (.hasCurrent ~'state)
+                     ~'input (.getCurrent ~'state)]
                  ~(gen-initial-shift item-set action-map)))
           f (binding [*ns* *myns*] (eval r))]
       ;(println "Parser") (clojure.pprint/pprint r)
@@ -220,32 +219,3 @@
               (parse-stream input) (ArrayList.)))))
     ; TODO the below
     (catch RuntimeException e (clojure.stacktrace/print-stack-trace e) nil)))
-
-(defn pprint-parse-stream [{:keys [input output] :as stream}]
-  (runmap (fn [item] (if (instance? clearley.clr.Item item)
-                       (println (item-str item))
-                       (prn item)))
-          output))
-
-; Builds a rule match from the output stack and pushes the match to the top
-; (think of a Forth operator reducing the top of a stack)
-; Final output (for a valid parse) will be a singleton list
-(defn ostream-str [val]
-  (if (instance? clearley.rules.Match val)
-    (pr-str (rules/take-action* val))
-    (pr-str val)))
-(defn reduce-ostream-helper [ostream val]
-  (if (instance? clearley.clr.Item val)
-    (let [{:keys [rule match-count]} val]
-      (cons (rules/match (rules/get-original rule)
-                         (vec (reverse (take match-count ostream))))
-            (drop match-count ostream)))
-    (do
-      (cons (rules/match val []) ostream))))
-
-(defn reduce-ostream [ostream]
-  (first (reduce reduce-ostream-helper '() ostream)))
-
-; TODO make thread safe
-#_(defn finalize-state [^ParseState state]
-  (reduce-ostream (if state (.output state) nil)))

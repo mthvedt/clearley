@@ -22,4 +22,6 @@ public interface ParseState {
 	public ParseState setGoto(int theGoto);
 	public Object returnValue(); // todo obsolete
 	public void setReturnValue(Object returnValue);
+	public Object getCurrent();
+	public Object hasCurrent();    // returns truthy or falsey
 }
