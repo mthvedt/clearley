@@ -20,27 +20,24 @@
 
 (defn parser
   "Constructs a parser given a grammar and goal symbol."
-  ;"Constructs a parser given a grammar, a goal symbol., and an optional tokenizer."
   ([goal grammar]
-   ;(parser goal identity grammar))
-  ;([goal tokenizer grammar]
    (let [mem-atom (atom {})
          mem-atom-2 (atom {})
          goal (backtick/resolve-symbol goal)
-         parse-fn #(earley/parse-charts % grammar identity #_tokenizer goal
-                                        mem-atom mem-atom-2)]
+         parse-fn #(earley/parse-charts % grammar identity goal mem-atom mem-atom-2
+                                        %2)]
    (reify
      Parser
      (parse [_ input]
        ; For now, only return first match. If failure, last chart will be empty
-       (-> (parse-fn input) last earley/scan-goal first))
+       (-> (parse-fn input false) earley/scan-goal first))
      ChartParser
-     (charts [_ input] (parse-fn input))
-     (print-charts [_ input] (earley/pstr-charts (parse-fn input)))))))
+     (charts [_ input] (parse-fn input true))
+     (print-charts [self input] (earley/pstr-charts (charts self input)))))))
 
 ; TODO work on this
 (defn print-match
-  "Very rudimentary match-tree pretty printing to *out*."
+  "Rudimentary match-tree pretty printing to *out*."
   [match]
   ((fn f [{:keys [rule submatches]} depth]
      (println (apply str (repeat depth " ")) (get rule :name (str rule)))
@@ -59,16 +56,9 @@
   (rules/take-action* (parse parser input)))
 
 (defmacro build-parser
-  "Build a parser in the current ns from the given goal rule
-  and an optional tokenizer."
-  ;and an optional tokenizer."
-  ([goal]
-   ;`(build-parser ~goal identity))
-  ;([goal tokenizer]
-   `(build-parser-with-ns '~goal #_~tokenizer *ns*)))
+  "Build a parser in the current ns from the given goal rule."
+  [goal] `(build-parser-with-ns '~goal *ns*))
 
 (defn build-parser-with-ns
   "Build a parser in a given ns from the given goal rule."
-  ;and tokenizer."
-  [goal #_tokenizer thens]
-  (parser goal #_tokenizer (build-grammar-with-ns goal thens)))
+  [goal thens] (parser goal (build-grammar-with-ns goal thens)))

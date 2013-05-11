@@ -2,7 +2,7 @@
   (require [clojure.java.io :as io]
            [clearley.examples.json :as json]
            [clearley.examples.calculator :as calc])
-  (use [clearley core defmatch]
+  (use [clearley core match]
        [criterium core]))
 
 (def prefix "clearley/benchmark/")

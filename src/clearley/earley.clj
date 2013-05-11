@@ -163,9 +163,10 @@
   (first (reduce reduce-ostream-helper '() ostream)))
 
 ; mem-atom: [map: seed items -> item-set]
-(defn parse-charts [input-str grammar tokenizer goal mem-atom secondary-mem-atom]
+(defn parse-charts [input-str grammar tokenizer goal mem-atom secondary-mem-atom
+                    return-charts?]
   (binding [rules/*mem-atom* secondary-mem-atom]
-    (doall ; TODO man what a hack this is
+    ((if return-charts? doall last) ; TODO man what a hack this is
       (npda/run-automaton (new-item-set [(new-item (rules/goal-rule goal grammar) true
                                                    #{:clearley.npda/term})]
                                         mem-atom)

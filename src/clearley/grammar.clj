@@ -77,6 +77,7 @@
         true (mapcat deps value)))
 
 ; seed: a seqable of syms
+; TODO make this stack-based so we can tell for what rule a normalization fails
 (defn- build-grammar-helper [seed thens theenv]
   (loop [syms (map backtick/resolve-symbol seed) ; syms to resolve
          grammar {}] ; grammar: maps symbols to rules

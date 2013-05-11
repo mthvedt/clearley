@@ -1,10 +1,9 @@
 (ns clearley.match
   "Fns and macros to define context-free grammars.
   Emphasis is on power, flexibility, and ease of use."
-  (require [uncore.throw :as t])
+  (require [uncore.throw :as t]
+           backtick)
   (use uncore.core))
-
-; TODO put in core?
 
 ; TODO arguments-checking?
 (defmacro defrulefn [sym doc arg1 default-action & full-body]
@@ -31,16 +30,17 @@
   {:name name, :tag :scanner, :value [scanner-fn], :action action})
 
 ; Macro helper fn for def rule. Returns a pair of
-; [appropriate-symbol-for-action-body, rule-or-rulename]
+; [appropriate-symbol-for-action-body, rule-or-symbol]
 (defn- process-nonlist-clause [clause]
   (cond (list? clause) (assert false)
-        (symbol? clause) [(symbol (name clause)) `'~(symbol (name clause))]
+        (symbol? clause) [(symbol (name clause))
+                          `'~(backtick/resolve-symbol clause)]
         (keyword? clause) [(symbol (name clause)) clause]
         (string? clause) [(symbol clause) clause]
         true ['_ clause])) ; can't be an arg in a fn
 
 ; Macro helper fn for def rule. Returns a pair of
-; [appropriate-symbol-for-action-body, rule-or-rulename-or-uneval'd-form]
+; [appropriate-symbol-for-action-body, rule-or-symbol-or-uneval'd-form]
 (defn- process-clause [clause]
   (if (list? clause)
     (if-let [thename (first clause)]
@@ -75,7 +75,7 @@
                              (string? f1) `(match-one ~(vec f1) ~@rest)
                              true (t/IAE "Not a valid start to a defmatch body: "
                                          form ", expect vector or string")))
-        (symbol? form) `'~form
+        (symbol? form) `'~(backtick/resolve-symbol form)
         true (t/IAE "Not a valid defmatch body: " form
                     ", expected list or symbol")))
 
@@ -118,7 +118,7 @@
   You can embed rules in named subrules, viz:
   (defmatch digit [(x (char-range 0 9))] x)
 
-  Symbols in the defmatch bodies do not become qualified."
+  Symbols in the defmatch bodies become qualified."
   [sym & impl-or-impls]
   `(def ~sym (match ~@impl-or-impls)))
 
@@ -133,7 +133,7 @@
     (str rule1 rule2 rule3))"
   [binding-forms & body]
   (let [pairs (partition 2 binding-forms)
-        rules (map (fn [key] (if (symbol? key) `'~key key))
+        rules (map (fn [key] (if (symbol? key) `'~(backtick/resolve-symbol key) key))
                    (map second pairs))
         val-gensyms (repeatedly (count pairs) #(gensym "bind_"))]
     (if (some #(not (= 2 %)) (map count pairs))
@@ -144,6 +144,6 @@
                ~@body)))))
 
 (defmacro defbind
-  "Like bind but defs a variable."
+  "Like bind but defs a var."
   [sym & body]
   `(def ~sym (assoc (bind ~@body) :name '~sym)))

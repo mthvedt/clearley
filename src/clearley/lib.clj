@@ -106,9 +106,9 @@
    (reduce #(+ (* radix %) %2) 0 digits)))
 
 (def natnum
-  "Matches a positive number, returning the number. Any number of leading zeroes
-  is allowed."
-  (plus digit #(make-num %&)))
+  "A rule that matches a positive number, returning the number.
+  Any number of leading zeroes are allowed."
+  (plus `digit #(make-num %&)))
 
 (defmatch ^{:doc "Matches a positive number with no leading zeroes,
                 returning the number. (0 is a matching number.)"}

@@ -37,7 +37,7 @@
 ; decimals, and scientific notation.
 (defmatch decimal
   canonical-natnum
-  ([canonical-natnum \. (digits '(:star digit))]
+  ([canonical-natnum \. (digits `(:star digit))]
    (+ canonical-natnum (/ (make-num digits) (expt 10 (count digits))))))
 
 ; A mantiss uses 'natnum' because it may start with an arbitrary number of 0s.

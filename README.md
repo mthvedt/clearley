@@ -58,7 +58,7 @@ In particular, note the following:
 * The order of subrules--sum => sum + term--enforces left-to-right evaluation. Clearley can handle ambiguous grammars, so if the order doesn't matter, you could have said sum => sum + sum.
 * Clearley is what you call a "scannerless" parser. Many parsers need a separate step to break input into chunks called "tokens". Clearley does not need this.
 
-More examples live in [test/clearley/test/examples](https://github.com/eightnotrump/clearley/tree/master/test/clearley/examples). For instance, there's a standards-compliant JSON parser. Since JSON uses a different set of tokens (i.e. different whitespace, control characters, escape characters) than does Java, this task requires you to define a bunch of low-level parsing stuff as well as the high-level JSON strucutre. _(N.B.: It seems to be common for parsing libraries to use JSON as an example, only to get it wrong and miss a lot of details. When you need a general context-free parser that accounts for fine details in things like whitespace and escape characters, there's only one parser to trust.)_
+More examples live in [test/clearley/test/examples](https://github.com/eightnotrump/clearley/tree/master/test/clearley/examples). For instance, there's a standards-compliant JSON parser. Since JSON uses a different set of tokens (i.e. different whitespace, control characters, escape characters) than does Java, this task requires you to define a bunch of low-level parsing stuff as well as the high-level JSON strucutre. _(N.B.: At least two fairly popular parsing libraries use JSON as an example, only to get it wrong and miss a lot of details. Clearley's design makes it natural to account for things like difference in whitespace, control characters, encodings.)_
 
 Parser related stuff lives in `clearley.core` and the defmatch frontend lives in `clearley.match`. All libraries are documented at http://eightnotrump.github.io/clearley/codox/ .
 
@@ -75,7 +75,7 @@ You can also substitute names in defmatch, by supplying a name-rule pair:
 (defmatch sum [(foo sum) \+ (bar times)] (+ foo bar))
 ```
 
-In defmatch, any symbols will _not_ be resolved. This allows them to function as forward references, so you can make recursive grammars. The parser/grammar builder will figure out the symbols at build time.
+In defmatch, symbols will be resolved if they can, and in the current namespace if htey can't. This lets you use symbols as forward-references so you can make recursive grammars. The parser/grammar builder will figure out the symbols at build time. The auto-qualification means you can have rules that point to rules from a different namespace. (This also means that you can extend rules by substituting rules into grammar maps--see below.)
 
 The match macro is like defmatch, but doesn't def anything:
 ```clojure
@@ -92,7 +92,7 @@ For more complicated rules, the bind and defbind macros work like Clojure's let 
 
 Here, the rule op matches either the + or - character. The rule body converts op into the symbol '+ or '-, then calls (+ num1 num2) or (- num1 num2).
 
-In addition to these macros, Clearley has plenty more macros and fns available that create rules. I'm also working on a _standard library_; it's not complete, but generally any rule I end up using in different places I stick in the standard library. See the [defmatch documentation](http://eightnotrump.github.io/clearley/codox/clearley.defmatch.html).
+In addition to these macros, Clearley has plenty more macros and fns available that create rules. The namespace `clearely.match` contains a core library of macros and fns for defining rules. A whole lot more lives in `clearley.lib`, a collection of common rules and rule fns. It's split this way so you can `(use clearley.match)` without filling your namespace with too much stuff. Check out the codox: [match](http://eightnotrump.github.io/clearley/codox/clearley.match.html) and [lib](http://eightnotrump.github.io/clearley/codox/clearley.lib.html).
 
 ### Scanning rules
 
@@ -126,7 +126,7 @@ but note that tagged sequences don't work in match/defmatch, because that's how 
 
 ### Rules in detail
 
-__Now we're getting into fancy stuff.__ I truly believe that software should be open and usable as possible, and have a passionate hate for software that tries to slot you into a specific workflow using magic functions. So the whole intermediate representation of Clearley is exposed to the user. But you don't need to undersand this to use all the goodness in `clearley.match` and `clearley.lib`.
+__Now we're getting into fancy stuff.__ I truly believe that software should be open and usable as possible, and have a passionate hate for software that tries to slot you into a specific workflow using magic functions. So the whole intermediate representation of Clearley is exposed to the user. But you don't need to undersand this to use all the goodies in `clearley.match` and `clearley.lib`.
 
 All rules, in the end, are maps, but Clearley supports simpler data structures when maps aren't needed. There are four kinds in total.
 
@@ -204,7 +204,7 @@ user=> (clojure.pprint/pprint g)
 
 ## What's under the hood
 
-Clearley uses a nondeterministic Earley automaton with CLR(1) lookahead. The name is a combination of 'Clojure', 'clear', and 'Earley'. The automaton is based on Aycock and Horspool's Practical Earley Parsing. Because it uses lookahead, it can handle right-recursive grammars in linear time, unlike most Earley parsers.
+Clearley uses a nondeterministic Earley automaton with CLR(1) lookahead. The name is a combination of 'Clojure', 'clear', and 'Earley'. The automaton is based on [Aycock and Horspool's Practical Earley Parsing](http://courses.engr.illinois.edu/cs421/sp2012/project/PracticalEarleyParsing.pdf). Because it uses lookahead, it can handle right-recursive grammars in linear time, unlike most Earley parsers. Unfortunately the parser is somewhat slow, but there's a lot of room for performance improvements.
 
 If you want, you can look at the parser's parse charts directly, but note that the underlying algorithm and its textual representation is in flux. The fn for this is `print-charts`.
 
@@ -220,7 +220,6 @@ Clearley is beta software and has a few drawbacks:
 
 * Better ambiguity detection, error detection, and recovery.
 * More performance improvements.
-* Work on docs and the standard library.
 
 ## License
 
