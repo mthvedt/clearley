@@ -7,8 +7,8 @@ Example:
 (letrule [a rule1
           b `(:or rule2-1 rule2-2)
           [c d] rule3]
-  (str rule1 rule2 rule3))</pre></div><div class="public" id="var-defbind"><h3>defbind</h3><h4 class="macro">macro</h4><div class="usage"><code>(defbind sym &amp; body)</code></div><pre class="doc">Like bind but defs a variable.
-</pre></div><div class="public" id="var-defmatch"><h3>defmatch</h3><h4 class="macro">macro</h4><div class="usage"><code>(defmatch sym &amp; impl-or-impls)</code></div><pre class="doc">Defines a rule and an action together. This macro is intended to be
+  (str rule1 rule2 rule3))</pre><div class="src-link"><a href="http://github.com/eightnotrump/clearley/blob/master/src/clearley/match.clj#L125">Source</a></div></div><div class="public" id="var-defbind"><h3>defbind</h3><h4 class="macro">macro</h4><div class="usage"><code>(defbind sym &amp; body)</code></div><pre class="doc">Like bind but defs a var.
+</pre><div class="src-link"><a href="http://github.com/eightnotrump/clearley/blob/master/src/clearley/match.clj#L146">Source</a></div></div><div class="public" id="var-defmatch"><h3>defmatch</h3><h4 class="macro">macro</h4><div class="usage"><code>(defmatch sym &amp; impl-or-impls)</code></div><pre class="doc">Defines a rule and an action together. This macro is intended to be
 the primary way to def rules.
 
 Usage:
@@ -35,17 +35,17 @@ Or it can match a posnum directly, and return the posnum (default).
 You can embed rules in named subrules, viz:
 (defmatch digit [(x (char-range 0 9))] x)
 
-Symbols in the defmatch bodies do not become qualified.</pre></div><div class="public" id="var-empty-rule"><h3>empty-rule</h3><div class="usage"></div><pre class="doc">The empty rule. Returns nil.
-</pre></div><div class="public" id="var-match"><h3>match</h3><h4 class="macro">macro</h4><div class="usage"><code>(match &amp; impl-or-impls)</code></div><pre class="doc">Like defmatch, but doens't def a variable.
-</pre></div><div class="public" id="var-match-one"><h3>match-one</h3><h4 class="macro">macro</h4><div class="usage"><code>(match-one clauses &amp; body)</code></div><pre class="doc">Defines a rule together with an action. If a subrule is a symbol,
+Symbols in the defmatch bodies become qualified.</pre><div class="src-link"><a href="http://github.com/eightnotrump/clearley/blob/master/src/clearley/match.clj#L93">Source</a></div></div><div class="public" id="var-empty-rule"><h3>empty-rule</h3><div class="usage"></div><pre class="doc">The empty rule. Returns nil.
+</pre><div class="src-link"><a href="http://github.com/eightnotrump/clearley/blob/master/src/clearley/match.clj#L15">Source</a></div></div><div class="public" id="var-match"><h3>match</h3><h4 class="macro">macro</h4><div class="usage"><code>(match &amp; impl-or-impls)</code></div><pre class="doc">Like defmatch, but doens't def a variable.
+</pre><div class="src-link"><a href="http://github.com/eightnotrump/clearley/blob/master/src/clearley/match.clj#L82">Source</a></div></div><div class="public" id="var-match-one"><h3>match-one</h3><h4 class="macro">macro</h4><div class="usage"><code>(match-one clauses &amp; body)</code></div><pre class="doc">Defines a rule together with an action. If a subrule is a symbol,
 it can be bound to symbols in the action body. You can also supply a
 renaming binding symbol.
 
 Examples:
 
 (match [\- num (- num))
-(match [(num1 num) \+ (num2 num)] (+ num1 num2))</pre></div><div class="public" id="var-rule"><h3>rule</h3><div class="usage"><code>(rule clauses)</code><code>(rule clauses action)</code><code>(rule name clauses action)</code></div><pre class="doc">Creates a context-free grammar rule. A rule has a required seq of clauses,
+(match [(num1 num) \+ (num2 num)] (+ num1 num2))</pre><div class="src-link"><a href="http://github.com/eightnotrump/clearley/blob/master/src/clearley/match.clj#L56">Source</a></div></div><div class="public" id="var-rule"><h3>rule</h3><div class="usage"><code>(rule clauses)</code><code>(rule clauses action)</code><code>(rule name clauses action)</code></div><pre class="doc">Creates a context-free grammar rule. A rule has a required seq of clauses,
 an optional name, and an optional action.
-If not supplied, the default action bundles the args into a list.</pre></div><div class="public" id="var-scanner"><h3>scanner</h3><div class="usage"><code>(scanner scanner-fn)</code><code>(scanner scanner-fn action)</code><code>(scanner name scanner-fn action)</code></div><pre class="doc">Creates a rule that accepts input tokens. For a token t, if (scanner-fn t)
+If not supplied, the default action bundles the args into a list.</pre><div class="src-link"><a href="http://github.com/eightnotrump/clearley/blob/master/src/clearley/match.clj#L18">Source</a></div></div><div class="public" id="var-scanner"><h3>scanner</h3><div class="usage"><code>(scanner scanner-fn)</code><code>(scanner scanner-fn action)</code><code>(scanner name scanner-fn action)</code></div><pre class="doc">Creates a rule that accepts input tokens. For a token t, if (scanner-fn t)
 is logical true, this rule matches that token.
-The default action returns the token.</pre></div></div></body></html>
+The default action returns the token.</pre><div class="src-link"><a href="http://github.com/eightnotrump/clearley/blob/master/src/clearley/match.clj#L25">Source</a></div></div></div></body></html>
