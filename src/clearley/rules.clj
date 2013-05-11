@@ -162,6 +162,7 @@
       (save! ::canon-first-set rule (first-set* rule)))))
 
 ; For a rule R that predicts items R1..N, calculates the follow set for those items.
+; TODO is this correct?
 (defn follow-first [^CfgRule rule parent-follow]
   (let [follow-set (first-set (advance rule))]
     (if (follow-set ::empty)

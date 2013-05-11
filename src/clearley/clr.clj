@@ -39,7 +39,7 @@
 ; name: an object representing the clause that predicted this item
 ; should have a short str representation
 ; rule: the rule for this item
-; backlink: the item from the original item set, before shifts
+; backlink: the rule from the original item set, before shifts
 ; (but including initial eager advances)
 ; match-count: the number of times this rule has been scanned or advanced
 ; follow: a terminal that can follow this item
@@ -52,31 +52,31 @@
 (defn item-str-follow [{follow :follow :as item}]
   (str (item-str item) " : " (hexhash follow)))
 
-(defn new-item [rule seed? follow]
+(defnmem new-item [rule seed? follow]
   (->Item rule nil 0 seed? follow))
 
-(defn eager-advance [item prediction?]
+(defnmem eager-advance [item prediction?]
   (if item
     (if-let [rule2 (rules/eager-advance (:rule item))]
       (if (and prediction? (rules/is-complete? rule2))
         nil ; don't eager advance predicted items to completion
         (assoc item :rule rule2)))))
 
-(defn eager-advances [item prediction?]
+(defnmem eager-advances [item prediction?]
   (take-while identity (iterate #(eager-advance % prediction?) item)))
 
-(defn predict-item [{:keys [rule follow]}]
+(defnmem predict-item [{:keys [rule follow]}]
   (mapcat #(eager-advances % true)
           (for [prediction (remove fn? (rules/predict rule))
                 follow-terminal (rules/follow-first rule follow)]
             (new-item prediction false follow-terminal))))
 
-(defn advance-item [item]
+(defnmem advance-item [item]
   (assoc (update-all item {:rule rules/advance, :match-count inc,
                            :backlink #(if % % item)})
          :seed? true))
 
-(defn scan-item [item input-token]
+(defnmem scan-item [item input-token]
   (if (some #(% input-token)
             (filter fn? (rules/predict (:rule item))))
     (advance-item item)))
@@ -121,7 +121,7 @@
 
 ; Returns a map. Keys are the next token. Values are one of
 ; [:shift shifting-item] or [:return item-to-return].
-(defn action-map [item-set]
+(defnmem action-map [item-set]
   (let [rmap (reduce
                (fn [themap {:keys [rule] :as item}]
                  (let [shift-fns (filter fn? (rules/predict rule))]
@@ -133,15 +133,19 @@
                 themap))
             rmap (:more-seeds item-set))))
 
-(defn get-actions-for-tag [key action-map tag]
+(defnmem get-actions-for-tag [key action-map tag]
   (for [[tag1 action] (omm/get-vec action-map key) :when (= tag tag1)]
     action))
 
 ; Closes an item set, adding eager advances
-(defn pep-item-set [seeds]
-  (if (seq seeds)
-    (let [more-seeds (mapcat #(eager-advances % false) seeds)]
-      (closed-item-set seeds more-seeds))))
+; Because item-sets don't support =, this should be the single point of creation
+; for all item sets.
+(def pep-item-set
+  (fcache #(into #{} %)
+          (fn [seeds]
+            (if (seq seeds)
+              (let [more-seeds (mapcat #(eager-advances % false) seeds)]
+                (closed-item-set seeds more-seeds))))))
 
 ; Gets the next item set for some backlink
 (defn advance-item-set [{backlink-map :backlink-map} backlink seed?]
@@ -153,6 +157,12 @@
 (defn item-set-key [item-set] (into #{} (:seeds item-set)))
 
 ; === Item set generation
+
+; Roadmap
+; LOL, I have no idea how to best do this...
+; Step 1: Parent-child item set links. Collapsible item records.
+; Step 2: be able to compact child item sets.
+; Step 3: full compaction.
 
 ; Returns a coll of all item sets reachable from seed
 #_(defn generate-all-item-sets [seeds]

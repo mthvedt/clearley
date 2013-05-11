@@ -8,5 +8,6 @@
   (print-sep)
   #_(bench-recognizer "Formatted JSON: recognizing"
                     json/json-parser "small-test-formatted.json")
-  (bench-from-file "Formatted JSON: parsing"
-                   json/json-parser "small-test-formatted.json"))
+  (with-progress-reporting
+    (bench-from-file "Formatted JSON: parsing"
+                   json/json-parser "small-test-formatted.json")))

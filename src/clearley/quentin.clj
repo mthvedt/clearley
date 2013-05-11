@@ -10,8 +10,6 @@
 ; TODO what does aot do?
 ; TODO eliminate state, then have parser return results.
 ; TODO do we need locking?
-; TODO kill the double switch--instead assign each item a global int. int switches
-; is a neccesary however.
 ;
 ; TODO a lot of this is ugly. One thing we can do is put deterministic item parsers
 ; in protocols (we will need to do this anyway). Then extra generated methods
@@ -37,7 +35,7 @@
         (if-let [sym0 (get-in @item-set-var-map [a-str obj])]
           sym0
           (let [r (factory obj)]
-            (println "Creating" sym "for" (s/cutoff (str obj) 40))
+            (println (s/cutoff (str "Interning " sym " : " r) 80))
             (intern *myns* sym r)
             (swap! item-set-var-map #(assoc-in % [a-str obj] sym))
             sym))))))
@@ -51,11 +49,12 @@
       (let [sym (symbol (str a-str "-" (count (get @item-set-var-map a-str {}))))]
         (if-let [sym0 (get-in @item-set-var-map [a-str key])]
           sym0
-          (let [thunk (fn [& args] (let [r (candidate-thunk)]
-                                     (locking ns-lock
-                                       (intern *myns* sym r)
-                                       (apply r args))))]
-            (println "Creating" sym)
+          ; Assumption: thunk has no side effects
+          (let [thunk (fn [& args]
+                        (let [r (candidate-thunk)]
+                          (println (s/cutoff (str "Interning " sym " : " r) 80))
+                          (intern *myns* sym r)
+                          (apply r args)))]
             (intern *myns* sym thunk)
             (swap! item-set-var-map #(assoc-in % [a-str key] sym))
             sym))))))
@@ -78,7 +77,6 @@
         (if continue-advance
           (println "Stack split in item set\n" (item-set-str item-set)
                    "for return value " (item-str backlink)))
-        ; TODO re-enable
         (if-let [known-lookahead (:follow backlink)]
           `(let [~'partial-match (doto (ArrayList.) (.add (.returnValue ~'state)))]
              (recur ~(embed-parser-with-lookahead shift-advance known-lookahead)))
@@ -116,7 +114,8 @@
       (eval r))))
 
 (defn get-advancer-sym [item-set]
-  (lookup-thunk item-set #(advance-looper item-set) "advancer"))
+  (lookup-thunk item-set #(do (println "Compilining advancer...")
+                            (advance-looper item-set)) "advancer"))
 
 ; === Shifts and scanning
 
@@ -196,6 +195,7 @@
                   (fn []
                     ;(println "Loading code for item set:")
                     ;(println (item-set-str item-set))
+                    (println "Compiling item parser...")
                     (gen-parser-body item-set)) "item-parser")))
 
 (defn new-ns []
