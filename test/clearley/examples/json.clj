@@ -34,9 +34,9 @@
 
 (defstar string-body string-char (fn ([] "")
                                    ([c] (doto (java.lang.StringBuilder.) (.append c)))
-                                   ([arr c] (.append arr c))))
+                                   ([^StringBuilder arr c] (.append arr c))))
 
-(def string (quotes string-body #(.toString %)))
+(def string (quotes string-body (fn [^Object s] (.toString s))))
 
 ; Fifth, the Number, the most complex. JSON accepts canonical integers,
 ; decimals, and scientific notation.

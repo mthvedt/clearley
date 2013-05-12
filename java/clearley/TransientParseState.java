@@ -77,4 +77,16 @@ public class TransientParseState implements ParseState {
 	public int pos() {
 		return pos;
 	}
+
+	@Override
+	public String toString() {
+		return "TransientParseState{" +
+				"pos=" + pos +
+				", theGoto=" + theGoto +
+				//", input=" + input +
+				", current=" + current +
+				//", output=" + output +
+				", returnValue=" + returnValue +
+				'}';
+	}
 }

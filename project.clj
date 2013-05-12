@@ -27,7 +27,7 @@
              :benchmark {:dependencies [[org.clojure/data.json "0.2.2"]
                                         [clj-json "0.5.3"]
                                         [cheshire "5.1.0"]]
-                         :gloabl-vars {*warn-on-reflection* true}
+                         :global-vars {*warn-on-reflection* true}
                          :source-paths ["benchmark" "test"]
                          :resource-paths ["benchmark"]
                          :main clearley.benchmark.main}

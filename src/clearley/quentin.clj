@@ -97,7 +97,26 @@
               ~'state
               (.returnValue ~'state))))
 
+; TODO PROBLEM. After single-returns, shift-adv and cont-adv get squashed?
+; Why do we even have this distinction? An item set should always know
+; if it will return or not.
+;
+; TODO maybe a 'lookahead required' distinction. also need stack split warning.
+
+(defn shift-advance [item-set backlink]
+  (when-let [r (advance-item-set item-set backlink false)]
+    (when (advance-item-set item-set backlink true)
+      (assert ((:split-conflicts item-set) backlink))
+      (println "State split conflict for item set:")
+      (println (item-set-str item-set))
+      (println "and item:")
+      (println (item-str-follow backlink)))
+    r))
+
+; TODO first follow conflicts?
+
 ; TODO redoc
+; TODO state split conflicts
 ; TODO we can make this smaller since we know
 ; a token consuming shift only happens once
 ; For an item set, builds the 'continuing table' which handles all steps after
@@ -108,16 +127,15 @@
 (defn gen-advance-loop [{backlink-map :backlink-map :as item-set}]
   `(loop [~'state ~'state]
      (case (.getGoto ~(apply symbol '(^ParseState state)))
-       ~@(collate-cases item-id #(advance-item-set item-set % false)
+       ~@(collate-cases item-id #(shift-advance item-set %)
                         gen-advance-handler (omm/keys backlink-map))
        ~'state))) ; Return and let parent item-set-parser pick it up
 
 ; Creates an advancer fn. Takes in a parse state and an ArrayList partial match.
 (defn advance-looper [item-set]
   (let [r `(fn [~(apply symbol '(^ParseState state))]
-      ;          ~(apply symbol '(^ArrayList partial-match))]
              ~(gen-advance-loop item-set))]
-    ;(println "Advancer:") (clojure.pprint/pprint r)
+    ;(println "Advancer") (clojure.pprint/pprint r)
     (compile r)))
 
 (defn gen-body-parser [item-set]
@@ -129,93 +147,187 @@
 
 ; === Shifts and scanning
 
-; Requires 'input, 'state, 'advancer, and 'partial-match.
+(defn gen-return [item working-syms]
+  ; TODO item is null for some reason
+  (let [action (-> item :rule rules/get-original :action)
+        backlink (-> item :backlink item-id)]
+    `(do
+       (.setReturnValue ~'state
+                        ~(if working-syms
+                           `(~(action-sym action) ~@working-syms)
+                           `(apply ~(action-sym action)
+                                   ~'partial-match)))
+       (.reduce ~'state ~(item-sym item) ~backlink))))
+
+; Requires 'input, 'state, 'advancer, and 'partial-match OR non-null 'working-syms.
 ; Returns a code snippet for handling a state after a scanner is matched.
 ; Can either take action and return, or call a advancer returning the result.
-(defn gen-scanner-handler [scanner item-set action-map working-syms]
-  (let [shift (get-actions-for-tag scanner action-map :shift)
-        return (get-actions-for-tag scanner action-map :return)]
-    (if (> (count return) 1)
+(defn gen-scanner-handler [scanner {actions :actions :as item-set} working-syms]
+  (let [shift (untag (omm/get-vec actions scanner) :shift)
+        return (untag (omm/get-vec actions scanner) :reduce)]
+    (if (and (> (count return) 1) (not (:single-reduce item-set)))
       (do
+        (assert (:reduce-reduce? item-set))
         (println "Reduce-reduce conflict in item set\n" (item-set-str item-set))
         (println "for items" (s/separate-str " " (map item-str-follow return)))))
     (if (seq shift)
       (do
         (if (seq return)
-          (println "Shift-reduce conflict in item set\n" (item-set-str item-set)))
+          (do
+            (assert (:shift-reduce? item-set))
+            (println "Shift-reduce conflict in item set\n" (item-set-str item-set))))
         [:shift [scanner
-                 `(~(item-parser-sym (pep-item-set (map advance-item shift)) ['v0])
+                 `(~(item-parser-sym (pep-item-set (map advance-item shift)
+                                                   (:split-conflicts item-set)) ['v0])
                       (.shift ~'state ~'input)
                       ~'input)]])
-      (let [ritem (first return) ; ignore reduce-reduce for now
-            r-action (-> ritem :rule rules/get-original :action)
-            r-backlink (-> ritem :backlink item-id)]
-        [:return [scanner
-                  `(do
-                     (.setReturnValue ~'state (~(action-sym r-action)
-                                                    ~@working-syms))
-                     (.reduce ~'state ~(item-sym (first return))
-                              ~r-backlink))]]))))
+      ; ignore reduce-reduce for now
+      (if (seq return)
+        [:reduce [scanner (gen-return (first return) working-syms)]]
+        [:reduce [scanner nil]]))))
 
 ; A cond chain for all actions
 ; TODO unify with gen-parser-body
-(defn gen-seed-parser [item-set working-syms]
-  (let [action-map (action-map item-set)
-        cond-pair-fn (fn [[scanner code]]
+(defn gen-parser [{actions :actions :as item-set} working-syms]
+  (let [cond-pair-fn (fn [[scanner code]]
                        [(list (scanner-sym scanner) 'input) code])
-        handlers (map #(gen-scanner-handler % item-set action-map working-syms)
-                      (remove #(= :clearley.clr/term %) (omm/keys action-map)))
-        return-handlers (untag handlers :return)
+        handlers (map #(gen-scanner-handler % item-set working-syms)
+                      (remove #(= :clearley.clr/term %) (omm/keys actions)))
+        return-handlers (untag handlers :reduce)
         shift-handlers (untag handlers :shift)
         next-sym (symbol (str "v" (count working-syms)))
         [_ [_ term-handler]] (gen-scanner-handler :clearley.clr/term item-set
-                                                  action-map working-syms)]
+                                                  working-syms)]
+
+    ; Ignore lookahead
+    (if-let [single-return (:single-reduce item-set)]
+      (do
+        (assert (empty? shift-handlers))
+        ;(println "====single-return:" (item-str-follow single-return))
+        (gen-return single-return working-syms))
+      ; Special handling for terminus (terminus always returns, BTW)
+      `(cond (not (.hasCurrent ~'state)) ~(if term-handler term-handler
+                                            `(fail ~'state))
+             ; See if we should return
+             ~@(mapcat cond-pair-fn return-handlers)
+             ; Shift, get the result, continue with the result
+             true (let [~(apply symbol '(^ParseState state))
+                        (cond ~@(mapcat cond-pair-fn shift-handlers)
+                              true (fail ~'state)),
+                        ~(apply symbol '(^ParseState state))
+                        (~(gen-body-parser item-set) ~'state),
+                        ~'input (.getCurrent ~'state)
+                        ~next-sym (.returnValue ~'state)]
+                    (case (.getGoto ~'state)
+                      ~@(collate-cases item-id #(advance-item-set item-set % true)
+                                       (fn [item-set]
+                                         (gen-parser
+                                           item-set (conj working-syms next-sym)))
+                                       (omm/keys (:backlink-map item-set)))))))))
+
+(declare bind-slow-cont-parser)
+
+; TODO redo names, eliminate code duplication
+(defn gen-slow-parser [{actions :actions :as item-set} argcount]
+  (let [cond-pair-fn (fn [[scanner code]]
+                       [(list (scanner-sym scanner) 'input) code])
+        handlers (map #(gen-scanner-handler % item-set nil)
+                      (remove #(= :clearley.clr/term %) (omm/keys actions)))
+        return-handlers (untag handlers :reduce)
+        shift-handlers (untag handlers :shift)
+        [_ [_ term-handler]] (gen-scanner-handler :clearley.clr/term item-set nil)]
 
     ; Special handling for terminus (terminus always returns, BTW)
-    `(cond (empty? ~'istream) ~(if term-handler term-handler `(fail ~'state))
-           ; See if we should return
-           ~@(mapcat cond-pair-fn return-handlers)
-           ; Shift, get the result, continue with the result
-           true (let [~'state (cond ~@(mapcat cond-pair-fn shift-handlers)
-                                    true (fail ~'state))
-                      ~'state (~(gen-body-parser item-set) ~'state)
-                      ~'istream (.input ~'state)
-                      ~'input (first ~'istream)
-                      ~next-sym (.returnValue ~'state)]
-                  (case (.getGoto ~'state)
-                    ~@(collate-cases item-id #(advance-item-set item-set % true)
-                                     (fn [item-set]
-                                       (gen-seed-parser
-                                         item-set (conj working-syms next-sym)))
-                                     (omm/keys (:backlink-map item-set))))))))
+    (if-let [single-return (:single-reduce item-set)]
+      (do
+        (assert (empty? shift-handlers))
+        ;(println "====single-return:" (item-str-follow single-return))
+        (gen-return single-return nil))
+      `(let [~'input (.getCurrent ~'state)]
+         (cond (not (.hasCurrent ~'state))
+               ~(if term-handler term-handler `(fail ~'state)),
+               ; See if we should return
+               ~@(mapcat cond-pair-fn return-handlers)
+               ; Shift, get the result, continue with the result
+               true (let [~(apply symbol '(^ParseState state))
+                          (cond ~@(mapcat cond-pair-fn shift-handlers)
+                                true (fail ~'state)),
+                          ~(apply symbol '(^ParseState state))
+                          (~(gen-body-parser item-set) ~'state),]
+                      ;(.set ~'partial-match ~argcount (.returnValue ~'state)) ; TODO
+                      (.add ~'partial-match (.returnValue ~'state))
+                      (case (.getGoto ~'state)
+                        ~@(collate-cases item-id #(advance-item-set item-set % true)
+                                         (fn [item-set]
+                                           `(~(bind-slow-cont-parser item-set
+                                                                     (inc argcount))
+                                                ~'state ~'partial-match))
+                                         (omm/keys (:backlink-map item-set))))))))))
 
-; For when we already know the lookahead state (resolved from a lookahead reduce).
-; This is compact enough we can put it inline.
-; TODO
-#_(defn embed-parser-with-lookahead [item-set lookahead]
-  (let [[_ [_ code]] (gen-scanner-handler lookahead item-set (action-map item-set))]
-    (if (= :clearley.clr/term lookahead)
-      code
-      `(let [~'input (first (.input ~'state))]
-         ~code))))
+(defn get-slow-parser [item-set initial-symbols]
+  (let [r `(fn [~(apply symbol '(^ParseState state))
+                ~@(if (seq initial-symbols) ['first-arg] [])] ; TODO ugly
+             (let [~'partial-match (ArrayList.)]
+               ~(case (count initial-symbols)
+                  0 (gen-slow-parser item-set 0)
+                  ;1 `(do (.set ~'partial-match 0 ~'first-arg) ; TODO
+                  1 `(do (.add ~'partial-match ~'first-arg)
+                       ~(gen-slow-parser item-set 1)))))]
+    r))
+
+(defn gen-slow-cont-parser [item-set argcount]
+  (let [r `(fn [~(apply symbol '(^ParseState state))
+                ~(apply symbol '(^ArrayList partial-match))]
+             ~(gen-slow-parser item-set argcount))
+        f (compile r)]
+    ;(println "slow cont parser") (clojure.pprint/pprint r)
+    f
+    #_(fn [& args]
+      (println "Parsing item set")
+      (print (item-set-str item-set))
+      (println "with code")
+      (clojure.pprint/pprint r)
+      (println "and args")
+      (prn args)
+      (apply f args))))
+
+(defn bind-slow-cont-parser [item-set argcount]
+  (lookup-thunk [:cont-slow-parser (item-set-key item-set) argcount]
+                (fn []
+                  ;(println "Compiling parser for item set:")
+                  ;(println (item-set-str item-set))
+                  (println "Compiling parser...")
+                  (gen-slow-cont-parser item-set argcount))
+                "continuing-item-parser"))
+
+; TODO find a better way.
+(defn code-size [l]
+  (if (coll? l)
+    (reduce + 0 (map code-size l))
+    1))
 
 ; Sets up all the stuff to execute gen-initial-shift
 (defn gen-parser-body [item-set initial-symbols]
   (let [r `(fn [~(apply symbol '(^ParseState state))
                 ~@initial-symbols]
-             (let [~'istream (.input ~'state)
-                   ~'input (first ~'istream)]
-               ~(gen-seed-parser item-set initial-symbols)))
-    f (compile r)]
-    (clojure.pprint/pprint "item-set") (println (item-set-str item-set))
-    (clojure.pprint/pprint "parser") (clojure.pprint/pprint r)
+             (let [~'input (.getCurrent ~'state)]
+               ~(gen-parser item-set initial-symbols))) ; TODO move to own fn
+        r (if (> (code-size r) 64)
+            (do
+              ;(println "Parser too big!")
+              (get-slow-parser item-set initial-symbols))
+            r)
+        f (compile r)]
+    ;(clojure.pprint/pprint "item-set") (println (item-set-str item-set)) (clojure.pprint/pprint "parser") (clojure.pprint/pprint r) (println "compiled to" f)
     f
     #_(fn [& args]
-        ;(println "Parsing item set")
-        ;(print (item-set-str item-set))
-        ;(println "with code")
-        ;(clojure.pprint/pprint r)
-        (apply f args))))
+      (println "Parsing item set")
+      (print (item-set-str item-set))
+      (println "with code")
+      (clojure.pprint/pprint r)
+      (println "and args")
+      (prn args)
+      (apply f args))))
 
 (defn item-parser-sym [^clearley.clr.ItemSet item-set initial-symbols]
   (when item-set
@@ -243,7 +355,8 @@
       (binding [*myns* myns]
         (.returnValue
           (@(ns-resolve *myns*
-                        (item-parser-sym (pep-item-set [(goal-item goal grammar)]) []))
+                        (item-parser-sym (pep-item-set [(goal-item goal grammar)] #{})
+                                         []))
               (parse-stream input)))))
     ; TODO the below
     (catch RuntimeException e (clojure.stacktrace/print-stack-trace e) nil)))

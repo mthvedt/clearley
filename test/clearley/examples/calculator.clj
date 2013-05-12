@@ -9,7 +9,8 @@
 (defmatch term
   ([term \* pow] (* term pow))
   ([term \/ pow] (/ term pow))
-  ([\- parenexpr] (- parenexpr))
+  ([\- term] (- term))
+  ;([\- parenexpr] (- parenexpr))
   parenexpr
   term-lparen)
 (defmatch term-lparen
@@ -30,8 +31,8 @@
   ([numexpr \^ pow] (expt numexpr pow)) ; right associative
   numexpr)
 (defmatch numexpr
-  ([\- numexpr] (- numexpr))
-  natnum)
+  ;([\- numexpr] (- numexpr))
+  ([natnum] natnum))
 (def parenexpr (parens sum))
 
 (def my-calculator (clearley.core/build-parser sum))
