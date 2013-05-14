@@ -5,8 +5,7 @@
            [uncore.collections.worm-ordered-multimap :as omm]
            clojure.stacktrace clojure.pprint)
   (:refer-clojure :exclude [compile])
-  (import clearley.ParseState clearley.TransientParseState
-          java.util.ArrayList)
+  (import clearley.ParseState clearley.TransientParseState)
   (use clearley.clr uncore.core uncore.memo))
 ; TODO what does aot do?
 ; TODO eliminate state, then have parser return results.
@@ -131,7 +130,7 @@
                         gen-advance-handler (omm/keys backlink-map))
        ~'state))) ; Return and let parent item-set-parser pick it up
 
-; Creates an advancer fn. Takes in a parse state and an ArrayList partial match.
+; Creates an advancer fn. Takes in a parse state and an array partial match.
 (defn advance-looper [item-set]
   (let [r `(fn [~(apply symbol '(^ParseState state))]
              ~(gen-advance-loop item-set))]
@@ -148,7 +147,7 @@
 ; === Shifts and scanning
 
 (defn apply-args [arg-count action-sym]
-  `(~action-sym ~@(map (fn [i] `(.get ~'partial-match ~i)) (range arg-count))))
+  `(~action-sym ~@(map (fn [i] `(aget ~'partial-match ~i)) (range arg-count))))
 
 (defn gen-return [item working-syms arg-count]
   ; TODO item is null for some reason
@@ -261,8 +260,8 @@
                                 true (fail ~'state)),
                           ~(apply symbol '(^ParseState state))
                           (~(gen-body-parser item-set) ~'state),]
-                      ;(.set ~'partial-match ~argcount (.returnValue ~'state)) ; TODO
-                      (.add ~'partial-match (.returnValue ~'state))
+                      (aset ~'partial-match ~argcount (.returnValue ~'state)) ; TODO
+                      ;(.add ~'partial-match (.returnValue ~'state))
                       (case (.getGoto ~'state)
                         ~@(collate-cases item-id #(advance-item-set item-set % true)
                                          (fn [item-set]
@@ -274,18 +273,18 @@
 (defn get-slow-parser [item-set initial-symbols]
   (let [r `(fn [~(apply symbol '(^ParseState state))
                 ~@(if (seq initial-symbols) ['first-arg] [])] ; TODO ugly
-             (let [~'partial-match (ArrayList. ~(item-set-size item-set))]
+             (let [~'partial-match (object-array ~(item-set-size item-set))]
                ;~(println "====size====" (item-set-size item-set))
                ~(case (count initial-symbols)
                   0 (gen-slow-parser item-set 0)
-                  ;1 `(do (.set ~'partial-match 0 ~'first-arg) ; TODO
-                  1 `(do (.add ~'partial-match ~'first-arg)
+                  1 `(do (aset ~'partial-match 0 ~'first-arg) ; TODO
+                  ;1 `(do (.add ~'partial-match ~'first-arg)
                        ~(gen-slow-parser item-set 1)))))]
     r))
 
 (defn gen-slow-cont-parser [item-set argcount]
   (let [r `(fn [~(apply symbol '(^ParseState state))
-                ~(apply symbol '(^ArrayList partial-match))]
+                ~(apply symbol '(^objects partial-match))]
              ~(gen-slow-parser item-set argcount))
         f (compile r)]
     ;(println "slow cont parser") (clojure.pprint/pprint r)
@@ -352,7 +351,7 @@
     ;(remove-ns sym) ; TODO
     (binding [*ns* r]
       (use 'clojure.core 'clearley.quentin)
-      (import 'clearley.ParseState 'java.util.ArrayList))
+      (import 'clearley.ParseState))
     (intern r 'item-set-var-map (atom {})) ; map: seeds -> symbol
     (intern r 'ns-lock (Object.))
     r))
