@@ -106,11 +106,11 @@
 (defn shift-advance [item-set backlink]
   (when-let [r (advance-item-set item-set backlink false)]
     (when (advance-item-set item-set backlink true)
-      (assert ((:split-conflicts item-set) backlink))
       (println "State split conflict for item set:")
       (println (item-set-str item-set))
       (println "and item:")
-      (println (item-str-follow backlink)))
+      (println (item-str-follow backlink))
+      (assert ((:split-conflicts item-set) backlink)))
     r))
 
 ; TODO first follow conflicts?
@@ -199,8 +199,8 @@
         [_ [_ term-handler]] (gen-scanner-handler :clearley.clr/term item-set
                                                   working-syms)]
 
-    ; Ignore lookahead
-    (if-let [single-return (:single-reduce item-set)]
+    (if-let [single-return (or (:full-single-reduce item-set)
+                               (:single-reduce item-set))]
       (do
         (assert (empty? shift-handlers))
         ;(println "====single-return:" (item-str-follow single-return))
@@ -238,7 +238,8 @@
         [_ [_ term-handler]] (gen-scanner-handler :clearley.clr/term item-set nil)]
 
     ; Special handling for terminus (terminus always returns, BTW)
-    (if-let [single-return (:single-reduce item-set)]
+    (if-let [single-return (or (:full-single-reduce item-set)
+                               (:single-reduce item-set))]
       (do
         (assert (empty? shift-handlers))
         ;(println "====single-return:" (item-str-follow single-return))

@@ -172,6 +172,8 @@
                             (-> (first reduces)
                               (assoc :follow nil)
                               (update :backlink #(assoc % :follow nil))))
+            full-single-reduce (if (and single-reduce (= (count reduces) 1))
+                                 (first reduces))
             gotos (zipmap
                     (omm/keys (:backlink-map c))
                     (map (fn [backlink]
@@ -181,23 +183,29 @@
                                           :continue (advances c backlink true)})))
                          (omm/keys (:backlink-map c))))
             ; This gives us all items for which there is a state split conflict.
-            split-conflicts (into #{} (map key (filter (fn-> val count (> 1)) gotos)))
+            split-conflicts (into #{} (map-> (filter (fn-> val count (> 1)) gotos)
+                                             key #_(assoc :follow nil)))
             c (merge c {:actions actions
                         :shift-reduce? shift-reduce? :reduce-reduce? reduce-reduce?
                         :gotos gotos :single-reduce single-reduce
+                        :full-single-reduce full-single-reduce
                         :split-conflicts split-conflicts})]
         c))))
 
 ; Nocollapses: the item set for which we cannot collapse return values.
 ; (This is to avoid state-split conflicts, where both a seed and a non-seed
 ; are advanced in a calling item set.)
-; TODO plug in
 (defn build-item-set-pass2 [item-set-pass1 nocollapses]
-  (if (nocollapses (:single-reduce item-set-pass1))
-    (assoc item-set-pass1 :single-reduce nil)
+  ;(println "pass2")
+  ;(println (item-set-str item-set-pass1))
+  ;(prn (map item-str-follow nocollapses))
+  ;(println (when-let [x (:single-reduce item-set-pass1)] (item-str-follow x)))
+  (if (nocollapses (:backlink (:single-reduce item-set-pass1)))
+    (do
+      ;(println "nocollapse!" (item-str (:single-reduce item-set-pass1)))
+      (assoc item-set-pass1 :single-reduce nil))
     item-set-pass1))
 
-; TODO: ADD accepting a single return.
 ; TODO That's godo enough for now... LATER we can add return value detection
 ; to remove items.
 ;
@@ -225,7 +233,8 @@
 ; Some key not dependent on order. Any item set with the same seeds is the same set
 ; TODO Need to cache, unify based on seeds w/o initial item no.?
 ; TODO do we need this?
-(defn item-set-key [item-set] (into #{} (:seeds item-set)))
+(defn item-set-key [item-set] (into #{} [(:seeds item-set)
+                                         (:single-reduce item-set)]))
 
 ; === Item set generation
 
