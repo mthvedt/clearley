@@ -149,6 +149,13 @@
   (pep-item-set (advances item-set backlink seed?)
                 (:split-conflicts item-set)))
 
+(defnmem rule-size [rule]
+  (- (-> rule :raw-rule :value count) (-> rule :null-results count)))
+
+(defnmem item-set-size [item-set]
+  (apply max (map-> (concat (:seeds item-set) (:more-seeds item-set))
+                    :rule rule-size)))
+
 (defn build-item-set-pass1 [seeds more-seeds]
   (loop [c (->ItemSet seeds more-seeds (vec more-seeds) omm/empty), dot 0]
     (if-let [s (get (:items c) dot)]

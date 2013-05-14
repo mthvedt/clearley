@@ -147,7 +147,10 @@
 
 ; === Shifts and scanning
 
-(defn gen-return [item working-syms]
+(defn apply-args [arg-count action-sym]
+  `(~action-sym ~@(map (fn [i] `(.get ~'partial-match ~i)) (range arg-count))))
+
+(defn gen-return [item working-syms arg-count]
   ; TODO item is null for some reason
   (let [action (-> item :rule rules/get-original :action)
         backlink (-> item :backlink item-id)]
@@ -155,14 +158,16 @@
        (.setReturnValue ~'state
                         ~(if working-syms
                            `(~(action-sym action) ~@working-syms)
-                           `(apply ~(action-sym action)
+                           (apply-args arg-count (action-sym action))
+                           #_(apply ~(action-sym action)
                                    ~'partial-match)))
        (.reduce ~'state ~(item-sym item) ~backlink))))
 
 ; Requires 'input, 'state, 'advancer, and 'partial-match OR non-null 'working-syms.
 ; Returns a code snippet for handling a state after a scanner is matched.
 ; Can either take action and return, or call a advancer returning the result.
-(defn gen-scanner-handler [scanner {actions :actions :as item-set} working-syms]
+(defn gen-scanner-handler [scanner {actions :actions :as item-set} working-syms
+                           arg-count]
   (let [shift (untag (omm/get-vec actions scanner) :shift)
         return (untag (omm/get-vec actions scanner) :reduce)]
     (if (and (> (count return) 1) (not (:single-reduce item-set)))
@@ -183,7 +188,7 @@
                       ~'input)]])
       ; ignore reduce-reduce for now
       (if (seq return)
-        [:reduce [scanner (gen-return (first return) working-syms)]]
+        [:reduce [scanner (gen-return (first return) working-syms arg-count)]]
         [:reduce [scanner nil]]))))
 
 ; A cond chain for all actions
@@ -191,20 +196,20 @@
 (defn gen-parser [{actions :actions :as item-set} working-syms]
   (let [cond-pair-fn (fn [[scanner code]]
                        [(list (scanner-sym scanner) 'input) code])
-        handlers (map #(gen-scanner-handler % item-set working-syms)
+        handlers (map #(gen-scanner-handler % item-set working-syms -1)
                       (remove #(= :clearley.clr/term %) (omm/keys actions)))
         return-handlers (untag handlers :reduce)
         shift-handlers (untag handlers :shift)
         next-sym (symbol (str "v" (count working-syms)))
         [_ [_ term-handler]] (gen-scanner-handler :clearley.clr/term item-set
-                                                  working-syms)]
+                                                  working-syms -1)]
 
     (if-let [single-return (or (:full-single-reduce item-set)
                                (:single-reduce item-set))]
       (do
         (assert (empty? shift-handlers))
         ;(println "====single-return:" (item-str-follow single-return))
-        (gen-return single-return working-syms))
+        (gen-return single-return working-syms -1))
       ; Special handling for terminus (terminus always returns, BTW)
       `(cond (not (.hasCurrent ~'state)) ~(if term-handler term-handler
                                             `(fail ~'state))
@@ -231,11 +236,12 @@
 (defn gen-slow-parser [{actions :actions :as item-set} argcount]
   (let [cond-pair-fn (fn [[scanner code]]
                        [(list (scanner-sym scanner) 'input) code])
-        handlers (map #(gen-scanner-handler % item-set nil)
+        handlers (map #(gen-scanner-handler % item-set nil argcount)
                       (remove #(= :clearley.clr/term %) (omm/keys actions)))
         return-handlers (untag handlers :reduce)
         shift-handlers (untag handlers :shift)
-        [_ [_ term-handler]] (gen-scanner-handler :clearley.clr/term item-set nil)]
+        [_ [_ term-handler]] (gen-scanner-handler :clearley.clr/term item-set nil
+                                                  argcount)]
 
     ; Special handling for terminus (terminus always returns, BTW)
     (if-let [single-return (or (:full-single-reduce item-set)
@@ -243,7 +249,7 @@
       (do
         (assert (empty? shift-handlers))
         ;(println "====single-return:" (item-str-follow single-return))
-        (gen-return single-return nil))
+        (gen-return single-return nil argcount))
       `(let [~'input (.getCurrent ~'state)]
          (cond (not (.hasCurrent ~'state))
                ~(if term-handler term-handler `(fail ~'state)),
@@ -268,7 +274,8 @@
 (defn get-slow-parser [item-set initial-symbols]
   (let [r `(fn [~(apply symbol '(^ParseState state))
                 ~@(if (seq initial-symbols) ['first-arg] [])] ; TODO ugly
-             (let [~'partial-match (ArrayList.)]
+             (let [~'partial-match (ArrayList. ~(item-set-size item-set))]
+               ;~(println "====size====" (item-set-size item-set))
                ~(case (count initial-symbols)
                   0 (gen-slow-parser item-set 0)
                   ;1 `(do (.set ~'partial-match 0 ~'first-arg) ; TODO

@@ -32,4 +32,6 @@
                          :resource-paths ["benchmark"]
                          :main clearley.benchmark.main}
              :vminfo {:jvm-opts ["-XX:+PrintGCDetails"
+                                 "-XX:+UnlockDiagnosticVMOptions"
+                                 "-XX:+PrintInlining"
                                  "-XX:+PrintCompilation"]}})
