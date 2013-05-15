@@ -2,9 +2,6 @@
   (use clearley.core clearley.match [clearley.lib :exclude [digit]] clearley.grammar
        clearley.test.utils uncore.test.utils lazytest.deftest))
 
-; TODO tests for match
-; TODO simplify def-parser-test
-
 ; === Just a smoke test ===
 (defmatch sum
   ([sum \+ times] (+ sum times))

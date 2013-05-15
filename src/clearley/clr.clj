@@ -93,7 +93,7 @@
 ; === Item sets ===
 
 ; items: the items in the set
-; backlink-map: maps rules -> {:advance, :continue}
+; backlink-map: maps items -> predicting items
 ; TODO: while building, just make a backlink map.
 ; gotos: map rule -> item set kernels.
 ; actinos: map lookahead -> shift (item set kernel) or reduce (item).
@@ -135,7 +135,7 @@
     (fn [themap {:keys [rule] :as item}]
       ; TODO rule scanners instead of filter fn?
       (let [shift-fns (filter fn? (rules/predict rule))]
-        (reduce #(omm/assoc % %2 item) themap shift-fns)))
+        (reduce #(omm/assoc % %2 (advance-item item)) themap shift-fns)))
     omm/empty (:items item-set)))
 
 ; ordered multimap of scanners -> return items
@@ -149,14 +149,11 @@
 (defnmem all-scanners [item-set]
   (disj (into #{} (concat (-> item-set shift-map omm/keys)
                           (-> item-set reduce-map omm/keys)))
-        :clearley.clr/term))
-
-(declare pep-item-set)
-; TODO nix superfluous stuff
+        ::term))
 
 (defnmem advances [{backlink-map :backlink-map} backlink seed?]
   (map advance-item (filter #(= seed? (:seed? %))
-                                (omm/get-vec backlink-map backlink))))
+                            (omm/get-vec backlink-map backlink))))
 
 (defnmem rule-size [rule]
   (- (-> rule :raw-rule :value count) (-> rule :null-results count)))
@@ -169,21 +166,32 @@
 (defnmem can-shift? [item-set]
   (->> item-set :items (map :rule) (mapcat rules/predict) (filter fn?) seq))
 
-(defnmem reduces [item-set]
+; All possible reduces for this item-set
+(defnmem raw-reduces [item-set]
   (->> item-set :more-seeds (filter (fn-> :rule rules/is-complete?))))
 
 (defnmem reduce-rules [item-set]
-  (->> item-set reduces (map :rule) (apply hash-set)))
+  (->> item-set raw-reduces (map :rule) (apply hash-set)))
 
+; If there's a shift reduce conflict NOT accounting for lookahead.
 (defnmem shift-reduce? [item-set]
-  (and (can-shift? item-set) (seq (reduces item-set))))
+  (and (can-shift? item-set) (seq (raw-reduces item-set))))
 
+; If there's a reduce reduce conflict NOT accounting for lookahead.
 (defnmem reduce-reduce? [item-set]
   (> (count (reduce-rules item-set)) 1))
 
-(defnmem full-single-reduce [item-set]
-  (if (and (:single-reduce item-set) (= (count (reduces item-set)) 1))
-    (first (reduces item-set))))
+; Returns a single-reduce with follow if it exists
+#_(defnmem single-reduce-follow [item-set]
+  (if (and (:single-reduce item-set) (= (count (raw-reduces item-set)) 1))
+    (first (raw-reduces item-set))))
+
+; All possible reduces for this item-set, or the single reduce (in a seq)
+(defnmem reduces [item-set]
+  (if-let [r ;(or (single-reduce-follow item-set)
+                 (:single-reduce item-set)]
+    [r]
+    (raw-reduces item-set)))
 
 (defnmem goto-map [item-set]
   (zipmap
@@ -195,17 +203,24 @@
                           :continue (advances item-set backlink true)})))
          (omm/keys (:backlink-map item-set)))))
 
+(defnmem shifts [item-set]
+  (->> item-set shift-map omm/vals (map os/vec)))
+
+(defnmem shift-advances [item-set]
+  (->> item-set goto-map vals (map :advance) (remove nil?)))
+
+(defnmem continues [item-set deterministic?]
+  (if deterministic?
+    (->> item-set goto-map vals (filter #(= (count %) 1))
+      (map :continue) (remove nil?))
+    (assert false) ; not yet implemented
+    ))
+
+; Returns all backlinks for which there is a state split conflict
 (defnmem split-conflicts [item-set]
-  (into #{} (map-> (filter (fn-> val count (> 1)) (goto-map item-set)) key)))
+  (into #{} (map key (filter (fn-> val count (> 1)) (goto-map item-set)))))
 
-; Gets the next item set for some backlink
-(defnmem advance-item-set [{backlink-map :backlink-map :as item-set} backlink seed?]
-  (pep-item-set (advances item-set backlink seed?)
-                (split-conflicts item-set)))
-
-; TODO rename full-item-set
-; TODO move single-reduce to :single-reduce-pass1
-(defn item-set-pass1 [seeds]
+(defn item-set-pass0 [seeds]
   (if (seq seeds)
     (let [more-seeds (mapcat #(eager-advances % false) seeds)]
       (loop [c (->ItemSet seeds more-seeds (vec more-seeds) omm/empty), dot 0]
@@ -215,26 +230,21 @@
                  (inc dot))
           (let [single-reduce (if (or (can-shift? c) (reduce-reduce? c))
                                 nil
-                                (-> c reduces first unfollow))]
-            (assoc c :single-reduce single-reduce)))))))
+                                (-> c raw-reduces first unfollow))]
+            (-> c
+              (assoc :single-reduce single-reduce)
+              ; Save the split-conflicts--they might be removed form the
+              ; backlink map, but we still need to remember them
+              (assoc :split-conflicts (split-conflicts c)))))))))
 
-; Returns the seed items for all child item sets of this one
-(defnmem all-children [item-set]
-  (let [r (concat (->> item-set shift-map omm/vals (map os/vec))
-                  (->> item-set goto-map vals (mapcat vals)))]
-    ;(dorun (map println (map #(map item-str %) r)))
-    r))
+; === Building item sets: second pass
 
-(defnmem child-item-sets [item-set]
-  (map #(item-set-pass1 % (split-conflicts item-set))
-       (all-children item-set)))
-
-; Removes the lookahead from any item not :marked
-(defnmem filter-items [item-set]
+; Removes the lookahead from any item not in filter-set
+(defn filter-items [item-set filter-set]
   (let [the-filter (fn [items]
                      (distinct (map
                                  (fn [item]
-                                   (if (:marked item)
+                                   (if (filter-set item)
                                      (do (println "marked") item)
                                      (unfollow item)))
                                  items)))]
@@ -242,42 +252,88 @@
                           :more-seeds the-filter
                           :items the-filter})))
 
-; Nocollapses: the item set for which we cannot collapse return values.
-; (This is to avoid state-split conflicts, where both a seed and a non-seed
-; are advanced in a calling item set.)
-; TODO kill 'build'
-(defn build-item-set-pass2 [item-set nocollapses]
-  (if item-set
-    ;(println "pass2")
-    ;(println (item-set-str item-set-pass1))
-    ;(prn (map item-str-follow nocollapses))
-    ;(println (when-let [x (:single-reduce item-set-pass1)] (item-str-follow x)))
-    (let [item-set (if (nocollapses (:backlink (:single-reduce item-set)))
-                     (do
-                       (assoc item-set :single-reduce nil))
-                     item-set)
-          children (child-item-sets item-set)]
-      ; Item set build phase 2
-      ; TODO collapse item sets as much as possible
-      (if (:single-reduce item-set)
-        ; If this is a single reduce item, kill all lookahead!
-        (do
-          (println (item-set-str (filter-items item-set)))
-          (filter-items item-set))
-        item-set))))
+; Removes everything from backlink map not present in rvals
+; TODO this might be obsolete once advancer loops are fixed
+(defn filter-backlinks [item-set rvals]
+  (update item-set :backlink-map
+          (fn [themap]
+            (reduce #(if (rvals %2) % (omm/dissoc % %2))
+                    themap (omm/keys themap)))))
 
-; For some tagged vals of the form [tag val], returns vals matching the tag
-; TODO does this belong here?
-(defn untag [tagged-vals tag]
-  (for [[tag1 val] tagged-vals :when (= tag1 tag)] val))
+; === Building item sets: actually doing it
+
+; Figures out the return values for an item set and all its continuations.
+; This works in pass2 because continuations are guaranteed to not be recursive.
+(defnmem item-set-pass1 [seeds keep-backlinks]
+  (if (seq seeds)
+    (let [item-set (item-set-pass0 seeds)
+          item-set (if (keep-backlinks (:backlink (:single-reduce item-set)))
+                     (assoc item-set :single-reduce nil)
+                     item-set)
+          conflicts (:split-conflicts item-set)
+          my-continues (map #(item-set-pass1 % conflicts)
+                            (continues item-set true))
+          descendant-deep-reduces (into #{} (mapcat :deep-reduces my-continues))
+          deep-reduces (into descendant-deep-reduces
+                             (map :backlink (reduces item-set)))
+          item-set (assoc item-set :deep-reduces deep-reduces)]
+      item-set)))
+
+; Builds a pass2, given pass1 children and pass2 non-recurisve children.
+(defn item-set-pass2 [item-set children]
+  (if item-set
+    (let [child-deep-reduces (into #{} (mapcat :deep-reduces children))]
+      (if (:single-reduce item-set)
+        ; If we don't need lookahead for this item, kill all of it!
+        (filter-items item-set #{})
+        (filter-backlinks item-set child-deep-reduces)))))
 
 ; Some key not dependent on order. Any item set with the same items is the same set
 (defnmem item-set-key [item-set] [(into #{} (:items item-set))
                                   (:single-reduce item-set)])
 
-; Closes an item set, adding eager advances
-; Because item-sets don't support =, this should be the single point of creation
-; for all item sets.
-(def pep-item-set
-  (let [pass1 (fcache #(into #{} %) item-set-pass1)]
-    (fmem #(build-item-set-pass2 (pass1 %) %2))))
+; Prevent infinite recursion. When building an item set, pass2 needs to know
+; of the pass2 of its recursive children but only the pass1 of itself if recursive
+(def ^:dynamic *crumbs* nil)
+
+; Builds an item set, and as a side effect, all its children.
+(defn build-item-set* [seeds keep-backlinks]
+  (cond (empty? seeds) nil,
+        (lookup ::item-set [seeds keep-backlinks])
+        (lookup ::item-set [seeds keep-backlinks]),
+        ; If item-set is being built somewhere on the stack, Return the pass1 version.
+        (get @*crumbs* [seeds keep-backlinks])
+        (get @*crumbs* [seeds keep-backlinks]),
+        true
+        (let [item-set (item-set-pass1 seeds keep-backlinks)
+              ; Save item-set pass 1 in crumbs
+              _ (swap! *crumbs* assoc [seeds keep-backlinks] item-set)
+              _ (if (zero? (mod (count @*crumbs*) 100))
+                  (println (count @*crumbs*) "candidate item sets examined"))
+              shift-children (map #(build-item-set* % (:split-conflicts item-set))
+                                  (concat (shifts item-set)
+                                          (shift-advances item-set)))
+              ; Just runmap these for now
+              my-continues (domap #(build-item-set* % (:split-conflicts item-set))
+                                  (continues item-set true))
+              prev-save-count (save-count ::dedup-item-set)
+              item-set (item-set-pass2 item-set shift-children)
+              ; Dedup and capture the deduped value
+              item-set (save-or-get! ::dedup-item-set
+                                     (item-set-key item-set) item-set)
+              curr-save-count (save-count ::dedup-item-set)]
+          (when (and (not (= prev-save-count curr-save-count))
+                     (zero? (mod curr-save-count 100)))
+            (println (save-count ::dedup-item-set) "item sets built"))
+          (save! ::item-set [seeds keep-backlinks] item-set))))
+
+; TODO when figuring out the returns, figure out the returns of the continues.
+
+(defn pep-item-set [seeds keep-backlinks]
+  (binding [*crumbs* (atom {})]
+    (build-item-set* seeds keep-backlinks)))
+
+; Gets the next item set for some backlink
+(defnmem advance-item-set [item-set backlink seed?]
+  (pep-item-set (advances item-set backlink seed?)
+                (:split-conflicts item-set)))

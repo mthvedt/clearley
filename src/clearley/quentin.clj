@@ -17,11 +17,12 @@
 
 (def ^:dynamic *print-code* true)
 (defn print-code [& forms]
-  ; TODO include pprint
   (if *print-code* (runmap #(if (sequential? %)
                                       (clojure.pprint/pprint %)
                                       (println %))
                                    forms)))
+
+(def ^:dynamic *parse-trace* false)
 
 (def ^:dynamic *myns*)
 
@@ -115,7 +116,7 @@
       (println (item-set-str item-set))
       (println "and item:")
       (println (item-str-follow backlink))
-      (assert ((split-conflicts item-set) backlink)))
+      (assert ((:split-conflicts item-set) backlink)))
     r))
 
 ; TODO we can make this smaller since we know
@@ -179,8 +180,8 @@
             (assert (shift-reduce? item-set))
             (println "Shift-reduce conflict in item set\n" (item-set-str item-set))))
         [:shift [scanner
-                 `(~(item-parser-sym (pep-item-set (map advance-item shift)
-                                                   (split-conflicts item-set)) ['v0])
+                 `(~(item-parser-sym (pep-item-set shift
+                                                   (:split-conflicts item-set)) ['v0])
                       (.shift ~'state ~'input)
                       ~'input)]])
       ; ignore reduce-reduce for now
@@ -188,9 +189,14 @@
         [:reduce [scanner (gen-return (first return) working-syms arg-count)]]
         [:reduce [scanner nil]]))))
 
+; For some tagged vals of the form [tag val], returns vals matching the tag
+(defn untag [tagged-vals tag]
+  (for [[tag1 val] tagged-vals :when (= tag1 tag)] val))
+
 ; Generates the parser fn for an item set. Can be monolithic or split
 ; into continuing parsers. If monolithic, will have working-syms defined.
 ; If split, will have argcount > 0.
+; TODO collate continuing cases
 (defn gen-parser [item-set working-syms argcount]
   (let [cond-pair-fn (fn [[scanner code]]
                        [(list (scanner-sym scanner) 'input) code])
@@ -202,8 +208,8 @@
         [_ [_ term-handler]] (gen-scanner-handler :clearley.clr/term item-set
                                                   working-syms argcount)]
 
-    (if-let [single-reduce (or (full-single-reduce item-set)
-                               (:single-reduce item-set))]
+    (if-let [single-reduce ;(or (single-reduce-follow item-set)
+                               (:single-reduce item-set)]
       (do
         (assert (empty? shift-handlers))
         (gen-return single-reduce working-syms argcount))
@@ -242,7 +248,7 @@
                                        (omm/keys (:backlink-map item-set)))))))))
 
 ; TODO when to get, when to gen?
-(defn get-slow-parser [item-set symcount]
+(defn gen-slow-parser [item-set symcount]
   (let [r `(fn [~(apply symbol '(^ParseState state))
                 ~@(if (> symcount 0) ['arg0] [])]
              (let [~'partial-match (object-array ~(item-set-size item-set))
@@ -259,23 +265,22 @@
              (let [~'input (.getCurrent ~'state)]
                ~(gen-parser item-set nil argcount)))
         f (compile r)]
-    (print-code "slow cont parser" r)
-    f
-    #_(fn [& args]
-      (println "Parsing item set")
-      (print (item-set-str item-set))
-      (println "with code")
-      (clojure.pprint/pprint r)
-      (println "and args")
-      (prn args)
-      (apply f args))))
+    (print-code "item-set" (item-set-str item-set) "continuing parser" r
+                "compiled to" f)
+    (if *parse-trace*
+      (fn [& args]
+        (println "Parsing item set")
+        (print (item-set-str item-set))
+        (println "with code")
+        (clojure.pprint/pprint r)
+        (println "and args")
+        (prn args)
+        (apply f args))
+      f)))
 
 (defn cont-parser-sym [item-set argcount]
   (lookup-thunk [:cont-slow-parser (item-set-key item-set) argcount]
                 (fn []
-                  ;(println "Compiling parser for item set:")
-                  ;(println (item-set-str item-set))
-                  (println "Compiling parser...")
                   (gen-slow-cont-parser item-set argcount))
                 "continuing-item-parser"))
 
@@ -294,19 +299,20 @@
         r (if (> (code-size r) 64)
             (do
               ;(println "Parser too big!")
-              (get-slow-parser item-set (count initial-symbols)))
+              (gen-slow-parser item-set (count initial-symbols)))
             r)
         f (compile r)]
     (print-code "item-set" (item-set-str item-set) "parser" r "compiled to" f)
-    f
-    #_(fn [& args]
-      (println "Parsing item set")
-      (print (item-set-str item-set))
-      (println "with code")
-      (clojure.pprint/pprint r)
-      (println "and args")
-      (prn args)
-      (apply f args))))
+    (if *parse-trace*
+      (fn [& args]
+        (println "Parsing item set")
+        (print (item-set-str item-set))
+        (println "with code")
+        (clojure.pprint/pprint r)
+        (println "and args")
+        (prn args)
+        (apply f args))
+      f)))
 
 (defn item-parser-sym [^clearley.clr.ItemSet item-set initial-symbols]
   (when item-set
@@ -331,7 +337,7 @@
 (defn parse [grammar goal input myns mem]
   (with-memoizer mem
     (try
-      ;(build-item-sets [(goal-item goal grammar)])
+      ;(build-item-set [(goal-item goal grammar)])
       (binding [*myns* myns]
         (.returnValue
           (@(ns-resolve *myns*
