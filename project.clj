@@ -34,4 +34,6 @@
              :vminfo {:jvm-opts ["-XX:+PrintGCDetails"
                                  "-XX:+UnlockDiagnosticVMOptions"
                                  "-XX:+PrintInlining"
+                                 "-Xdebug"
+                                 "-Xrunjdwp:transport=dt_socket,server=y,suspend=n,address=5004"
                                  "-XX:+PrintCompilation"]}})

@@ -3,6 +3,7 @@
   (require [clearley.npda :as npda]
            [clearley.rules :as rules]
            [uncore.collections.worm-ordered-multimap :as omm]
+           [uncore.collections.worm-ordered-set :as os]
            [uncore.str :as s])
   (use uncore.core uncore.memo))
 
@@ -32,8 +33,6 @@
 
 ; A rule is 'nullable' if it can match the empty string. An item can be 'eager
 ; advanced' if one of its predicted subrules is nullable.
-
-; TODO s/backlink/oroginal
 
 ; === Item record ===
 ; name: an object representing the clause that predicted this item
@@ -81,6 +80,13 @@
             (filter fn? (rules/predict (:rule item))))
     (advance-item item)))
 
+(defn unfollow [item]
+  (let [item (assoc item :follow nil)
+        item (if (:backlink item)
+               (update item :backlink #(assoc % :follow nil))
+               item)]
+    item))
+
 (defn goal-item [goal grammar]
   (new-item (rules/goal-rule goal grammar) true ::term))
 
@@ -89,7 +95,6 @@
 ; items: the items in the set
 ; backlink-map: maps rules -> {:advance, :continue}
 ; TODO: while building, just make a backlink map.
-; What do we absolutely NEED in an item-set? what is the key?
 ; gotos: map rule -> item set kernels.
 ; actinos: map lookahead -> shift (item set kernel) or reduce (item).
 ; we should eliminate code that peers into back-link-map, seeds, &c.
@@ -97,7 +102,7 @@
 
 (defn item-set-item-str [item backlink-map]
   (let [predictors (concat ;(omm/get-vec backlink-map item) TODO
-                           (omm/get-vec backlink-map (assoc item :follow nil)))
+                           (omm/get-vec backlink-map (unfollow item)))
         predictor-str (->> predictors
                         (map item-str) (s/separate-str ", ") s/cutoff)]
     (str (item-str-follow item) (if (seq predictor-str) (str " | " predictor-str)))))
@@ -115,7 +120,7 @@
         item-set (update item-set :backlink-map
                          (fn->
                            (omm/assoc item predictor)
-                           (omm/assoc (assoc item :follow nil) predictor)))]
+                           (omm/assoc (unfollow item) predictor)))]
     item-set))
 
 ; TODO Item set format:
@@ -124,30 +129,34 @@
 
 (defn term-scanner [x] (= x ::term))
 
-; Returns a map. Keys are the next token. Values are one of
-; [:shift shifting-item] or [:return item-to-return].
-(defn action-map [seeds items]
-  (let [rmap (reduce
-               (fn [themap {:keys [rule] :as item}]
-                 (let [shift-fns (filter fn? (rules/predict rule))]
-                   (reduce #(omm/assoc % %2 [:shift item]) themap shift-fns)))
-        omm/empty items)]
-    (reduce (fn [themap {:keys [rule follow] :as seed}]
-              (if (rules/is-complete? rule)
-                (omm/assoc themap follow [:reduce seed])
-                themap))
-            rmap seeds)))
+; ordered multimap of scanners -> shift items
+(defnmem shift-map [item-set]
+  (reduce
+    (fn [themap {:keys [rule] :as item}]
+      ; TODO rule scanners instead of filter fn?
+      (let [shift-fns (filter fn? (rules/predict rule))]
+        (reduce #(omm/assoc % %2 item) themap shift-fns)))
+    omm/empty (:items item-set)))
+
+; ordered multimap of scanners -> return items
+(defnmem reduce-map [item-set]
+  (reduce (fn [themap {:keys [rule follow] :as seed}]
+            (if (rules/is-complete? rule)
+              (omm/assoc themap follow seed)
+              themap))
+          omm/empty (:more-seeds item-set)))
+
+(defnmem all-scanners [item-set]
+  (disj (into #{} (concat (-> item-set shift-map omm/keys)
+                          (-> item-set reduce-map omm/keys)))
+        :clearley.clr/term))
 
 (declare pep-item-set)
+; TODO nix superfluous stuff
 
 (defnmem advances [{backlink-map :backlink-map} backlink seed?]
   (map advance-item (filter #(= seed? (:seed? %))
                                 (omm/get-vec backlink-map backlink))))
-
-; Gets the next item set for some backlink
-(defnmem advance-item-set [{backlink-map :backlink-map :as item-set} backlink seed?]
-  (pep-item-set (advances item-set backlink seed?)
-                (:split-conflicts item-set)))
 
 (defnmem rule-size [rule]
   (- (-> rule :raw-rule :value count) (-> rule :null-results count)))
@@ -156,108 +165,119 @@
   (apply max (map-> (concat (:seeds item-set) (:more-seeds item-set))
                     :rule rule-size)))
 
-(defn build-item-set-pass1 [seeds more-seeds]
-  (loop [c (->ItemSet seeds more-seeds (vec more-seeds) omm/empty), dot 0]
-    (if-let [s (get (:items c) dot)]
-      (recur (reduce #(predict-into-item-set % %2 s)
-                     c (predict-item s))
-             (inc dot))
-      ; Get all initial actions--shift and reduce
-      (let [actions (action-map more-seeds (:items c))
-            ; Search for shift-reduce and reduce-reduce conflicts
-            can-shift? (->> c :items (map :rule) (mapcat rules/predict) (filter fn?)
-                         seq)
-            ; All the possible reduce values.
-            reduces (->> c :more-seeds (filter (fn-> :rule rules/is-complete?)))
-            reduce-rules (->> reduces (map :rule) (apply hash-set))
-            ; Are there conflicts in this item set?
-            shift-reduce? (and can-shift? (seq reduces))
-            reduce-reduce? (> (count reduce-rules) 1)
-            ; If not null, item set exists only to return a single value.
-            ; TODO should returns be backlinks?
-            single-reduce (if (or can-shift? reduce-reduce?) nil
-                            (-> (first reduces)
-                              (assoc :follow nil)
-                              (update :backlink #(assoc % :follow nil))))
-            full-single-reduce (if (and single-reduce (= (count reduces) 1))
-                                 (first reduces))
-            gotos (zipmap
-                    (omm/keys (:backlink-map c))
-                    (map (fn [backlink]
-                           (into {}
-                                 (filter (comp seq val)
-                                         {:advance (advances c backlink false)
-                                          :continue (advances c backlink true)})))
-                         (omm/keys (:backlink-map c))))
-            ; This gives us all items for which there is a state split conflict.
-            split-conflicts (into #{} (map-> (filter (fn-> val count (> 1)) gotos)
-                                             key #_(assoc :follow nil)))
-            c (merge c {:actions actions
-                        :shift-reduce? shift-reduce? :reduce-reduce? reduce-reduce?
-                        :gotos gotos :single-reduce single-reduce
-                        :full-single-reduce full-single-reduce
-                        :split-conflicts split-conflicts})]
-        c))))
+; TODO simplify
+(defnmem can-shift? [item-set]
+  (->> item-set :items (map :rule) (mapcat rules/predict) (filter fn?) seq))
+
+(defnmem reduces [item-set]
+  (->> item-set :more-seeds (filter (fn-> :rule rules/is-complete?))))
+
+(defnmem reduce-rules [item-set]
+  (->> item-set reduces (map :rule) (apply hash-set)))
+
+(defnmem shift-reduce? [item-set]
+  (and (can-shift? item-set) (seq (reduces item-set))))
+
+(defnmem reduce-reduce? [item-set]
+  (> (count (reduce-rules item-set)) 1))
+
+(defnmem full-single-reduce [item-set]
+  (if (and (:single-reduce item-set) (= (count (reduces item-set)) 1))
+    (first (reduces item-set))))
+
+(defnmem goto-map [item-set]
+  (zipmap
+    (omm/keys (:backlink-map item-set))
+    (map (fn [backlink]
+           (into {}
+                 (filter (comp seq val)
+                         {:advance (advances item-set backlink false)
+                          :continue (advances item-set backlink true)})))
+         (omm/keys (:backlink-map item-set)))))
+
+(defnmem split-conflicts [item-set]
+  (into #{} (map-> (filter (fn-> val count (> 1)) (goto-map item-set)) key)))
+
+; Gets the next item set for some backlink
+(defnmem advance-item-set [{backlink-map :backlink-map :as item-set} backlink seed?]
+  (pep-item-set (advances item-set backlink seed?)
+                (split-conflicts item-set)))
+
+; TODO rename full-item-set
+; TODO move single-reduce to :single-reduce-pass1
+(defn item-set-pass1 [seeds]
+  (if (seq seeds)
+    (let [more-seeds (mapcat #(eager-advances % false) seeds)]
+      (loop [c (->ItemSet seeds more-seeds (vec more-seeds) omm/empty), dot 0]
+        (if-let [s (get (:items c) dot)]
+          (recur (reduce #(predict-into-item-set % %2 s)
+                         c (predict-item s))
+                 (inc dot))
+          (let [single-reduce (if (or (can-shift? c) (reduce-reduce? c))
+                                nil
+                                (-> c reduces first unfollow))]
+            (assoc c :single-reduce single-reduce)))))))
+
+; Returns the seed items for all child item sets of this one
+(defnmem all-children [item-set]
+  (let [r (concat (->> item-set shift-map omm/vals (map os/vec))
+                  (->> item-set goto-map vals (mapcat vals)))]
+    ;(dorun (map println (map #(map item-str %) r)))
+    r))
+
+(defnmem child-item-sets [item-set]
+  (map #(item-set-pass1 % (split-conflicts item-set))
+       (all-children item-set)))
+
+; Removes the lookahead from any item not :marked
+(defnmem filter-items [item-set]
+  (let [the-filter (fn [items]
+                     (distinct (map
+                                 (fn [item]
+                                   (if (:marked item)
+                                     (do (println "marked") item)
+                                     (unfollow item)))
+                                 items)))]
+    (update-all item-set {:seeds the-filter
+                          :more-seeds the-filter
+                          :items the-filter})))
 
 ; Nocollapses: the item set for which we cannot collapse return values.
 ; (This is to avoid state-split conflicts, where both a seed and a non-seed
 ; are advanced in a calling item set.)
-(defn build-item-set-pass2 [item-set-pass1 nocollapses]
-  ;(println "pass2")
-  ;(println (item-set-str item-set-pass1))
-  ;(prn (map item-str-follow nocollapses))
-  ;(println (when-let [x (:single-reduce item-set-pass1)] (item-str-follow x)))
-  (if (nocollapses (:backlink (:single-reduce item-set-pass1)))
-    (do
-      ;(println "nocollapse!" (item-str (:single-reduce item-set-pass1)))
-      (assoc item-set-pass1 :single-reduce nil))
-    item-set-pass1))
-
-; TODO That's godo enough for now... LATER we can add return value detection
-; to remove items.
-;
-; TODO: what this will look like: the ability to mark items as needed or unneeded.
-; This will have two step processing: an item set first sets up basic stuff,
-; then sets up its children, gets their return values, and finalizes.
-; So there are two phases: phase 1 has the full CLR(1) item set, phase 2
-; reduces the item set.
+; TODO kill 'build'
+(defn build-item-set-pass2 [item-set nocollapses]
+  (if item-set
+    ;(println "pass2")
+    ;(println (item-set-str item-set-pass1))
+    ;(prn (map item-str-follow nocollapses))
+    ;(println (when-let [x (:single-reduce item-set-pass1)] (item-str-follow x)))
+    (let [item-set (if (nocollapses (:backlink (:single-reduce item-set)))
+                     (do
+                       (assoc item-set :single-reduce nil))
+                     item-set)
+          children (child-item-sets item-set)]
+      ; Item set build phase 2
+      ; TODO collapse item sets as much as possible
+      (if (:single-reduce item-set)
+        ; If this is a single reduce item, kill all lookahead!
+        (do
+          (println (item-set-str (filter-items item-set)))
+          (filter-items item-set))
+        item-set))))
 
 ; For some tagged vals of the form [tag val], returns vals matching the tag
+; TODO does this belong here?
 (defn untag [tagged-vals tag]
   (for [[tag1 val] tagged-vals :when (= tag1 tag)] val))
+
+; Some key not dependent on order. Any item set with the same items is the same set
+(defnmem item-set-key [item-set] [(into #{} (:items item-set))
+                                  (:single-reduce item-set)])
 
 ; Closes an item set, adding eager advances
 ; Because item-sets don't support =, this should be the single point of creation
 ; for all item sets.
 (def pep-item-set
-  (let [pass1 (fcache #(into #{} %)
-                      (fn [seeds]
-                        (if (seq seeds)
-                          (let [more-seeds (mapcat #(eager-advances % false) seeds)]
-                            (build-item-set-pass1 seeds more-seeds)))))]
+  (let [pass1 (fcache #(into #{} %) item-set-pass1)]
     (fmem #(build-item-set-pass2 (pass1 %) %2))))
-
-; Some key not dependent on order. Any item set with the same seeds is the same set
-; TODO Need to cache, unify based on seeds w/o initial item no.?
-; TODO do we need this?
-(defn item-set-key [item-set] (into #{} [(:seeds item-set)
-                                         (:single-reduce item-set)]))
-
-; === Item set generation
-
-; Step: All actions in item set.
-; Actions are: lookahead shift|reduce, rule continue|advance.
-; Format: lookahead -> shift [item-set-seeds], reduce [rule1 rule2 rule3].
-; Step: Collapsible item sets. Only need reduce collapses. Being able to map
-; a set of seeds to a unified collapsed set.
-; Step: Parent collapsing item sets. Children before parent in breadcrumb fashion.
-
-; Returns a coll of all item sets reachable from seed
-#_(defn generate-all-item-sets [seeds]
-  (loop [work-stack [seed] r #{}]
-    (if-let [i (peek work-stack)]
-      (let [seeds (map #(if (:seed-num %) % (assoc % :seed-num %2)) seeds (range))
-            more-seeds (mapcat #(eager-advances % false) seeds)
-            item-set (closed-item-set more-seeds)]
-
-      (r)))))
