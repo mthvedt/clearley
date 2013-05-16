@@ -32,15 +32,6 @@
     (assoc raw-rule :action (uncore.rpartial/gen-rpartial action null-results))
     raw-rule))
 
-(defn advance [cfg-rule]
-  (update cfg-rule :dot inc))
-
-; Null advance: for advancing a rule that can predict the empty string
-; See Aycock+Horspool Practical Earley Parsing
-(defn null-advance [rule result]
-  (let [dot (:dot rule)]
-    (update-all rule {:dot inc, :null-results #(assoc % dot result)})))
-
 ; Anaphoric, uses 'value and 'dot
 ; Makes sure a rule has only one subrule
 (defmacro check-singleton [tag result]
@@ -65,28 +56,39 @@
 (defmethod predict* :seq [{dot :dot, grammar :grammar, {value :value} :raw-rule}]
   (if (= dot (count value)) []
     [(cfg-rule (get value dot) grammar)]))
-(defmethod predict* :star [{dot :dot, grammar :grammar, {value :value} :raw-rule}]
+#_(defmethod predict* :star [{dot :dot, grammar :grammar, {value :value} :raw-rule}]
   (map #(cfg-rule % grammar) (check-singleton :star value)))
-(defmethod predict* :scanner [{dot :dot {value :value} :raw-rule}]
-  (predict-singleton :scanner value))
-(defmethod predict* :token [{dot :dot {value :value} :raw-rule}]
-  (predict-singleton :token [(fn [x] (= x (first value)))]))
+(defmethod predict* :scanner [{dot :dot {value :value} :raw-rule}] [])
+  ;(predict-singleton :scanner value))
+(defmethod predict* :token [{dot :dot {value :value} :raw-rule}] []
+  #_(predict-singleton :token [(let [v (first value)]
+                               (fn [x] (= v x)))]))
 (defmethod predict* :default [rule]
   (t/RE "Don't know how to predict:" (pr-str rule)))
 
+; TODO this is evil
+(defrecord TokenScanner [v]
+  clojure.lang.IFn
+  (invoke [_ v2] (= v v2))
+  (applyTo [_ args] (assert (= (count args) 1)) (= v (first args))))
+
 (defnmem predict [cfg-rule] (predict* cfg-rule))
+(declare rule-str)
+(defmulti scanner (fn-> :raw-rule :tag))
+(defmethod scanner :token [{dot :dot {[value] :value} :raw-rule}]
+  (if (zero? dot) (->TokenScanner value) nil))
+  ;[:token value])
+(defmethod scanner :scanner [{dot :dot {[value] :value} :raw-rule}]
+  (if (zero? dot) value nil))
+  ;[:scanner value])
+(defmethod scanner :default [_] nil)
 
 ; Is this rule complete?
 (defmulti is-complete? (fn-> :raw-rule :tag))
-(defmethod is-complete? :star [{:keys [dot]}] true)
+;(defmethod is-complete? :star [{:keys [dot]}] true)
 (defmethod is-complete? :seq [{dot :dot {value :value} :raw-rule}]
   (= dot (count value)))
-(defmethod is-complete? :default [{:keys [dot]}]
-  (= 1 dot))
-
-(defn goal? [cfg-rule]
-  (and (is-complete? cfg-rule)
-       (-> cfg-rule :raw-rule :name (= ::goal))))
+(defmethod is-complete? :default [{:keys [dot]}] (= 1 dot))
 
 (defn clause-strs
   ([clauses] (clause-strs clauses 0))
@@ -113,25 +115,40 @@
        ")"
        (if (zero? dot) "" " ✓")))
 
+(defn advance [cfg-rule]
+  (assert (not (is-complete? cfg-rule)))
+  (update cfg-rule :dot inc))
+
+; Null advance: for advancing a rule that can predict the empty string
+; See Aycock+Horspool Practical Earley Parsing
+(defn null-advance [rule result]
+  (let [dot (:dot rule)]
+    (update-all rule {:dot inc, :null-results #(assoc % dot result)})))
+
+(defn goal? [cfg-rule]
+  (and (is-complete? cfg-rule)
+       (-> cfg-rule :raw-rule :name (= ::goal))))
+
 ; TODO: test something of the form a -> x -> b -> y -> a for legal/illegal matches,
 ; where x and y are nullable.
 (def ^:dynamic *breadcrumbs*)
-; Basically, this does an LL match on the empty string for a rule. If more than one
-; LL match is possible, returns eagerly.
-(defn null-result* [rule-or-fn]
-  (cond (not (rule? rule-or-fn)) nil
-        (contains? *breadcrumbs* rule-or-fn) (get *breadcrumbs* rule-or-fn)
-        true
+; Basically, this does a top-down match on the empty string for a rule.
+; If more than one match is possible, returns the first one
+(defn null-result* [rule]
+  (if ;(not (rule? rule)) nil
+    (contains? *breadcrumbs* rule)
+    (get *breadcrumbs* rule)
+        ;true
         (do
-          (set! *breadcrumbs* (assoc *breadcrumbs* rule-or-fn nil))
-          (let [r (if (is-complete? rule-or-fn)
-                    (match (:raw-rule rule-or-fn) [])
-                    (if-let [r (some identity (map null-result*
-                                                   (predict rule-or-fn)))]
-                      (if-let [r2 (null-result* (advance rule-or-fn))]
-                        (match (:raw-rule rule-or-fn)
+          ; Avoid infinite recursion
+          (set! *breadcrumbs* (assoc *breadcrumbs* rule nil))
+          (let [r (if (is-complete? rule)
+                    (match (:raw-rule rule) [])
+                    (if-let [r (some identity (map null-result* (predict rule)))]
+                      (if-let [r2 (null-result* (advance rule))]
+                        (match (:raw-rule rule)
                                (apply vector r (:submatches r2))))))]
-            (set! *breadcrumbs* (assoc *breadcrumbs* rule-or-fn r))
+            (set! *breadcrumbs* (assoc *breadcrumbs* rule r))
             r))))
 (defnmem null-result [^CfgRule rule]
   (binding [*breadcrumbs* {}]
@@ -139,21 +156,25 @@
 
 (def ^:dynamic *breadcrumbs-firsts*)
 ; Gets the first set of an item, including ::empty if item is nullable
-(defn first-set* [rule-or-fn]
+(defn first-set* [rule]
   (cond
-    (not (rule? rule-or-fn)) #{rule-or-fn}
-    (lookup ::canon-first-set rule-or-fn) (lookup ::canon-first-set rule-or-fn)
-    (get *breadcrumbs-firsts* rule-or-fn) (get *breadcrumbs-firsts* rule-or-fn)
+    (scanner rule) #{(scanner rule)}
+    ; The first set of a rule always contains the first sets of its subrules.
+    ; The 'canon first set' is a full first set of a subrule (as opposed to the
+    ; partial ones this fn calculates, because it terminates on recursion)
+    (lookup ::canon-first-set rule) (lookup ::canon-first-set rule)
+    (get *breadcrumbs-firsts* rule) (get *breadcrumbs-firsts* rule)
     true
     (do
-      (set! *breadcrumbs-firsts* (assoc *breadcrumbs-firsts* rule-or-fn #{}))
-      (let [r (apply clojure.set/union (map first-set* (predict rule-or-fn)))
-            r (cond (null-result rule-or-fn) (conj r ::empty)
+      ; Avoid infinite recursion by noting which rules are on the stack.
+      (set! *breadcrumbs-firsts* (assoc *breadcrumbs-firsts* rule #{}))
+      (let [r (apply clojure.set/union (map first-set* (predict rule)))
+            r (cond (null-result rule) (conj r ::empty)
                     (r ::empty) (disj (clojure.set/union
-                                        r (first-set* (advance rule-or-fn)))
+                                        r (first-set* (advance rule)))
                                       ::empty)
                     true r)]
-        (set! *breadcrumbs-firsts* (assoc *breadcrumbs-firsts* rule-or-fn r))
+        (set! *breadcrumbs-firsts* (assoc *breadcrumbs-firsts* rule r))
         r))))
 (defn first-set [^CfgRule rule]
   (if-let [r (lookup ::canon-first-set rule)]
@@ -188,5 +209,5 @@
                                     e)))))))
 
 (defn eager-advance [rule]
-  (if-let [eager-match (some identity (map null-result (predict rule)))]
+  (when-let [eager-match (some identity (map null-result (predict rule)))]
     (null-advance rule (take-action* eager-match))))

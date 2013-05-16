@@ -10,19 +10,18 @@
 ; TODO what does aot do?
 ; TODO eliminate state, then have parser return results.
 ; TODO do we need locking?
-;
-; TODO a lot of this is ugly. One thing we can do is put deterministic item parsers
-; in protocols (we will need to do this anyway). Then extra generated methods
-; can be statically linked.
 
-(def ^:dynamic *print-code* true)
-(defn print-code [& forms]
-  (if *print-code* (runmap #(if (sequential? %)
-                                      (clojure.pprint/pprint %)
-                                      (println %))
-                                   forms)))
+(def ^:dynamic *print-code* false)
+(defn print-code [& vals]
+  (if *print-code* (runmap
+                     #(if (sequential? %) (clojure.pprint/pprint %) (println %))
+                     vals)))
 
 (def ^:dynamic *parse-trace* false)
+
+(def ^:dynamic *print-compile* false)
+(defn print-compile [& vals]
+  (if *print-compile* (runmap println vals)))
 
 (def ^:dynamic *myns*)
 
@@ -58,7 +57,7 @@
         (if-let [sym0 (get-in @item-set-var-map [a-str obj])]
           sym0
           (let [r (factory obj)]
-            (println (s/cutoff (str "Interning " sym " : " r) 80))
+            (print-compile (s/cutoff (str "Interning " sym " : " r) 80))
             (intern *myns* sym r)
             (swap! item-set-var-map #(assoc-in % [a-str obj] sym))
             sym))))))
@@ -75,7 +74,7 @@
           ; Assumption: thunk has no side effects
           (let [thunk (fn [& args]
                         (let [r (candidate-thunk)]
-                          (println (s/cutoff (str "Interning " sym " : " r) 80))
+                          (print-compile (s/cutoff (str "Interning " sym " : " r) 80))
                           (intern *myns* sym r)
                           (apply r args)))]
             (intern *myns* sym thunk)
@@ -281,6 +280,7 @@
 (defn cont-parser-sym [item-set argcount]
   (lookup-thunk [:cont-slow-parser (item-set-key item-set) argcount]
                 (fn []
+                  (print-compile "Compiling item parser...")
                   (gen-slow-cont-parser item-set argcount))
                 "continuing-item-parser"))
 
@@ -318,9 +318,7 @@
   (when item-set
     (lookup-thunk [(item-set-key item-set) (count initial-symbols)]
                   (fn []
-                    ;(println "Loading code for item set:")
-                    ;(println (item-set-str item-set))
-                    (println "Compiling item parser...")
+                    (print-compile "Compiling item parser...")
                     (gen-parser-body item-set initial-symbols)) "item-parser")))
 
 (defn new-ns []
@@ -337,7 +335,6 @@
 (defn parse [grammar goal input myns mem]
   (with-memoizer mem
     (try
-      ;(build-item-set [(goal-item goal grammar)])
       (binding [*myns* myns]
         (.returnValue
           (@(ns-resolve *myns*

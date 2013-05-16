@@ -66,7 +66,7 @@
 
 (defnmem predict-item [{:keys [rule follow]}]
   (mapcat #(eager-advances % true)
-          (for [prediction (remove fn? (rules/predict rule))
+          (for [prediction (rules/predict rule)
                 follow-terminal (rules/follow-first rule follow)]
             (new-item prediction false follow-terminal))))
 
@@ -75,9 +75,8 @@
                            :backlink #(if % % item)})
          :seed? true))
 
-(defnmem scan-item [item input-token]
-  (if (some #(% input-token)
-            (filter fn? (rules/predict (:rule item))))
+(defn scan-item [item input-token]
+  (if (some #(% input-token) (rules/scanner (:rule item)))
     (advance-item item)))
 
 (defn unfollow [item]
@@ -101,7 +100,7 @@
 (defrecord ItemSet [seeds more-seeds items backlink-map])
 
 (defn item-set-item-str [item backlink-map]
-  (let [predictors (concat ;(omm/get-vec backlink-map item) TODO
+  (let [predictors (concat (omm/get-vec backlink-map item); TODO into ordered set
                            (omm/get-vec backlink-map (unfollow item)))
         predictor-str (->> predictors
                         (map item-str) (s/separate-str ", ") s/cutoff)]
@@ -113,7 +112,7 @@
 
 (defn predict-into-item-set [{:keys [items backlink-map] :as item-set}
                              {backlink :backlink :as item} predictor]
-  (assert (not backlink))
+  (assert predictor) (assert (not backlink))
   (let [item-set (if (empty? (omm/get-vec backlink-map item))
                    (update item-set :items #(conj % item))
                    item-set)
@@ -131,11 +130,10 @@
 
 ; ordered multimap of scanners -> shift items
 (defnmem shift-map [item-set]
-  (reduce
-    (fn [themap {:keys [rule] :as item}]
-      ; TODO rule scanners instead of filter fn?
-      (let [shift-fns (filter fn? (rules/predict rule))]
-        (reduce #(omm/assoc % %2 (advance-item item)) themap shift-fns)))
+  (reduce (fn [m {:keys [rule] :as item}]
+            (if-let [s (rules/scanner rule)]
+              (omm/assoc m s (advance-item item))
+              m))
     omm/empty (:items item-set)))
 
 ; ordered multimap of scanners -> return items
@@ -162,9 +160,8 @@
   (apply max (map-> (concat (:seeds item-set) (:more-seeds item-set))
                     :rule rule-size)))
 
-; TODO simplify
 (defnmem can-shift? [item-set]
-  (->> item-set :items (map :rule) (mapcat rules/predict) (filter fn?) seq))
+  (->> item-set :items (map :rule) (mapcat rules/predict) seq))
 
 ; All possible reduces for this item-set
 (defnmem raw-reduces [item-set]
@@ -326,8 +323,6 @@
                      (zero? (mod curr-save-count 100)))
             (println (save-count ::dedup-item-set) "item sets built"))
           (save! ::item-set [seeds keep-backlinks] item-set))))
-
-; TODO when figuring out the returns, figure out the returns of the continues.
 
 (defn pep-item-set [seeds keep-backlinks]
   (binding [*crumbs* (atom {})]
