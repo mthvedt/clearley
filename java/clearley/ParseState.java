@@ -1,9 +1,5 @@
 package clearley;
 
-import clojure.lang.ISeq;
-
-import java.util.List;
-
 /**
  * Created with IntelliJ IDEA.
  * User: mike
@@ -14,10 +10,7 @@ import java.util.List;
 public interface ParseState {
 	ParseState shift(Object o);
 	ParseState reduce(Object o, int rval);
-	ISeq input();
-	List<Object> output();
 	int pos();
-	Object peek();  // todo obsolete
 	public int getGoto();
 	public ParseState setGoto(int theGoto);
 	public Object returnValue(); // todo obsolete
