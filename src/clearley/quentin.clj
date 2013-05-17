@@ -9,13 +9,14 @@
   (use clearley.clr uncore.core uncore.memo))
 ; TODO what does aot do?
 ; TODO eliminate state, then have parser return results.
-; TODO do we need locking?
+; TODO figure out locking?
 
-(def ^:dynamic *print-code* false)
+(def ^:dynamic *print-code* true)
 (defn print-code [& vals]
+  (binding [*print-meta* true]
   (if *print-code* (runmap
                      #(if (sequential? %) (clojure.pprint/pprint %) (println %))
-                     vals)))
+                     vals))))
 
 (def ^:dynamic *parse-trace* false)
 
@@ -39,11 +40,8 @@
         (clojure.pprint/pprint f))
       (throw e))))
 
-(defn parse-stream [input]
-  (TransientParseState. (seq input)))
+(defn parse-stream [input] (TransientParseState. (seq input)))
 
-; The core abstraction is
-; Parse stream handler: parse stream -> parse stream
 (declare continue-parsing item-parser-sym cont-parser-sym embed-parser-with-lookahead)
 
 ; For a factory seed, obj, and a factory method, factory,
@@ -64,7 +62,7 @@
 
 ; An evil way to def a thunk that, when called, generates a fn and redefs the sym
 ; to the fn! Returns the bound symbol.
-(defn lookup-thunk [key candidate-thunk a-str]
+(defn lookup-thunk [key candidate-thunk a-str tag]
   (let [item-set-var-map @(ns-resolve *myns* 'item-set-var-map)
         ns-lock @(ns-resolve *myns* 'ns-lock)]
     (locking ns-lock
@@ -77,7 +75,7 @@
                           (print-compile (s/cutoff (str "Interning " sym " : " r) 80))
                           (intern *myns* sym r)
                           (apply r args)))]
-            (intern *myns* sym thunk)
+            (intern *myns* (if tag (with-meta sym {:tag tag}) sym) thunk)
             (swap! item-set-var-map #(assoc-in % [a-str key] sym))
             sym))))))
 
@@ -100,15 +98,7 @@
                       k->ls))
                   {} vals)))
 
-; Anaphoric, needs a ~'result and a wrapping loop/recur and a ~'state
-; For a backlink, calls the item-parser represented by that advance,
-; and either looks up and recurs to a main branch, or calls the continuance.
-(defn gen-advance-handler [shift-advance]
-  `(recur (~(item-parser-sym shift-advance ['v0])
-              ~'state
-              (.returnValue ~'state))))
-
-(defn shift-advance [item-set backlink]
+(defnmem shift-advance [item-set backlink]
   (when-let [r (advance-item-set item-set backlink false)]
     (when (advance-item-set item-set backlink true)
       (println "State split conflict for item set:")
@@ -117,6 +107,30 @@
       (println (item-str-follow backlink))
       (assert ((:split-conflicts item-set) backlink)))
     r))
+
+; Anaphoric, needs a ~'result and a wrapping loop/recur and a ~'state
+; For a backlink, calls the item-parser represented by that advance,
+; and either looks up and recurs to a main branch, or calls the continuance.
+(defn gen-advance-handler
+  ([item-set advanced-item-set]
+   (gen-advance-handler item-set advanced-item-set
+                        `(~(item-parser-sym advanced-item-set ['v0])
+                             ~'state (.returnValue ~'state))))
+  ([item-set advanced-item-set form]
+   ; If we know what case comes next, we can inline it.
+   (let [rs (:deep-reduces advanced-item-set)
+         r (if (= (count rs) 1) (first rs))]
+     (if r
+       (if-let [advanced-2 (shift-advance item-set r)]
+         ; Inline instead of recur
+         (gen-advance-handler item-set advanced-2
+                                `(let [x# ~form]
+                                   (~(item-parser-sym advanced-2 ['v0])
+                                       x# (.returnValue x#))))
+         ; Return directly
+         form)
+       ; Don't know what's happing next, have to recur
+       `(recur ~form)))))
 
 ; TODO we can make this smaller since we know
 ; a token consuming shift only happens once
@@ -129,7 +143,8 @@
   `(loop [~'state ~'state]
      (case (.getGoto ~(apply symbol '(^ParseState state)))
        ~@(collate-cases item-id #(shift-advance item-set %)
-                        gen-advance-handler (omm/keys backlink-map))
+                        #(gen-advance-handler item-set %)
+                        (omm/keys backlink-map))
        ~'state))) ; Return and let parent item-set-parser pick it up
 
 ; Creates an advancer fn. Takes in a parse state and an array partial match.
@@ -154,7 +169,7 @@
       f)))
 
 (defn gen-body-parser [item-set]
-  (lookup-thunk item-set #(advance-looper item-set) "advancer"))
+  (lookup-thunk item-set #(advance-looper item-set) "advancer" `ParseState))
 
 (defn action-sym [action] (get-or-bind action identity "action"))
 (defn scanner-sym [scanner] (get-or-bind scanner identity "scanner"))
@@ -180,7 +195,7 @@
 
 ; Scanners: from gen-scanner-handler, of form [scanner code-form]
 ; TODO nomenclature: some scanners are tokens and some scanners?
-(defn gen-shift-table [scanners continuation]
+(defn gen-shift-table [scanners term? continuation]
   (let [selector (fn [wanted-tag]
                    (remove nil? (map (fn [[[tag scanner] form]]
                                        (if (= tag wanted-tag)
@@ -207,7 +222,7 @@
 (defn gen-scanner-handler [scanner item-set working-syms arg-count]
   (let [shift (omm/get-vec (shift-map item-set) scanner)
         return (omm/get-vec (reduce-map item-set) scanner)]
-    (if (and (> (count return) 1) (not (:single-reduce item-set)))
+    (if (and (> (count return) 1) (not (:const-reduce item-set)))
       (do
         (assert (reduce-reduce? item-set))
         (println "Reduce-reduce conflict in item set\n" (item-set-str item-set))
@@ -243,17 +258,17 @@
         shift-handlers (untag handlers :shift)
         next-sym (symbol (str "v" (count working-syms)))]
 
-    (if-let [single-reduce (:single-reduce item-set)]
+    (if-let [const-reduce (:const-reduce item-set)]
       (do
         (assert (empty? shift-handlers))
-        (gen-return single-reduce working-syms argcount))
+        (gen-return const-reduce working-syms argcount))
 
       (gen-shift-table
         ; First, should return?
-        return-handlers
+        return-handlers true
         ; OK, let's shift
         `(let [~(apply symbol '(^ParseState state))
-               ~(gen-shift-table shift-handlers `(fail ~'state)),
+               ~(gen-shift-table shift-handlers false `(fail ~'state)),
                ~(apply symbol '(^ParseState state))
                (~(gen-body-parser item-set) ~'state)
                ; If monolithic, also get input and next-sym here
@@ -319,7 +334,7 @@
                 (fn []
                   (print-compile "Compiling item parser...")
                   (gen-slow-cont-parser item-set argcount))
-                "continuing-item-parser"))
+                "continuing-item-parser" `ParseState))
 
 ; TODO find a better way.
 (defn code-size [l]
@@ -359,7 +374,8 @@
     (lookup-thunk [(item-set-key item-set) (count initial-symbols)]
                   (fn []
                     (print-compile "Compiling item parser...")
-                    (gen-parser-body item-set initial-symbols)) "item-parser")))
+                    (gen-parser-body item-set initial-symbols)) "item-parser"
+                  `ParseState)))
 
 (defn new-ns []
   (let [sym (gensym "quentin")

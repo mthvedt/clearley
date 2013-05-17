@@ -68,7 +68,6 @@ public class TransientParseState implements ParseState {
 				", theGoto=" + theGoto +
 				//", input=" + input +
 				", current=" + current +
-				//", output=" + output +
 				", returnValue=" + returnValue +
 				'}';
 	}

@@ -174,15 +174,14 @@
 (defnmem reduce-reduce? [item-set]
   (> (count (reduce-rules item-set)) 1))
 
-; Returns a single-reduce with follow if it exists
-#_(defnmem single-reduce-follow [item-set]
-  (if (and (:single-reduce item-set) (= (count (raw-reduces item-set)) 1))
+; Returns a const-reduce with follow if it exists
+#_(defnmem const-reduce-follow [item-set]
+  (if (and (:const-reduce item-set) (= (count (raw-reduces item-set)) 1))
     (first (raw-reduces item-set))))
 
 ; All possible reduces for this item-set, or the single reduce (in a seq)
 (defnmem reduces [item-set]
-  (if-let [r ;(or (single-reduce-follow item-set)
-                 (:single-reduce item-set)]
+  (if-let [r (:const-reduce item-set)]
     [r]
     (raw-reduces item-set)))
 
@@ -221,11 +220,11 @@
           (recur (reduce #(predict-into-item-set % %2 s)
                          c (predict-item s))
                  (inc dot))
-          (let [single-reduce (if (or (can-shift? c) (reduce-reduce? c))
+          (let [const-reduce (if (or (can-shift? c) (reduce-reduce? c))
                                 nil
                                 (-> c raw-reduces first unfollow))]
             (-> c
-              (assoc :single-reduce single-reduce)
+              (assoc :const-reduce const-reduce)
               ; Save the split-conflicts--they might be removed form the
               ; backlink map, but we still need to remember them
               (assoc :split-conflicts (split-conflicts c)))))))))
@@ -260,8 +259,8 @@
 (defnmem item-set-pass1 [seeds keep-backlinks]
   (if (seq seeds)
     (let [item-set (item-set-pass0 seeds)
-          item-set (if (keep-backlinks (:backlink (:single-reduce item-set)))
-                     (assoc item-set :single-reduce nil)
+          item-set (if (keep-backlinks (:backlink (:const-reduce item-set)))
+                     (assoc item-set :const-reduce nil)
                      item-set)
           conflicts (:split-conflicts item-set)
           my-continues (map #(item-set-pass1 % conflicts)
@@ -276,14 +275,14 @@
 (defn item-set-pass2 [item-set children]
   (if item-set
     (let [child-deep-reduces (into #{} (mapcat :deep-reduces children))]
-      (if (:single-reduce item-set)
+      (if (:const-reduce item-set)
         ; If we don't need lookahead for this item, kill all of it!
         (filter-items item-set #{})
         (filter-backlinks item-set child-deep-reduces)))))
 
 ; Some key not dependent on order. Any item set with the same items is the same set
 (defnmem item-set-key [item-set] [(into #{} (:items item-set))
-                                  (:single-reduce item-set)])
+                                  (:const-reduce item-set)])
 
 ; Prevent infinite recursion. When building an item set, pass2 needs to know
 ; of the pass2 of its recursive children but only the pass1 of itself if recursive
