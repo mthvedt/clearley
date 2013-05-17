@@ -9,12 +9,11 @@ package clearley;
  */
 public interface ParseState {
 	ParseState shift(Object o);
-	ParseState reduce(Object o, int rval);
+	ParseState reduce(int theGoto, Object returnValue);
 	int pos();
 	public int getGoto();
 	public ParseState setGoto(int theGoto);
-	public Object returnValue(); // todo obsolete
-	public void setReturnValue(Object returnValue);
+	public Object returnValue();
 	public Object getCurrent();
 	public Object hasCurrent();    // returns truthy or falsey
 }

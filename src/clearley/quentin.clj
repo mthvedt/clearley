@@ -114,8 +114,7 @@
 (defn gen-advance-handler
   ([item-set advanced-item-set]
    (gen-advance-handler item-set advanced-item-set
-                        `(~(item-parser-sym advanced-item-set ['v0])
-                             ~'state (.returnValue ~'state))))
+                        `(~(item-parser-sym advanced-item-set) ~'state)))
   ([item-set advanced-item-set form]
    ; If we know what case comes next, we can inline it.
    (let [rs (:deep-reduces advanced-item-set)
@@ -124,9 +123,7 @@
        (if-let [advanced-2 (shift-advance item-set r)]
          ; Inline instead of recur
          (gen-advance-handler item-set advanced-2
-                                `(let [x# ~form]
-                                   (~(item-parser-sym advanced-2 ['v0])
-                                       x# (.returnValue x#))))
+                              `(~(item-parser-sym advanced-2) ~form))
          ; Return directly
          form)
        ; Don't know what's happing next, have to recur
@@ -182,13 +179,10 @@
 
 (defn gen-return [item working-syms arg-count]
   (let [action (-> item :rule rules/get-original :action)
-        backlink (-> item :backlink item-id)]
-    `(do
-       (.setReturnValue ~'state
-                        ~(if working-syms
-                           `(~(action-sym action) ~@working-syms)
-                           (apply-args arg-count (action-sym action))))
-       (.reduce ~'state ~(item-sym item) ~backlink))))
+        backlink-id (-> item :backlink item-id)]
+    `(.reduce ~'state ~backlink-id ~(if working-syms
+                                      `(~(action-sym action) ~@working-syms)
+                                      (apply-args arg-count (action-sym action))))))
 
 (defn filter-keys [m f]
   (apply hash-map (mapcat (fn [[k v]] (if (f k) [k v] [])) m)))
@@ -234,10 +228,9 @@
             (assert (shift-reduce? item-set))
             (println "Shift-reduce conflict in item set\n" (item-set-str item-set))))
         [:shift [scanner
-                 `(~(item-parser-sym (pep-item-set shift
-                                                   (:split-conflicts item-set)) ['v0])
-                      (.shift ~'state ~'input)
-                      ~'input)]])
+                 `(~(item-parser-sym
+                      (pep-item-set shift (:split-conflicts item-set)))
+                      (.shift ~'state ~'input))]])
       ; ignore reduce-reduce for now
       (if (seq return)
         [:reduce [scanner (gen-return (first return) working-syms arg-count)]]
@@ -296,17 +289,6 @@
                                        ~'state ~'partial-match)))
                               (omm/keys (:backlink-map item-set)))))))))
 
-(defn gen-slow-parser [item-set symcount]
-  (let [r `(fn [~(apply symbol '(^ParseState state))
-                ~@(if (> symcount 0) ['arg0] [])]
-             (let [~'partial-match (object-array ~(item-set-size item-set))
-                   ~'input (.getCurrent ~'state)]
-               ~(case symcount
-                  0 (gen-parser item-set nil 0)
-                  1 `(do (aset ~'partial-match 0 ~'arg0)
-                       ~(gen-parser item-set nil 1)))))]
-    r))
-
 (defn gen-slow-cont-parser [item-set argcount]
   (let [r `(fn [~(apply symbol '(^ParseState state))
                 ~(apply symbol '(^objects partial-match))]
@@ -336,6 +318,17 @@
                   (gen-slow-cont-parser item-set argcount))
                 "continuing-item-parser" `ParseState))
 
+(defn gen-slow-parser [item-set initial?]
+  (let [r `(fn [~(apply symbol '(^ParseState state))]
+             (let [~'partial-match (object-array ~(item-set-size item-set))
+                   ~'input (.getCurrent ~'state)
+                   ~@(if initial? [] `(~'arg0 (.returnValue ~'state)))]
+               ~(if initial?
+                  (gen-parser item-set nil 0)
+                  `(do (aset ~'partial-match 0 ~'arg0)
+                     ~(gen-parser item-set nil 1)))))]
+    r))
+
 ; TODO find a better way.
 (defn code-size [l]
   (if (coll? l)
@@ -343,15 +336,15 @@
     1))
 
 ; Sets up all the stuff to execute gen-initial-shift
-(defn gen-parser-body [item-set initial-symbols]
-  (let [r `(fn [~(apply symbol '(^ParseState state))
-                ~@initial-symbols]
-             (let [~'input (.getCurrent ~'state)]
-               ~(gen-parser item-set initial-symbols -1))) ; TODO move to own fn
+(defn gen-parser-body [item-set initial?]
+  (let [r `(fn [~(apply symbol '(^ParseState state))]
+             (let [~'input (.getCurrent ~'state)
+                   ~@(if initial? [] `(~'v0 (.returnValue ~'state)))]
+               ~(gen-parser item-set (if initial? [] ['v0]) -1)))
         r (if (> (code-size r) 64)
             (do
               ;(println "Parser too big!")
-              (gen-slow-parser item-set (count initial-symbols)))
+              (gen-slow-parser item-set initial?))
             r)
         f (compile r)]
     (print-code "item-set" (item-set-str item-set) "parser" r "compiled to" f)
@@ -369,13 +362,15 @@
           r))
       f)))
 
-(defn item-parser-sym [^clearley.clr.ItemSet item-set initial-symbols]
-  (when item-set
-    (lookup-thunk [(item-set-key item-set) (count initial-symbols)]
-                  (fn []
-                    (print-compile "Compiling item parser...")
-                    (gen-parser-body item-set initial-symbols)) "item-parser"
-                  `ParseState)))
+(defn item-parser-sym
+  ([item-set] (item-parser-sym item-set false))
+  ([item-set initial?]
+   (when item-set
+     (lookup-thunk [(item-set-key item-set) initial?]
+                   (fn []
+                     (print-compile "Compiling item parser...")
+                     (gen-parser-body item-set initial?)) "item-parser"
+                   `ParseState))))
 
 (defn new-ns []
   (let [sym (gensym "quentin")
@@ -395,7 +390,7 @@
         (.returnValue
           (@(ns-resolve *myns*
                         (item-parser-sym (pep-item-set [(goal-item goal grammar)] #{})
-                                         []))
+                                         true))
               (parse-stream input))))
       ; TODO the below
       (catch RuntimeException e (clojure.stacktrace/print-stack-trace e) nil))))

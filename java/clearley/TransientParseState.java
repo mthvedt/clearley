@@ -7,7 +7,7 @@ public class TransientParseState implements ParseState {
 	int theGoto = -1;
 	ISeq input;
 	Object current;
-	Object returnValue;
+	Object returnValue; // todo rename
 
 	public TransientParseState(ISeq input) {
 		assert input == null || clojure.lang.RT.seq(input) != null;
@@ -22,11 +22,13 @@ public class TransientParseState implements ParseState {
 		if (input != null) {
 			current = input.first();
 		}
+		returnValue = o;
 		pos++;
 		return this;
 	}
 
-	public TransientParseState reduce(Object o, int theGoto) {
+	public TransientParseState reduce(int theGoto, Object returnValue) {
+		this.returnValue = returnValue;
 		this.theGoto = theGoto;
 		return this;
 	}
@@ -42,11 +44,6 @@ public class TransientParseState implements ParseState {
 
 	public Object returnValue() {
 		return returnValue;
-	}
-
-	// TODO roll into reduce
-	public void setReturnValue(Object returnValue) {
-		this.returnValue = returnValue;
 	}
 
 	public Object getCurrent() {
