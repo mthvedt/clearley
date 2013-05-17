@@ -1,27 +1,27 @@
 package clearley;
 
-import clojure.lang.ISeq;
-
 public class TransientParseState implements ParseState {
 	int pos = 0;
 	int theGoto = -1;
-	ISeq input;
+	//ISeq input;
+	String input;
 	Object current;
 	Object returnValue; // todo rename
 
-	public TransientParseState(ISeq input) {
+	//public TransientParseState(ISeq input) {
+	public TransientParseState(String input) {
 		assert input == null || clojure.lang.RT.seq(input) != null;
 		this.input = input;
-		if (input != null) {
-			this.current = input.first();
-		}
+//		if (input != null) {
+//			this.current = input.first();
+//		}
 	}
 
 	public TransientParseState shift(Object o) {
-		input = input.next();
-		if (input != null) {
-			current = input.first();
-		}
+//		input = input.next();
+//		if (input != null) {
+//			current = input.first();
+//		}
 		returnValue = o;
 		pos++;
 		return this;
@@ -46,12 +46,14 @@ public class TransientParseState implements ParseState {
 		return returnValue;
 	}
 
-	public Object getCurrent() {
-		return current;
+	public long getCurrent() {
+		if (hasCurrent())
+		return input.charAt(pos);
+		else return '\0';   // TODO: current parser gets current and throws away input. fix this
 	}
 
-	public Object hasCurrent() {
-		return input;
+	public boolean hasCurrent() {
+		return pos < input.length();
 	}
 
 	public int pos() {

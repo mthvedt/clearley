@@ -14,6 +14,8 @@ public interface ParseState {
 	public int getGoto();
 	public ParseState setGoto(int theGoto);
 	public Object returnValue();
-	public Object getCurrent();
-	public Object hasCurrent();    // returns truthy or falsey
+	public long getCurrent();
+//	public Object getCurrent();
+//	public Object hasCurrent();    // returns truthy or falsey
+	public boolean hasCurrent();
 }

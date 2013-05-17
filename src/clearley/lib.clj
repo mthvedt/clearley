@@ -38,7 +38,14 @@
   CFGs don't support star rules directly, actually defs a recursive
   rule (that's why it needs to be a macro, you can't make self-referential plain
   old data structures). The rule is left-recursive
-  and the action should have 1 or 2 args, and is applied a la core/reduce."
+  and the action should have 1 or 2 args, the 1-arity for the non-recursive case,
+  the 2-arity for the left-recursive case applied a la core/reduce.
+  
+  Example:
+  (defplus add-a-bunch-of-numbers 'number
+    (fn ([num] (Integer/parseInt num))
+        ([num1 num2] (+ num1 (Integer/parseInt num2)))))"
+
   [name subrule action]
   `(let [action# ~action]
      (def ~name (or-rule [(rule [~subrule] action#)
@@ -47,15 +54,63 @@
 (defmacro defstar
   "Creates a rule that matches zero or more of a given rule. Because
   CFGs don't support star rules directly, actually defs a pair of mutually recursive
-  rules (that's why it needs to be a macro). The rule is left-recursive
-  and the action should have 0, 1, or 2 args, and is applied a la core/reduce."
+  rules (that's why it needs to be a macro)
+  and the action should have 0, 1, or 2 args. Arities 0 and 1 are for the non-recursive
+  case, arity 2 for the left-recursive case as in core/reduce.
+  
+  Example:
+  (defplus make-array 'array-value
+    (fn ([] [])
+        ([val] [val])
+        ([arr val] (conj arr val))))"
   [name subrule action]
   (let [name-plus (symbol (str name "-plus"))]
     `(do
        (let [action# ~action]
-         (def ~name-plus (or-rule [(rule [~subrule] action#)
+         (def ~name-plus (or-rule [~subrule
                                      (rule ['~name-plus ~subrule] action#)]))
            (def ~name (or-rule [(rule [] action#) ~name-plus]))))))
+
+(defmacro def-unrolled
+  "Helper for def-unrolled-star and def-unrolled-plus."
+  [name subrule action reducer-action zero?]
+  (let [name-1 (symbol (str name "-1"))
+        name-2 (symbol (str name "-2"))
+        name-3 (symbol (str name "-3"))
+        name-4 (symbol (str name "-4"))
+        name-plus (symbol (str name "-plus"))
+        action-sym (gensym "action")]
+    `(do
+       (let [~action-sym ~action
+             reducer# ~reducer-action]
+         (def ~name-1 (rule [~subrule] ~action-sym))
+         (def ~name-2 (rule [~subrule ~subrule] ~action-sym))
+         (def ~name-3 (rule [~subrule ~subrule ~subrule] ~action-sym))
+         ;(def ~name-4 (rule [~subrule ~subrule ~subrule ~subrule] action#))
+         (def ~name-plus (or-rule ['~name-3
+                                   (rule ['~name-plus ~subrule] reducer#)
+                                   (rule ['~name-plus ~subrule ~subrule] reducer#)
+                                   (rule ['~name-plus ~subrule ~subrule ~subrule]
+                                         reducer#)]))
+         (def ~name (or-rule [~@(if zero? `((rule [] ~action-sym)) ())
+                             '~name-1 '~name-2 '~name-3 '~name-plus]))))))
+
+(defmacro def-unrolled-star
+  "Like defstar, but unrolls the rule a few times.
+  Please only use this if you need the speed. Unrolls up to 3 times.
+  You should supply two actions: one for the base case, with arities 0, 1, 2, or 3;
+  and one with for the reducing case, with arities 2, 3, or 4. For the latter,
+  the rule is left-recursive, so the first arg will be the recursive case.
+
+  This is primarily to make the parser faster, so feel free to use rest args
+  unless you care about that last few % of performance."
+  [name subrule action reducer-action]
+  `(def-unrolled ~name ~subrule ~action ~reducer-action true))
+
+(defmacro def-unrolled-plus
+  "Like def-unrolled-star but does not match the empty rule."
+  [name subrule action reducer-action]
+  `(def-unrolled ~name ~subrule ~action ~reducer-action false))
 
 (defn opt
   "Creates a rule that matches a subrule, or nothing. The action will be passed
@@ -101,19 +156,21 @@
                                 (fn [a# ~'_ b#] (delimited_action# a# b#)))]))))
 
 (defn char-to-num
-  "Maps chars to numbers linearally. Default maps \\0 to 0.
+  "Returns a fn that maps chars to numbers linearally. Default maps \\0 to 0.
   This behavior can be overriden by providing char-start and num-start,
   such that char-start -> numstart (for example \\a -> 10)."
-  ([char] (char-to-num char \0 0))
-  ([char char-start num-start]
-   (let [char-start-int (int char-start)]
-     (+ num-start (- (int char) char-start-int)))))
+  ([] (char-to-num \0 0))
+  ([char-start num-start]
+   (let [char-start (long char-start)
+         num-start (long num-start)]
+     (binding [*unchecked-math* true]
+       (fn [^long c] (+ num-start (- c char-start)))))))
 
 (def ^{:doc "A rule that matches an input digit, and returns a number for it."}
-  digit (char-range \0 \9 char-to-num))
+  digit (char-range \0 \9 (char-to-num)))
 
 (def ^{:doc "Like digit but matches 1 through 9."}
-  digit1-9 (char-range \1 \9 char-to-num))
+  digit1-9 (char-range \1 \9 (char-to-num)))
 
 (def ^{:doc "Matches \\0 and returns 0."}
   zero (rule [\0] 0))
@@ -122,8 +179,8 @@
             a number for it."}
   hex-digit
   `(:or digit
-        ~(char-range \a \f #(char-to-num % \a 10))
-        ~(char-range \A \F #(char-to-num % \A 10))))
+        ~(char-range \a \f (char-to-num \a 10))
+        ~(char-range \A \F (char-to-num \A 10))))
 
 #_(defn make-num
   "Turns a bunch of digits into a number.

@@ -19,26 +19,42 @@
 ; This is a valid JSON string character. It can be any non-escaped character,
 ; except \, ", and for some reason, ASCII control characters below u001f.
 (def char-scanner
-  (scanner (fn [c] (and (char? c) (> (int c) 0x1f)
-                        (not (= (int \\) (int c))) (not (= (int \") (int c)))))))
+  (scanner (fn [^long c] (and (> c 0x1f)
+                              (not (= (long \\) c)) (not (= (long \") c))))))
 
 ; Matches a unicode literal: \u007f for example
 (defmatch hex [\\ \u
               (r (rule "unicode-hex" [hex-digit hex-digit hex-digit hex-digit]
                      ; hex-char returns an int... we turn that into Unicode char
-                     (fn [& chars] (char (reduce (num-reducer 16) chars)))))]
+                       (fn [^long a ^long b ^long c ^long d]
+                         (+ (* 16 (+ (* 16 (+ (* 16 a) b)) c)) d))))]
+                     ;(fn [& chars] (char (reduce (num-reducer 16) chars)))))]
   r)
 
 ; A string character can be an escaped char, a hex char, or anything else.
 (defmatch string-char
-  ([\\ (escaped-char '(:or \" \\ \/ \b \f \n \r \t))] escaped-char)
+  ; TODO the below is ugly
+  ([\\ (escaped-char `(:or ~(long \") ~(long \\) ~(long \/) ~(long \b) ~(long \f)
+                           ~(long \n) ~(long \r) ~(long \t)))] escaped-char)
   hex char-scanner)
 
-(defstar string-body string-char (fn ([] "")
-                                   ([c] (doto (java.lang.StringBuilder.) (.append c)))
-                                   ([^StringBuilder arr c] (.append arr c))))
+(defn string-builder
+  ([^StringBuilder s ^long c1] (doto s
+                                 (.append (char c1))))
+  ([^StringBuilder s ^long c1 ^long c2] (doto s
+                                          (.append (char c1))
+                                          (.append (char c2))))
+  ([^StringBuilder s ^long c1 ^long c2 ^long c3] (doto s
+                                                   (.append (char c1))
+                                                   (.append (char c2))
+                                                   (.append (char c3)))))
 
-(def string (quotes string-body (fn [^StringBuilder s] (.toString s))))
+(def-unrolled-star string-body 'string-char
+  (fn ([] "")
+    ([& cs] (apply string-builder (java.lang.StringBuilder.) cs)))
+  string-builder)
+
+(def string (quotes string-body (fn [^Object s] (.toString s))))
 
 ; Fifth, the Number, the most complex. JSON accepts canonical integers,
 ; decimals, and scientific notation.

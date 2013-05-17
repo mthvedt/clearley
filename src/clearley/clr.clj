@@ -45,12 +45,18 @@
 ; (depends on predicting items)
 (defrecord Item [rule backlink match-count seed? follow])
 
+(defn follow-str [[tag follow]]
+  (case tag
+    :token (pr-str follow)
+    :scanner (pr-str follow)
+    :term "$"))
+
 (defn item-str [{:keys [rule seed?] :as item}]
   (str (if seed? "" "+ ") (rules/rule-str rule)))
 
 ; TODO better follow strs
 (defn item-str-follow [{follow :follow :as item}]
-  (str (item-str item) (if follow (str " : " (hexhash follow)) "")))
+  (str (item-str item) (if follow (str " : " (follow-str follow)) "")))
 
 (defnmem new-item [rule seed? follow]
   (->Item rule nil 0 seed? follow))

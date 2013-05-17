@@ -11,7 +11,7 @@
 ; TODO eliminate state, then have parser return results.
 ; TODO figure out locking?
 
-(def ^:dynamic *print-code* false)
+(def ^:dynamic *print-code* true)
 (defn print-code [& vals]
   (binding [*print-meta* true]
     (if *print-code* (runmap
@@ -41,7 +41,9 @@
         (clojure.pprint/pprint f))
       (throw e))))
 
-(defn parse-stream [input] (TransientParseState. (seq input)))
+;(defn parse-stream [input] (TransientParseState. (seq input)))
+;For now assume input is a string
+(defn parse-stream [input] (TransientParseState. input))
 
 (declare continue-parsing item-parser-sym cont-parser-sym embed-parser-with-lookahead)
 
@@ -218,9 +220,10 @@
     ; TODO when and when not terminus?
     `(if (not (.hasCurrent ~'state))
        ~(if term (second term) `(fail ~'state))
-       (case ~'input
+       ; TODO enable/disable
+       (case (int ~'input)
          ; Case statement for tokens
-         ~@(mapcat (fn [[scanner form]] `(~scanner ~form)) tokens)
+         ~@(mapcat (fn [[scanner form]] `(~(int scanner) ~form)) tokens)
          ; Cond branch for scanners
          (cond ~@(mapcat (fn [[scanner form]]
                            `((~(scanner-sym scanner) ~'input) ~form))
@@ -232,8 +235,10 @@
 ; Can either take action and return, or call a advancer returning the result.
 (defn gen-scanner-handler [scanner item-set working-syms arg-count]
   (let [shift (omm/get-vec (shift-map item-set) scanner)
-        return (omm/get-vec (reduce-map item-set) scanner)]
-    (if (and (> (count return) 1) (not (:const-reduce item-set)))
+        return (omm/get-vec (reduce-map item-set) scanner)
+        ; TODO enable/disable
+        scanner (if (char? scanner) (long scanner) scanner)]
+   (if (and (> (count return) 1) (not (:const-reduce item-set)))
       (do
         (assert (reduce-reduce? item-set))
         (println "Reduce-reduce conflict in item set\n" (item-set-str item-set))
