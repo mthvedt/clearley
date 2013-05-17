@@ -1,9 +1,23 @@
 (ns clearley.rules
-  (require clearley.grammar clojure.string uncore.rpartial clojure.set
+  (require clearley.grammar clojure.string clojure.set
            [uncore.throw :as t]
            [uncore.str :as s])
   (use uncore.core uncore.memo))
 ; Core stuff for context free grammar parsing.
+
+(defn interleave-map [coll i->vals]
+  (loop [r [] coll coll i 0]
+    (if (contains? i->vals i)
+      (if (= ::ignore (get i->vals i))
+        (recur r coll (inc i))
+        (recur (conj r (get i->vals i)) coll (inc i)))
+      (if (seq coll)
+        (recur (conj r (first coll)) (rest coll) (inc i))
+        r))))
+
+(defn rpartial [f themap]
+  (fn [& args]
+    (apply f (interleave-map args themap))))
 
 ; just for speed
 (defrecord Match [rule submatches])
@@ -11,7 +25,7 @@
 (def match ->Match)
 
 ; The instrumented core abstraction
-(defrecord CfgRule [dot raw-rule null-results grammar])
+(defrecord CfgRule [dot raw-rule elisions grammar])
 
 (defn cfg-rule [rule grammar]
   (CfgRule. 0 rule {} grammar))
@@ -25,11 +39,10 @@
             {} grammar))
 
 ; For a rule that has been nulled out, gets a reduced version of the rule
-; appropriate for take-action.
-; This is a stopgap and won't be neccesary in a real GLL parser.
-(defn get-original [{{:keys [action] :as raw-rule} :raw-rule :keys [null-results]}]
-  (if (seq null-results)
-    (assoc raw-rule :action (uncore.rpartial/gen-rpartial action null-results))
+; appropriate for take-action. Not used for Quentin which can generate code instead.
+(defnmem get-original [{{:keys [action] :as raw-rule} :raw-rule :keys [elisions]}]
+  (if (seq elisions)
+    (assoc raw-rule :action (rpartial action elisions))
     raw-rule))
 
 ; Anaphoric, uses 'value and 'dot
@@ -116,15 +129,26 @@
        ")"
        (if (zero? dot) "" " ✓")))
 
-(defn advance [cfg-rule]
+(defnmem advance [cfg-rule]
   (assert (not (is-complete? cfg-rule)))
-  (update cfg-rule :dot inc))
+  (let [predictions (predict cfg-rule)
+        prediction (if (= 1 (count predictions)) (first predictions))
+        ; disallow hidden subrules if >1 prediction, semantics don't make sense here
+        _ (when-not prediction (if (some (fn-> :raw-rule :hidden?) predictions)
+                                 (println "Warning: hidden rule inside"
+                                          (rule-str cfg-rule)
+                                          "being ignored")))
+        cfg-rule (if (:hidden? (:raw-rule prediction))
+                   (update cfg-rule :elisions #(assoc % (:dot cfg-rule) ::ignore))
+                   cfg-rule)
+        cfg-rule (update cfg-rule :dot inc)]
+    cfg-rule))
 
 ; Null advance: for advancing a rule that can predict the empty string
 ; See Aycock+Horspool Practical Earley Parsing
 (defn null-advance [rule result]
   (let [dot (:dot rule)]
-    (update-all rule {:dot inc, :null-results #(assoc % dot result)})))
+    (update-all rule {:dot inc, :elisions #(assoc % dot result)})))
 
 (defn goal? [cfg-rule]
   (and (is-complete? cfg-rule)

@@ -54,7 +54,7 @@
     `(do
        (let [action# ~action]
          (def ~name-plus (or-rule [(rule [~subrule] action#)
-                                     (rule ['~name ~subrule] action#)]))
+                                     (rule ['~name-plus ~subrule] action#)]))
            (def ~name (or-rule [(rule [] action#) ~name-plus]))))))
 
 (defn opt
@@ -95,10 +95,10 @@
   Trailing delimiters don't get matched. The parse action should take
   1 or 2 arguments, as with defplus."
   [name a-rule delimiter action]
-  `(let [action# ~action]
-     (def ~name (or-rule [(rule [~a-rule] action#)
+  `(let [delimited_action# ~action]
+     (def ~name (or-rule [(rule [~a-rule] delimited_action#)
                           (rule ['~name ~delimiter ~a-rule]
-                                (fn [x# _# y#] (action# x# y#)))]))))
+                                (fn [a# ~'_ b#] (delimited_action# a# b#)))]))))
 
 (defn char-to-num
   "Maps chars to numbers linearally. Default maps \\0 to 0.
@@ -147,7 +147,7 @@
          Java collections caveates apply..."}
   digits-ar
   digit (fn ([x] (doto (java.util.ArrayList.) (.add x)))
-          ([l x] (doto l (.add x)))))
+          ([^java.util.ArrayList l x] (doto l (.add x)))))
 
 (defplus
   ^{:doc "Matches a positive number, returning the number. Any number of leading

@@ -2,6 +2,7 @@
   (use clearley.match clearley.lib clojure.math.numeric-tower))
 
 ; It turns out making ordinary arithmetic an LR(1) grammar is pretty tough!
+; TODO add ignore conflicts
 (defmatch sum
   ([sum \+ term] (+ sum term))
   ([sum \- term] (- sum term)) ; left associative

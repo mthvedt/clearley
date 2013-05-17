@@ -45,9 +45,10 @@
 ; (depends on predicting items)
 (defrecord Item [rule backlink match-count seed? follow])
 
-(defn item-str [{:keys [rule seed? follow] :as item}]
-  (str (if seed? "" "+") " " (rules/rule-str rule)))
+(defn item-str [{:keys [rule seed?] :as item}]
+  (str (if seed? "" "+ ") (rules/rule-str rule)))
 
+; TODO better follow strs
 (defn item-str-follow [{follow :follow :as item}]
   (str (item-str item) (if follow (str " : " (hexhash follow)) "")))
 
@@ -264,7 +265,7 @@
                      item-set)
           conflicts (:split-conflicts item-set)
           my-continues (map #(item-set-pass1 % conflicts)
-                            (continues item-set true))
+                             (continues item-set true))
           descendant-deep-reduces (into #{} (mapcat :deep-reduces my-continues))
           deep-reduces (into descendant-deep-reduces
                              (map :backlink (reduces item-set)))
@@ -272,7 +273,7 @@
       item-set)))
 
 ; Builds a pass2, given pass1 children and pass2 non-recurisve children.
-(defn item-set-pass2 [item-set children]
+(defnmem item-set-pass2 [item-set children]
   (if item-set
     (let [child-deep-reduces (into #{} (mapcat :deep-reduces children))]
       (if (:const-reduce item-set)
@@ -303,11 +304,11 @@
               _ (if (zero? (mod (count @*crumbs*) 100))
                   (println (count @*crumbs*) "candidate item sets examined"))
               shift-children (map #(build-item-set* % (:split-conflicts item-set))
-                                  (concat (shifts item-set)
-                                          (shift-advances item-set)))
+                                   (concat (shifts item-set)
+                                           (shift-advances item-set)))
               ; Just runmap these for now
-              my-continues (domap #(build-item-set* % (:split-conflicts item-set))
-                                  (continues item-set true))
+              my-continues (runmap #(build-item-set* % (:split-conflicts item-set))
+                                   (continues item-set true))
               prev-save-count (save-count ::dedup-item-set)
               item-set (item-set-pass2 item-set shift-children)
               ; Dedup and capture the deduped value

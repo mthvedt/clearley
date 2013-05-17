@@ -11,12 +11,12 @@
 ; TODO eliminate state, then have parser return results.
 ; TODO figure out locking?
 
-(def ^:dynamic *print-code* true)
+(def ^:dynamic *print-code* false)
 (defn print-code [& vals]
   (binding [*print-meta* true]
-  (if *print-code* (runmap
-                     #(if (sequential? %) (clojure.pprint/pprint %) (println %))
-                     vals))))
+    (if *print-code* (runmap
+                       #(if (sequential? %) (clojure.pprint/pprint %) (println %))
+                       vals))))
 
 (def ^:dynamic *parse-trace* false)
 
@@ -33,7 +33,8 @@
       (binding [*out* *err*] ; TODO bind out to error?
         (println "Exception compiling")
         (clojure.pprint/pprint f))
-      (throw e))
+      (throw e)) ; TODO
+    ; TODO don't catch and rethrow
     (catch java.lang.ExceptionInInitializerError e
       (binding [*out* *err*]
         (println "Exception compiling")
@@ -69,7 +70,8 @@
       (let [sym (symbol (str a-str "-" (count (get @item-set-var-map a-str {}))))]
         (if-let [sym0 (get-in @item-set-var-map [a-str key])]
           sym0
-          ; Assumption: thunk has no side effects
+          ; Assumption: candidate-thunk has no side effects
+          ; TODO this is not actually true
           (let [thunk (fn [& args]
                         (let [r (candidate-thunk)]
                           (print-compile (s/cutoff (str "Interning " sym " : " r) 80))
@@ -158,7 +160,7 @@
         (println "with code")
         (clojure.pprint/pprint r)
         (println "and args")
-        (prn args)
+        (clojure.pprint/pprint args)
         (let [r (apply f args)]
           (println f "returned")
           (println r)
@@ -171,18 +173,32 @@
 (defn action-sym [action] (get-or-bind action identity "action"))
 (defn scanner-sym [scanner] (get-or-bind scanner identity "scanner"))
 (defn item-sym [item] (get-or-bind item identity "item"))
+(defn obj-sym [obj] (get-or-bind obj identity "match-result"))
 
 ; === Shifts and scanning
 
-(defn apply-args [arg-count action-sym]
-  `(~action-sym ~@(map (fn [i] `(aget ~'partial-match ~i)) (range arg-count))))
+; Apply an action to an array of submatches
+(defn apply-args [rule operands]
+  (let [elisions (:elisions rule)
+        match-count (:dot rule)
+        raw-action (-> rule :raw-rule :action)]
+    `(~(action-sym raw-action)
+         ~@(loop [r [] operands operands i 0]
+             ; TODO rewrite... with for?
+             (cond (= match-count i) r ; return
+                   (contains? elisions i)
+                   (recur (conj r (obj-sym (get elisions i))) operands (inc i))
+
+                   true
+                   (recur (conj r (first operands)) (rest operands) (inc i)))))))
 
 (defn gen-return [item working-syms arg-count]
-  (let [action (-> item :rule rules/get-original :action)
-        backlink-id (-> item :backlink item-id)]
-    `(.reduce ~'state ~backlink-id ~(if working-syms
-                                      `(~(action-sym action) ~@working-syms)
-                                      (apply-args arg-count (action-sym action))))))
+  (let [backlink-id (-> item :backlink item-id)
+        action-operands (if working-syms working-syms 
+                          (map (fn [i] `(aget ~'partial-match ~i)) (range arg-count)))
+        hidden? (:hidden? item)]
+    `(.reduce ~'state ~backlink-id ~(if hidden? nil
+                                      (apply-args (:rule item) action-operands)))))
 
 (defn filter-keys [m f]
   (apply hash-map (mapcat (fn [[k v]] (if (f k) [k v] [])) m)))
@@ -199,6 +215,7 @@
         scanners (selector :scanner)
         term (first (selector :term))] ; there can be only one
       ; Special handling for terminus (terminus always returns, BTW)
+    ; TODO when and when not terminus?
     `(if (not (.hasCurrent ~'state))
        ~(if term (second term) `(fail ~'state))
        (case ~'input
@@ -304,7 +321,7 @@
         (println "with code")
         (clojure.pprint/pprint r)
         (println "and args")
-        (prn args)
+        (clojure.pprint/pprint args)
         (let [r (apply f args)]
           (println "Returned")
           (println r)
@@ -355,7 +372,7 @@
         (println "with code")
         (clojure.pprint/pprint r)
         (println "and args")
-        (prn args)
+        (clojure.pprint/pprint args)
         (let [r (apply f args)]
           (println "Returned")
           (println r)
@@ -378,7 +395,8 @@
     ;(remove-ns sym) ; TODO
     (binding [*ns* r]
       (use 'clojure.core 'clearley.quentin)
-      (import 'clearley.ParseState))
+      (import 'clearley.ParseState)
+      (set! *unchecked-math* true))
     (intern r 'item-set-var-map (atom {})) ; map: seeds -> symbol
     (intern r 'ns-lock (Object.))
     r))
@@ -393,4 +411,4 @@
                                          true))
               (parse-stream input))))
       ; TODO the below
-      (catch RuntimeException e (clojure.stacktrace/print-stack-trace e) nil))))
+      (catch Exception e (clojure.stacktrace/print-stack-trace e) nil))))

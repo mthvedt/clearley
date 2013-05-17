@@ -2,6 +2,8 @@
   (require clearley.core)
   (use clearley.match clojure.math.numeric-tower clearley.lib))
 
+(set! *unchecked-math* true)
+
 ; JSON spec:
 ; https://www.ietf.org/rfc/rfc4627.txt?number=4627
 
@@ -18,7 +20,7 @@
 ; except \, ", and for some reason, ASCII control characters below u001f.
 (def char-scanner
   (scanner (fn [c] (and (char? c) (> (int c) 0x1f)
-                        (not (= \\ c)) (not (= \" c))))))
+                        (not (= (int \\) (int c))) (not (= (int \") (int c)))))))
 
 ; Matches a unicode literal: \u007f for example
 (defmatch hex [\\ \u
@@ -36,7 +38,7 @@
                                    ([c] (doto (java.lang.StringBuilder.) (.append c)))
                                    ([^StringBuilder arr c] (.append arr c))))
 
-(def string (quotes string-body (fn [^Object s] (.toString s))))
+(def string (quotes string-body (fn [^StringBuilder s] (.toString s))))
 
 ; Fifth, the Number, the most complex. JSON accepts canonical integers,
 ; decimals, and scientific notation.
@@ -71,12 +73,17 @@
                                                (persistent! array-values)))))
 
 ; and the seventh (and also the goal type): Object.
-(defmatch pair [whitespace string whitespace \: value] [string value])
+(defmatch pair [whitespace string whitespace \: value] (transient {string value}))
+(defmatch pairs
+  ([pairs \, whitespace string whitespace \: value]
+                 (assoc! pairs string value))
+  pair)
+;(defmatch pair [whitespace string whitespace \: value] [string value])
 
-(defdelimit pairs 'pair \, (fn ([m] (apply hash-map m))
-                             ([m p] (conj m p))))
+#_(defdelimit pairs 'pair \, (fn ([m] (transient (apply hash-map m)))
+                             ([m p] (conj! m p))))
 
-(def object (braces (match ([whitespace] {}) pairs)))
+(def object (braces (match ([whitespace] {}) ([pairs] (persistent! pairs)))))
 
 ; Put it all together...
 (def value (surround `whitespace `(:or json-keyword string number array object)))
