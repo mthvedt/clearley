@@ -76,10 +76,11 @@
 (declare rule-str)
 (defmulti scanner (fn-> :raw-rule :tag))
 (defmethod scanner :token [{dot :dot {[value] :value} :raw-rule}]
-  (if (zero? dot) (->TokenScanner value) nil))
+  (if (zero? dot) [:token value] nil))
+  ;(if (zero? dot) (->TokenScanner value) nil))
   ;[:token value])
 (defmethod scanner :scanner [{dot :dot {[value] :value} :raw-rule}]
-  (if (zero? dot) value nil))
+  (if (zero? dot) [:scanner value] nil))
   ;[:scanner value])
 (defmethod scanner :default [_] nil)
 

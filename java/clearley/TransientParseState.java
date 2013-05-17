@@ -44,6 +44,7 @@ public class TransientParseState implements ParseState {
 		return returnValue;
 	}
 
+	// TODO roll into reduce
 	public void setReturnValue(Object returnValue) {
 		this.returnValue = returnValue;
 	}

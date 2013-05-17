@@ -87,13 +87,12 @@
     item))
 
 (defn goal-item [goal grammar]
-  (new-item (rules/goal-rule goal grammar) true ::term))
+  (new-item (rules/goal-rule goal grammar) true [:term nil]))
 
 ; === Item sets ===
 
 ; items: the items in the set
 ; backlink-map: maps items -> predicting items
-; TODO: while building, just make a backlink map.
 ; gotos: map rule -> item set kernels.
 ; actinos: map lookahead -> shift (item set kernel) or reduce (item).
 ; we should eliminate code that peers into back-link-map, seeds, &c.
@@ -126,8 +125,6 @@
 ; 1. goal -> whatever
 ; 2. whatever -> whatever | called by 1, 3
 
-(defn term-scanner [x] (= x ::term))
-
 ; ordered multimap of scanners -> shift items
 (defnmem shift-map [item-set]
   (reduce (fn [m {:keys [rule] :as item}]
@@ -145,9 +142,8 @@
           omm/empty (:more-seeds item-set)))
 
 (defnmem all-scanners [item-set]
-  (disj (into #{} (concat (-> item-set shift-map omm/keys)
-                          (-> item-set reduce-map omm/keys)))
-        ::term))
+  (into #{} (concat (-> item-set shift-map omm/keys)
+                    (-> item-set reduce-map omm/keys))))
 
 (defnmem advances [{backlink-map :backlink-map} backlink seed?]
   (map advance-item (filter #(= seed? (:seed? %))

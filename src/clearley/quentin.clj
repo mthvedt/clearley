@@ -135,9 +135,23 @@
 ; Creates an advancer fn. Takes in a parse state and an array partial match.
 (defn advance-looper [item-set]
   (let [r `(fn [~(apply symbol '(^ParseState state))]
-             ~(gen-advance-loop item-set))]
-    (print-code "Advancer" r)
-    (compile r)))
+             ~(gen-advance-loop item-set))
+        _ (print-code "advancer" (item-set-str item-set) "with-code" r)
+        f (compile r)]
+    (print-code "compiled to" f)
+    (if *parse-trace*
+      (fn [& args]
+        (println "Calling advancer" f)
+        (print (item-set-str item-set))
+        (println "with code")
+        (clojure.pprint/pprint r)
+        (println "and args")
+        (prn args)
+        (let [r (apply f args)]
+          (println f "returned")
+          (println r)
+          r))
+      f)))
 
 (defn gen-body-parser [item-set]
   (lookup-thunk item-set #(advance-looper item-set) "advancer"))
@@ -160,6 +174,32 @@
                            `(~(action-sym action) ~@working-syms)
                            (apply-args arg-count (action-sym action))))
        (.reduce ~'state ~(item-sym item) ~backlink))))
+
+(defn filter-keys [m f]
+  (apply hash-map (mapcat (fn [[k v]] (if (f k) [k v] [])) m)))
+
+; Scanners: from gen-scanner-handler, of form [scanner code-form]
+; TODO nomenclature: some scanners are tokens and some scanners?
+(defn gen-shift-table [scanners continuation]
+  (let [selector (fn [wanted-tag]
+                   (remove nil? (map (fn [[[tag scanner] form]]
+                                       (if (= tag wanted-tag)
+                                         [scanner form]))
+                                     scanners)))
+        tokens (selector :token)
+        scanners (selector :scanner)
+        term (first (selector :term))] ; there can be only one
+      ; Special handling for terminus (terminus always returns, BTW)
+    `(if (not (.hasCurrent ~'state))
+       ~(if term (second term) `(fail ~'state))
+       (case ~'input
+         ; Case statement for tokens
+         ~@(mapcat (fn [[scanner form]] `(~scanner ~form)) tokens)
+         ; Cond branch for scanners
+         (cond ~@(mapcat (fn [[scanner form]]
+                           `((~(scanner-sym scanner) ~'input) ~form))
+                      scanners)
+               true ~continuation)))))
 
 ; Requires 'input, 'state, 'advancer, and 'partial-match OR non-null 'working-syms.
 ; Returns a code snippet for handling a state after a scanner is matched.
@@ -197,56 +237,50 @@
 ; If split, will have argcount > 0.
 ; TODO collate continuing cases
 (defn gen-parser [item-set working-syms argcount]
-  (let [cond-pair-fn (fn [[scanner code]]
-                       [(list (scanner-sym scanner) 'input) code])
-        handlers (map #(gen-scanner-handler % item-set working-syms argcount)
+  (let [handlers (map #(gen-scanner-handler % item-set working-syms argcount)
                       (all-scanners item-set))
         return-handlers (untag handlers :reduce)
         shift-handlers (untag handlers :shift)
-        next-sym (symbol (str "v" (count working-syms)))
-        [_ [_ term-handler]] (gen-scanner-handler :clearley.clr/term item-set
-                                                  working-syms argcount)]
+        next-sym (symbol (str "v" (count working-syms)))]
 
-    (if-let [single-reduce ;(or (single-reduce-follow item-set)
-                               (:single-reduce item-set)]
+    (if-let [single-reduce (:single-reduce item-set)]
       (do
         (assert (empty? shift-handlers))
         (gen-return single-reduce working-syms argcount))
-      ; Special handling for terminus (terminus always returns, BTW)
-      `(cond (not (.hasCurrent ~'state))
-             ~(if term-handler term-handler `(fail ~'state))
-             ; See if we should return
-             ~@(mapcat cond-pair-fn return-handlers)
-             ; Shift, get the result, continue with the result
-             true (let [~(apply symbol '(^ParseState state))
-                        (cond ~@(mapcat cond-pair-fn shift-handlers)
-                              true (fail ~'state)),
-                        ~(apply symbol '(^ParseState state))
-                        (~(gen-body-parser item-set) ~'state)
-                        ; If monolithic, also get input and next-sym here
-                        ~@(if working-syms
-                            `(~'input (.getCurrent ~'state)
-                                 ~next-sym (.returnValue ~'state))
-                            ())]
-                    ; Set the partial match, if broken-up
-                    ~@(if working-syms
-                        ()
-                        `((aset ~'partial-match ~argcount (.returnValue ~'state))))
-                    (case (.getGoto ~'state)
-                      ~@(collate-cases item-id #(advance-item-set item-set % true)
-                                       (if working-syms
-                                         ; If monolithc, splice in the next parser...
-                                         (fn [item-set]
-                                           (gen-parser
-                                             item-set (conj working-syms next-sym) -1))
-                                         ; Othwerise, it's a funcall
-                                         (fn [item-set]
-                                           `(~(cont-parser-sym item-set
-                                                                     (inc argcount))
-                                                ~'state ~'partial-match)))
-                                       (omm/keys (:backlink-map item-set)))))))))
 
-; TODO when to get, when to gen?
+      (gen-shift-table
+        ; First, should return?
+        return-handlers
+        ; OK, let's shift
+        `(let [~(apply symbol '(^ParseState state))
+               ~(gen-shift-table shift-handlers `(fail ~'state)),
+               ~(apply symbol '(^ParseState state))
+               (~(gen-body-parser item-set) ~'state)
+               ; If monolithic, also get input and next-sym here
+               ~@(if working-syms
+                   `(~'input (.getCurrent ~'state)
+                        ~next-sym (.returnValue ~'state))
+                   ())]
+           ; Save the output if we need to
+           ~@(if working-syms
+               ()
+               `((aset ~'partial-match ~argcount (.returnValue ~'state))))
+           ; Figure out what parser to call next
+           (case (.getGoto ~'state)
+             ~@(collate-cases item-id #(advance-item-set item-set % true)
+                              (if working-syms
+                                ; If monolithc, splice in the next parser...
+                                (fn [item-set]
+                                  (gen-parser
+                                    item-set
+                                    (conj working-syms next-sym) -1))
+                                ; Othwerise, it's a funcall
+                                (fn [item-set]
+                                  `(~(cont-parser-sym item-set
+                                                      (inc argcount))
+                                       ~'state ~'partial-match)))
+                              (omm/keys (:backlink-map item-set)))))))))
+
 (defn gen-slow-parser [item-set symcount]
   (let [r `(fn [~(apply symbol '(^ParseState state))
                 ~@(if (> symcount 0) ['arg0] [])]
@@ -274,7 +308,10 @@
         (clojure.pprint/pprint r)
         (println "and args")
         (prn args)
-        (apply f args))
+        (let [r (apply f args)]
+          (println "Returned")
+          (println r)
+          r))
       f)))
 
 (defn cont-parser-sym [item-set argcount]
@@ -311,7 +348,10 @@
         (clojure.pprint/pprint r)
         (println "and args")
         (prn args)
-        (apply f args))
+        (let [r (apply f args)]
+          (println "Returned")
+          (println r)
+          r))
       f)))
 
 (defn item-parser-sym [^clearley.clr.ItemSet item-set initial-symbols]
