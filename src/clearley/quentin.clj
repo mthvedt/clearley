@@ -436,6 +436,9 @@
                   (gen-parser item-set [] -1)
                   `(let [ ~'v0 (.returnValue ~'state)]
                      ~(gen-parser item-set ['v0] -1)))))
+        _ (println (code-size r))
+        ; The optimal code size number, chosen by magic.
+        ; Also if the code gets big it can hit the 64k JVM limit.
         r (if (> (code-size r) 160)
             (gen-slow-parser item-set initial?)
             r)

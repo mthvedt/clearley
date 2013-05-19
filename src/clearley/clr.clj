@@ -232,28 +232,24 @@
 
 ; Removes the lookahead from any item not in filter-set
 (defn filter-items [item-set filter-set]
-  ;(println "Filtering")
-  ;(println (item-set-str item-set))
-  ;(println "with")
-  ;(runmap #(println (item-str-follow %)) filter-set)
-  (let [the-filter (fn [items]
-                     (distinct (map
-                                 (fn [item]
-                                   ; Remember, only seeds have :backlinks
-                                   (let [filter-criterion (if (:seed? item)
-                                                            (:backlink item)
-                                                            item)]
-                                     (if (filter-set filter-criterion)
-                                       (do ;(println "marked" (item-str-follow item))
-                                         item)
-                                       (unfollow item))))
-                                 items)))]
-    (let [r (update-all item-set {:seeds the-filter
-                          :more-seeds the-filter
-                          :items the-filter})]
-      ;(println "Result")
-      ;(println (item-set-str r))
-      r)))
+  (update item-set :items
+          (fn [items] (distinct (map (fn [item] (if (or (:seed? item)
+                                                        (filter-set item))
+                                                  item
+                                                  (unfollow item)))
+                                     items)))))
+
+(defn filter-seeds [item-set filter-set]
+  (let [filter-fn (fn [items]
+                    (distinct (map (fn [seed]
+                                     ; The only seed w/o backlink is the goal
+                                     (if (filter-set (:backlink seed))
+                                       seed
+                                       (unfollow seed)))
+                                   items)))]
+    (update-all item-set {:seeds filter-fn
+                          :more-seeds filter-fn
+                          :items filter-fn})))
 
 ; Removes everything from backlink map not present in rvals
 ; TODO this might be obsolete once advancer loops are fixed
@@ -288,13 +284,12 @@
     (let [child-deep-reduces (into #{} (mapcat :deep-reduces children))]
       (if (:const-reduce item-set)
         ; If we don't need lookahead for this item, kill all of it!
-        (filter-items item-set #{})
+        (filter-seeds item-set #{})
         ; Kill items and backlinks with irrelevant lookahead
         (-> item-set
-          ; TODO we can still filter non seeds.
-          ; TODO this naïve approach doesn't wokr. We need something heavyweight
+          ; TODO the naïve approach doesn't work. We need something heavyweight
           ; like the PGM or lane tracing.
-          ;(filter-items (into (:deep-reduces item-set) child-deep-reduces))
+          (filter-items (into (:deep-reduces item-set) child-deep-reduces))
           (filter-backlinks child-deep-reduces))))))
 
 ; Some key not dependent on order. Any item set with the same items is the same set
