@@ -1,7 +1,5 @@
 (ns clearley.clr
-  ; TODO eliminate npda dependency
-  (require [clearley.npda :as npda]
-           [clearley.rules :as rules]
+  (require [clearley.rules :as rules]
            [uncore.collections.worm-ordered-multimap :as omm]
            [uncore.collections.worm-ordered-set :as os]
            [uncore.str :as s])
@@ -54,7 +52,6 @@
 (defn item-str [{:keys [rule seed?] :as item}]
   (str (if seed? "" "+ ") (rules/rule-str rule)))
 
-; TODO better follow strs
 (defn item-str-follow [{follow :follow :as item}]
   (str (item-str item) (if follow (str " : " (follow-str follow)) "")))
 
@@ -296,6 +293,7 @@
         (-> item-set
           ; TODO this doesn't work... need a better aproach like lane splitting
           ; or PGM
+          ; TODO we can still filter non seeds.
           ;(filter-items (into (:deep-reduces item-set) child-deep-reduces))
           (filter-backlinks child-deep-reduces))))))
 
@@ -319,17 +317,17 @@
         (let [item-set (item-set-pass1 seeds keep-backlinks)
               ; Save item-set pass 1 in crumbs
               _ (swap! *crumbs* assoc [seeds keep-backlinks] item-set)
-              _ (if (zero? (mod (count @*crumbs*) 100))
-                  (println (count @*crumbs*) "candidate item sets examined"))
+              ;_ (if (zero? (mod (count @*crumbs*) 100))
+               ;   (println (count @*crumbs*) "candidate item sets examined"))
               shift-children (map #(build-item-set* % (:split-conflicts item-set))
                                    (concat (shifts item-set)
                                            (shift-advances item-set)))
               ; Just runmap these for now
               my-continues (runmap #(build-item-set* % (:split-conflicts item-set))
                                    (continues item-set true))
-              prev-save-count (save-count ::dedup-item-set)
               item-set (item-set-pass2 item-set shift-children)
               ; Dedup and capture the deduped value
+              prev-save-count (save-count ::dedup-item-set)
               item-set (save-or-get! ::dedup-item-set
                                      (item-set-key item-set) item-set)
               curr-save-count (save-count ::dedup-item-set)]
