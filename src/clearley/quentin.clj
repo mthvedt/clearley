@@ -174,7 +174,6 @@
 
 (defn action-sym [action] (get-or-bind action identity "action"))
 (defn scanner-sym [scanner] (get-or-bind scanner identity "scanner"))
-(defn item-sym [item] (get-or-bind item identity "item"))
 (defn obj-sym [obj] (get-or-bind obj identity "match-result"))
 
 ; === Shifts and scanning
@@ -213,22 +212,31 @@
                                        (if (= tag wanted-tag)
                                          [scanner form]))
                                      scanners)))
-        tokens (selector :token)
+        ; Scanners are handled with a cond statement, after doing tokens
         scanners (selector :scanner)
-        term (first (selector :term))] ; there can be only one
-      ; Special handling for terminus (terminus always returns, BTW)
-    ; TODO when and when not terminus?
-    `(if (not (.hasCurrent ~'state))
-       ~(if term (second term) `(fail ~'state))
-       ; TODO enable/disable
-       (case (int ~'input)
-         ; Case statement for tokens
-         ~@(mapcat (fn [[scanner form]] `(~(int scanner) ~form)) tokens)
-         ; Cond branch for scanners
-         (cond ~@(mapcat (fn [[scanner form]]
-                           `((~(scanner-sym scanner) ~'input) ~form))
-                      scanners)
-               true ~continuation)))))
+        body (if (seq scanners)
+               `(cond ~@(mapcat (fn [[scanner form]]
+                                  `((~(scanner-sym scanner) ~'input) ~form))
+                                scanners)
+                      true ~continuation)
+               continuation)
+
+        ; Tokens are handled with a case statement
+        tokens (selector :token)
+        body (if (seq tokens)
+               `(case ~'input 
+                  ~@(mapcat (fn [[scanner form]] `(~(int scanner) ~form)) tokens)
+                  ~body)
+               body)
+
+        ; Terminus handled first
+        term (first (selector :term)) ; there can be only one
+        body (if term?
+               `(if (not (.hasCurrent ~'state))
+                  ~(if term (second term) `(fail ~'state))
+                  ~body)
+               body)]
+    body))
 
 ; Requires 'input, 'state, 'advancer, and 'partial-match OR non-null 'working-syms.
 ; Returns a code snippet for handling a state after a scanner is matched.
@@ -273,6 +281,7 @@
         shift-handlers (untag handlers :shift)
         next-sym (symbol (str "v" (count working-syms)))]
 
+    ; Short-circuit if this is a trivial parser body.
     (if-let [const-reduce (:const-reduce item-set)]
       (do
         (assert (empty? shift-handlers))
@@ -282,40 +291,46 @@
         ; First, should return?
         return-handlers true
         ; OK, let's shift
-        `(let [~(apply symbol '(^ParseState state))
-               ~(gen-shift-table shift-handlers false `(fail ~'state)),
-               ~(apply symbol '(^ParseState state))
-               (~(gen-body-parser item-set) ~'state)
-               ; If monolithic, also get input and next-sym here
-               ~@(if working-syms
-                   `(~'input (.getCurrent ~'state)
-                        ~next-sym (.returnValue ~'state))
-                   ())]
-           ; Save the output if we need to
-           ~@(if working-syms
-               ()
-               `((aset ~'partial-match ~argcount (.returnValue ~'state))))
-           ; Figure out what parser to call next
-           (case (.getGoto ~'state)
-             ~@(collate-cases item-id #(advance-item-set item-set % true)
-                              (if working-syms
-                                ; If monolithc, splice in the next parser...
-                                (fn [item-set]
-                                  (gen-parser
-                                    item-set
-                                    (conj working-syms next-sym) -1))
-                                ; Othwerise, it's a funcall
-                                (fn [item-set]
-                                  `(~(cont-parser-sym item-set
-                                                      (inc argcount))
-                                       ~'state ~'partial-match)))
-                              (omm/keys (:backlink-map item-set)))))))))
+        (if (empty? shift-handlers)
+          ; Fail early if we can't shift
+          `(fail ~'state)
+          `(let [~(apply symbol '(^ParseState state))
+                 ~(gen-shift-table shift-handlers false `(fail ~'state)),
+                 ~(apply symbol '(^ParseState state))
+                 (~(gen-body-parser item-set) ~'state)
+                 ; If monolithic, also get input and next-sym here
+                 ~@(if working-syms
+                     `(~'input (.getCurrent ~'state)
+                          ~next-sym (.returnValue ~'state))
+                     ())]
+             ; Save the output if we need to
+             ~@(if working-syms
+                 ()
+                 `((aset ~'partial-match ~argcount (.returnValue ~'state))))
+             ; Figure out what parser to call next
+             (case (.getGoto ~'state)
+               ~@(collate-cases item-id #(advance-item-set item-set % true)
+                                (if working-syms
+                                  ; If monolithc, splice in the next parser...
+                                  (fn [item-set]
+                                    (gen-parser
+                                      item-set
+                                      (conj working-syms next-sym) -1))
+                                  ; Othwerise, it's a funcall
+                                  (fn [item-set]
+                                    `(~(cont-parser-sym item-set
+                                                        (inc argcount))
+                                         ~'state ~'partial-match)))
+                                (omm/keys (:backlink-map item-set))))))))))
 
 (defn gen-slow-cont-parser [item-set argcount]
   (let [r `(fn [~(apply symbol '(^ParseState state))
                 ~(apply symbol '(^objects partial-match))]
-             (let [~'input (.getCurrent ~'state)]
-               ~(gen-parser item-set nil argcount)))
+             ; Some parsers are trivial. If so, we short-circuit.
+             ~(if-let [const-reduce (:const-reduce item-set)]
+                (gen-return const-reduce nil argcount)
+                `(let [~'input (.getCurrent ~'state)]
+                  ~(gen-parser item-set nil argcount))))
         f (compile r)]
     (print-code "item-set" (item-set-str item-set) "continuing parser" r
                 "compiled to" f)
@@ -360,9 +375,15 @@
 ; Sets up all the stuff to execute gen-initial-shift
 (defn gen-parser-body [item-set initial?]
   (let [r `(fn [~(apply symbol '(^ParseState state))]
-             (let [~'input (.getCurrent ~'state)
-                   ~@(if initial? [] `(~'v0 (.returnValue ~'state)))]
-               ~(gen-parser item-set (if initial? [] ['v0]) -1)))
+             ; Some parsers are trivial. If so, we short-circuit.
+             ~(if-let [const-reduce (:const-reduce item-set)]
+                (if initial?
+                  (gen-return const-reduce [] -1)
+                  `(let [~'v0 (.returnValue ~'state)]
+                     ~(gen-return const-reduce ['v0] -1)))
+                `(let [~'input (.getCurrent ~'state)
+                       ~@(if initial? () `(~'v0 (.returnValue ~'state)))]
+                   ~(gen-parser item-set (if initial? [] ['v0]) -1))))
         r (if (> (code-size r) 64)
             (do
               ;(println "Parser too big!")

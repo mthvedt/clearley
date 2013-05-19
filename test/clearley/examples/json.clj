@@ -2,8 +2,6 @@
   (require clearley.core)
   (use clearley.match clojure.math.numeric-tower clearley.lib))
 
-(set! *unchecked-math* true)
-
 ; JSON spec:
 ; https://www.ietf.org/rfc/rfc4627.txt?number=4627
 
@@ -18,50 +16,49 @@
 ; Fourth is the string.
 ; This is a valid JSON string character. It can be any non-escaped character,
 ; except \, ", and for some reason, ASCII control characters below u001f.
+(def ^:const backslash-l (long \\))
+(def ^:const quote-l (long \"))
+
 (def char-scanner
   (scanner (fn [^long c] (and (> c 0x1f)
-                              (not (= (long \\) c)) (not (= (long \") c))))))
+                              (not (= backslash-l c)) (not (= quote-l c))))))
 
 ; Matches a unicode literal: \u007f for example
 (defmatch hex [\\ \u
               (r (rule "unicode-hex" [hex-digit hex-digit hex-digit hex-digit]
                      ; hex-char returns an int... we turn that into Unicode char
                        (fn [^long a ^long b ^long c ^long d]
-                         (+ (* 16 (+ (* 16 (+ (* 16 a) b)) c)) d))))]
-                     ;(fn [& chars] (char (reduce (num-reducer 16) chars)))))]
+                         (unchecked-add
+                           (unchecked-multiply
+                             16
+                             (unchecked-add
+                               (unchecked-multiply
+                                 16
+                                 (unchecked-add
+                                   (unchecked-multiply 16 a) b)) c)) d))))]
   r)
 
 ; A string character can be an escaped char, a hex char, or anything else.
 (defmatch string-char
-  ; TODO the below is ugly
   ([\\ (escaped-char `(:or ~(long \") ~(long \\) ~(long \/) ~(long \b) ~(long \f)
                            ~(long \n) ~(long \r) ~(long \t)))] escaped-char)
   hex char-scanner)
 
-(defn string-builder
-  ([^StringBuilder s ^long c1] (doto s
-                                 (.append (char c1))))
-  ([^StringBuilder s ^long c1 ^long c2] (doto s
-                                          (.append (char c1))
-                                          (.append (char c2))))
-  ([^StringBuilder s ^long c1 ^long c2 ^long c3] (doto s
-                                                   (.append (char c1))
-                                                   (.append (char c2))
-                                                   (.append (char c3)))))
+(defstar string-body 'string-char (fn ([] (java.lang.StringBuilder.))
+                                   ([^long c] (doto (java.lang.StringBuilder.)
+                                                (.append (unchecked-char c))))
+                                   ([^StringBuilder arr ^long c]
+                                    (.append arr (unchecked-char c)))))
 
-(def-unrolled-star string-body 'string-char
-  (fn ([] "")
-    ([& cs] (apply string-builder (java.lang.StringBuilder.) cs)))
-  string-builder)
-
-(def string (quotes string-body (fn [^Object s] (.toString s))))
+(def string (quotes string-body (fn [^StringBuilder s] (.toString s))))
 
 ; Fifth, the Number, the most complex. JSON accepts canonical integers,
 ; decimals, and scientific notation.
 (defmatch decimal
   canonical-natnum
   ([canonical-natnum \. digits-ar]
-   (+ canonical-natnum (/ (reduce (num-reducer) digits-ar)
+   ; TODO checked or unchecked?
+   (+' canonical-natnum (/ (reduce (num-reducer) digits-ar)
                           (expt 10 (count digits-ar))))))
 
 ; A mantiss uses 'natnum' because it may start with an arbitrary number of 0s.
@@ -69,17 +66,17 @@
 (defmatch mantissa
   ([\+ natnum] natnum)
   natnum
-  ([\- natnum] (- natnum)))
+  ([\- natnum] (-' natnum)))
 
 ; The exactness of JSON numbers is undefined (it's just a data exchange after all).
 ; We'll assume 100% exactness.
 (defmatch posnum
   decimal
-  ([decimal '(:or \e \E) mantissa] (* decimal (expt 10 mantissa))))
+  ([decimal '(:or \e \E) mantissa] (*' decimal (expt 10 mantissa))))
 
 (defmatch number
   posnum
-  ([\- posnum] (- posnum)))
+  ([\- posnum] (-' posnum)))
 
 ; The sixth type is the array.
 (defdelimit array-values 'value \, (fn ([x] (transient [x]))
@@ -95,9 +92,6 @@
                  (assoc! pairs string value))
   pair)
 ;(defmatch pair [whitespace string whitespace \: value] [string value])
-
-#_(defdelimit pairs 'pair \, (fn ([m] (transient (apply hash-map m)))
-                             ([m p] (conj! m p))))
 
 (def object (braces (match ([whitespace] {}) ([pairs] (persistent! pairs)))))
 

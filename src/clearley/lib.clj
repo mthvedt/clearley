@@ -67,50 +67,9 @@
   (let [name-plus (symbol (str name "-plus"))]
     `(do
        (let [action# ~action]
-         (def ~name-plus (or-rule [~subrule
+         (def ~name-plus (or-rule [(rule [~subrule] action#)
                                      (rule ['~name-plus ~subrule] action#)]))
            (def ~name (or-rule [(rule [] action#) ~name-plus]))))))
-
-(defmacro def-unrolled
-  "Helper for def-unrolled-star and def-unrolled-plus."
-  [name subrule action reducer-action zero?]
-  (let [name-1 (symbol (str name "-1"))
-        name-2 (symbol (str name "-2"))
-        name-3 (symbol (str name "-3"))
-        name-4 (symbol (str name "-4"))
-        name-plus (symbol (str name "-plus"))
-        action-sym (gensym "action")]
-    `(do
-       (let [~action-sym ~action
-             reducer# ~reducer-action]
-         (def ~name-1 (rule [~subrule] ~action-sym))
-         (def ~name-2 (rule [~subrule ~subrule] ~action-sym))
-         (def ~name-3 (rule [~subrule ~subrule ~subrule] ~action-sym))
-         ;(def ~name-4 (rule [~subrule ~subrule ~subrule ~subrule] action#))
-         (def ~name-plus (or-rule ['~name-3
-                                   (rule ['~name-plus ~subrule] reducer#)
-                                   (rule ['~name-plus ~subrule ~subrule] reducer#)
-                                   (rule ['~name-plus ~subrule ~subrule ~subrule]
-                                         reducer#)]))
-         (def ~name (or-rule [~@(if zero? `((rule [] ~action-sym)) ())
-                             '~name-1 '~name-2 '~name-3 '~name-plus]))))))
-
-(defmacro def-unrolled-star
-  "Like defstar, but unrolls the rule a few times.
-  Please only use this if you need the speed. Unrolls up to 3 times.
-  You should supply two actions: one for the base case, with arities 0, 1, 2, or 3;
-  and one with for the reducing case, with arities 2, 3, or 4. For the latter,
-  the rule is left-recursive, so the first arg will be the recursive case.
-
-  This is primarily to make the parser faster, so feel free to use rest args
-  unless you care about that last few % of performance."
-  [name subrule action reducer-action]
-  `(def-unrolled ~name ~subrule ~action ~reducer-action true))
-
-(defmacro def-unrolled-plus
-  "Like def-unrolled-star but does not match the empty rule."
-  [name subrule action reducer-action]
-  `(def-unrolled ~name ~subrule ~action ~reducer-action false))
 
 (defn opt
   "Creates a rule that matches a subrule, or nothing. The action will be passed
