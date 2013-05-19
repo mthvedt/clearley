@@ -8,7 +8,6 @@
   (import clearley.ParseState clearley.TransientParseState)
   (use clearley.clr uncore.core uncore.memo))
 ; TODO what does aot do?
-; TODO eliminate state, then have parser return results.
 ; TODO figure out locking?
 
 (def ^:dynamic *print-code* true)
@@ -102,7 +101,7 @@
                       k->ls))
                   {} vals)))
 
-(defnmem shift-advance [item-set backlink]
+(defnmem checked-shift-advance [item-set backlink]
   (when-let [r (advance-item-set item-set backlink false)]
     (when (advance-item-set item-set backlink true)
       (println "State split conflict for item set:")
@@ -124,7 +123,7 @@
    (let [rs (:deep-reduces advanced-item-set)
          r (if (= (count rs) 1) (first rs))]
      (if r
-       (if-let [advanced-2 (shift-advance item-set r)]
+       (if-let [advanced-2 (checked-shift-advance item-set r)]
          ; Inline instead of recur
          (gen-advance-handler item-set advanced-2
                               `(~(item-parser-sym advanced-2) ~form))
@@ -133,44 +132,89 @@
        ; Don't know what's happing next, have to recur
        `(recur ~form)))))
 
-; TODO we can make this smaller since we know
-; a token consuming shift only happens once
+; For an item set, determines the finite state automaton required to parse
+; that item set's body. See Aycock and Horspool's paper series
+; on faster GLR parsing.
+; TODO explode to graph library
+(defn gen-advance-graph [{backlink-map :backlink-map :as item-set}]
+  ;(println "EEEEEEEEE")
+  (let [s (shifts item-set)
+        s-sets (map #(pep-item-set % (:split-conflicts item-set)) s)
+        entries (mapcat :deep-reduces s-sets)
+        [fgraph bgraph]
+        (loop [fgraph {} bgraph {} queue s-sets breadcrumbs #{}]
+          (if-let [node (first queue)]
+            (do
+            ;(println (item-set-str node))
+            (if (breadcrumbs (item-set-key node))
+              (recur fgraph bgraph (rest queue) breadcrumbs)
+              (let [edges (:deep-reduces node)
+                    new-nodes (map
+                                (fn [edge]
+                                  (if-let [r (checked-shift-advance item-set edge)]
+                                    r
+                                    :return))
+                                edges)]
+                ;(println "FFFFFFF")
+                ;(map (fn-> item-str-follow println) edges)
+                ;(map (fn-> item-set-str println) new-nodes)
+                (recur (assoc fgraph node edges)
+                       (reduce (fn [m [k v]] (assoc m k v)) 
+                               fgraph (zipmap edges new-nodes))
+                       (concat (rest queue) new-nodes)
+                       (conj breadcrumbs (item-set-key node))))))
+            [fgraph bgraph]))]
+    ; A labeled directional graph. The nodes are parser syms and edges are
+    ; return items. Entries are the entry edges. :return means we return that edge.
+    [(into #{} entries) fgraph bgraph]))
+
 ; For an item set, builds the 'continuing table' which handles all steps after
 ; the first initial shift. Implemented as a loop/recur with a case branch.
 ; The branch table matches all possible advances (advancing shifts, continues)
 ; to the appropriate branch. The appropriate branch either recurs (advancing shift)
 ; or calls the next item set (continue).
-(defn gen-advance-loop [{backlink-map :backlink-map :as item-set}]
-  `(loop [~'state ~'state]
-     (case (.getGoto ~(apply symbol '(^ParseState state)))
-       ~@(collate-cases item-id #(shift-advance item-set %)
-                        #(gen-advance-handler item-set %)
-                        (omm/keys backlink-map))
-       ~'state))) ; Return and let parent item-set-parser pick it up
-
-; Creates an advancer fn. Takes in a parse state and an array partial match.
-(defn advance-looper [item-set]
-  (let [r `(fn [~(apply symbol '(^ParseState state))]
-             ~(gen-advance-loop item-set))
-        _ (print-code "advancer" (item-set-str item-set) "with-code" r)
-        f (compile r)]
-    (print-code "compiled to" f)
-    (if *parse-trace*
-      (fn [& args]
-        (println "Calling advancer" f)
-        (print (item-set-str item-set))
-        (println "with code")
-        (clojure.pprint/pprint r)
-        (println "and args")
-        (clojure.pprint/pprint args)
-        (let [r (apply f args)]
-          (println f "returned")
-          (println r)
-          r))
-      f)))
-
-(defn gen-body-parser [item-set]
-  (lookup-thunk item-set #(advance-looper item-set) "advancer" `ParseState))
+(defn gen-body-parser [{backlink-map :backlink-map :as item-set}]
+  (let [[entries fgraph bgraph] (gen-advance-graph item-set)
+        ; Our simple implementation just recurs whenever the graph bifurcates.
+        ; This gets all teh recur points.
+        entries (reduce into entries (for [[_ v] fgraph :when (> (count v) 1)] v))
+        cases (collate-cases item-id #(checked-shift-advance item-set %)
+                             #(gen-advance-handler item-set %)
+                             entries)]
+    (if (seq cases)
+      (let [thunk
+            (fn []
+              ;(println "+=+=+=+=+")
+              ;(runmap #(println (item-str-follow %)) entries)
+              ;(prn (map item-id entries))
+              ;(prn (into {} (map (fn [[k v]] [k (map item-id v)]) fgraph)))
+              ;(prn (map item-id (vals bgraph)))
+              (let [r `(fn [~(apply symbol '(^ParseState state))]
+                         (loop [~'state ~'state]
+                           (case (.getGoto ~(apply symbol '(^ParseState state)))
+                             ~@cases
+                             ; Return and let parent item-set-parser pick it up
+                             ~'state)))
+                    _ (print-code "advancer" (item-set-str item-set) "with-code" r)
+                    f (compile r)]
+                (print-code "compiled to" f)
+                (if *parse-trace*
+                  (fn [& args]
+                    (println "Calling advancer" f)
+                    (print (item-set-str item-set))
+                    (println "with code")
+                    (clojure.pprint/pprint r)
+                    (println "and args")
+                    (clojure.pprint/pprint args)
+                    (let [r (apply f args)]
+                      (println f "returned")
+                      (println r)
+                      r))
+                  f)))]
+        (lookup-thunk item-set thunk "advancer" `ParseState))
+      (do 
+        (print-code "No advancer for" (item-set-str item-set))
+        nil))))
 
 (defn action-sym [action] (get-or-bind action identity "action"))
 (defn scanner-sym [scanner] (get-or-bind scanner identity "scanner"))
@@ -214,18 +258,26 @@
                                      scanners)))
         ; Scanners are handled with a cond statement, after doing tokens
         scanners (selector :scanner)
-        body (if (seq scanners)
-               `(cond ~@(mapcat (fn [[scanner form]]
+        body (let [test-pairs
+                   (seq (mapcat (fn [[scanner form]]
                                   `((~(scanner-sym scanner) ~'input) ~form))
-                                scanners)
-                      true ~continuation)
-               continuation)
+                                  scanners))]
+               (case (count test-pairs)
+                 0 continuation
+                 2 `(if ~(first test-pairs) ~(second test-pairs) ~continuation)
+                 `(cond ~@test-pairs true ~continuation)))
 
         ; Tokens are handled with a case statement
         tokens (selector :token)
         body (if (seq tokens)
                `(case ~'input 
                   ~@(mapcat (fn [[scanner form]] `(~(int scanner) ~form)) tokens)
+                  ~body)
+               body)
+
+        ; Get input if we need
+        body (if (or (seq tokens) (seq scanners))
+               `(let [~'input (.getCurrent ~'state)]
                   ~body)
                body)
 
@@ -273,13 +325,25 @@
 ; Generates the parser fn for an item set. Can be monolithic or split
 ; into continuing parsers. If monolithic, will have working-syms defined.
 ; If split, will have argcount > 0.
-; TODO collate continuing cases
 (defn gen-parser [item-set working-syms argcount]
   (let [handlers (map #(gen-scanner-handler % item-set working-syms argcount)
                       (all-scanners item-set))
         return-handlers (untag handlers :reduce)
         shift-handlers (untag handlers :shift)
-        next-sym (symbol (str "v" (count working-syms)))]
+        next-sym (symbol (str "v" (count working-syms)))
+        next-cases (collate-cases item-id #(advance-item-set item-set % true)
+                                  (if working-syms
+                                    ; If monolithc, splice in the next parser...
+                                    (fn [item-set]
+                                      (gen-parser
+                                        item-set
+                                        (conj working-syms next-sym) -1))
+                                    ; Othwerise, it's a funcall
+                                    (fn [item-set]
+                                      `(~(cont-parser-sym item-set
+                                                          (inc argcount))
+                                           ~'state ~'partial-match)))
+                                  (omm/keys (:backlink-map item-set)))]
 
     ; Short-circuit if this is a trivial parser body.
     (if-let [const-reduce (:const-reduce item-set)]
@@ -296,32 +360,21 @@
           `(fail ~'state)
           `(let [~(apply symbol '(^ParseState state))
                  ~(gen-shift-table shift-handlers false `(fail ~'state)),
-                 ~(apply symbol '(^ParseState state))
-                 (~(gen-body-parser item-set) ~'state)
-                 ; If monolithic, also get input and next-sym here
+                 ; Splice in a body parser if we need
+                 ~@(if-let [body-parser (gen-body-parser item-set)]
+                     `(~(apply symbol '(^ParseState state))
+                          (~body-parser ~'state)))
+                 ; If monolithic, also get next-sym here
                  ~@(if working-syms
-                     `(~'input (.getCurrent ~'state)
-                          ~next-sym (.returnValue ~'state))
-                     ())]
-             ; Save the output if we need to
-             ~@(if working-syms
-                 ()
+                     `(~next-sym (.returnValue ~'state)))]
+             ; Save the output if we need
+             ~@(if-not working-syms
                  `((aset ~'partial-match ~argcount (.returnValue ~'state))))
              ; Figure out what parser to call next
-             (case (.getGoto ~'state)
-               ~@(collate-cases item-id #(advance-item-set item-set % true)
-                                (if working-syms
-                                  ; If monolithc, splice in the next parser...
-                                  (fn [item-set]
-                                    (gen-parser
-                                      item-set
-                                      (conj working-syms next-sym) -1))
-                                  ; Othwerise, it's a funcall
-                                  (fn [item-set]
-                                    `(~(cont-parser-sym item-set
-                                                        (inc argcount))
-                                         ~'state ~'partial-match)))
-                                (omm/keys (:backlink-map item-set))))))))))
+             ~@(case (count next-cases)
+                 2 (list (second next-cases)) ; just put in the next case
+                 ; default: splice in all cases
+                 `((case (.getGoto ~'state) ~@next-cases)))))))))
 
 (defn gen-slow-cont-parser [item-set argcount]
   (let [r `(fn [~(apply symbol '(^ParseState state))
@@ -329,8 +382,7 @@
              ; Some parsers are trivial. If so, we short-circuit.
              ~(if-let [const-reduce (:const-reduce item-set)]
                 (gen-return const-reduce nil argcount)
-                `(let [~'input (.getCurrent ~'state)]
-                  ~(gen-parser item-set nil argcount))))
+                (gen-parser item-set nil argcount)))
         f (compile r)]
     (print-code "item-set" (item-set-str item-set) "continuing parser" r
                 "compiled to" f)
@@ -358,7 +410,6 @@
 (defn gen-slow-parser [item-set initial?]
   (let [r `(fn [~(apply symbol '(^ParseState state))]
              (let [~'partial-match (object-array ~(item-set-size item-set))
-                   ~'input (.getCurrent ~'state)
                    ~@(if initial? [] `(~'arg0 (.returnValue ~'state)))]
                ~(if initial?
                   (gen-parser item-set nil 0)
@@ -381,13 +432,12 @@
                   (gen-return const-reduce [] -1)
                   `(let [~'v0 (.returnValue ~'state)]
                      ~(gen-return const-reduce ['v0] -1)))
-                `(let [~'input (.getCurrent ~'state)
-                       ~@(if initial? () `(~'v0 (.returnValue ~'state)))]
-                   ~(gen-parser item-set (if initial? [] ['v0]) -1))))
-        r (if (> (code-size r) 64)
-            (do
-              ;(println "Parser too big!")
-              (gen-slow-parser item-set initial?))
+                (if initial?
+                  (gen-parser item-set [] -1)
+                  `(let [ ~'v0 (.returnValue ~'state)]
+                     ~(gen-parser item-set ['v0] -1)))))
+        r (if (> (code-size r) 160)
+            (gen-slow-parser item-set initial?)
             r)
         f (compile r)]
     (print-code "item-set" (item-set-str item-set) "parser" r "compiled to" f)

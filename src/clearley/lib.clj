@@ -122,8 +122,7 @@
   ([char-start num-start]
    (let [char-start (long char-start)
          num-start (long num-start)]
-     (binding [*unchecked-math* true]
-       (fn [^long c] (+ num-start (- c char-start)))))))
+     (fn [^long c] (unchecked-add num-start (unchecked-subtract c char-start))))))
 
 (def ^{:doc "A rule that matches an input digit, and returns a number for it."}
   digit (char-range \0 \9 (char-to-num)))
@@ -141,17 +140,8 @@
         ~(char-range \a \f (char-to-num \a 10))
         ~(char-range \A \F (char-to-num \A 10))))
 
-#_(defn make-num
-  "Turns a bunch of digits into a number.
-  An optional radix can be supplied (default 10).
-  Useful for plugging into parse actions."
-  ([digits] (make-num digits 10))
-  ([digits radix]
-   (reduce #(+ (* radix %) %2) 0 digits)))
-
 (defn num-reducer
   ; TODO better doc
-  ; TODO codox linking source?
   "Creates a (0,1,2)-ary num reducer useful in plus/star rules."
   ([] (num-reducer 10))
   ([radix] (fn ([] 0)

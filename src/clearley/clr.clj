@@ -291,9 +291,9 @@
         (filter-items item-set #{})
         ; Kill items and backlinks with irrelevant lookahead
         (-> item-set
-          ; TODO this doesn't work... need a better aproach like lane splitting
-          ; or PGM
           ; TODO we can still filter non seeds.
+          ; TODO this naïve approach doesn't wokr. We need something heavyweight
+          ; like the PGM or lane tracing.
           ;(filter-items (into (:deep-reduces item-set) child-deep-reduces))
           (filter-backlinks child-deep-reduces))))))
 
@@ -322,7 +322,7 @@
               shift-children (map #(build-item-set* % (:split-conflicts item-set))
                                    (concat (shifts item-set)
                                            (shift-advances item-set)))
-              ; Just runmap these for now
+              ; TODO do we even need to?
               my-continues (runmap #(build-item-set* % (:split-conflicts item-set))
                                    (continues item-set true))
               item-set (item-set-pass2 item-set shift-children)
