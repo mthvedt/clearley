@@ -181,11 +181,6 @@
 (defnmem reduce-reduce? [item-set]
   (> (count (reduce-rules item-set)) 1))
 
-; Returns a const-reduce with follow if it exists
-#_(defnmem const-reduce-follow [item-set]
-  (if (and (:const-reduce item-set) (= (count (raw-reduces item-set)) 1))
-    (first (raw-reduces item-set))))
-
 ; All possible reduces for this item-set, or the single reduce (in a seq)
 (defnmem reduces [item-set]
   (if-let [r (:const-reduce item-set)]
@@ -240,16 +235,28 @@
 
 ; Removes the lookahead from any item not in filter-set
 (defn filter-items [item-set filter-set]
+  ;(println "Filtering")
+  ;(println (item-set-str item-set))
+  ;(println "with")
+  ;(runmap #(println (item-str-follow %)) filter-set)
   (let [the-filter (fn [items]
                      (distinct (map
                                  (fn [item]
-                                   (if (filter-set item)
-                                     (do (println "marked") item)
-                                     (unfollow item)))
+                                   ; Remember, only seeds have :backlinks
+                                   (let [filter-criterion (if (:seed? item)
+                                                            (:backlink item)
+                                                            item)]
+                                     (if (filter-set filter-criterion)
+                                       (do ;(println "marked" (item-str-follow item))
+                                         item)
+                                       (unfollow item))))
                                  items)))]
-    (update-all item-set {:seeds the-filter
+    (let [r (update-all item-set {:seeds the-filter
                           :more-seeds the-filter
-                          :items the-filter})))
+                          :items the-filter})]
+      ;(println "Result")
+      ;(println (item-set-str r))
+      r)))
 
 ; Removes everything from backlink map not present in rvals
 ; TODO this might be obsolete once advancer loops are fixed
@@ -285,7 +292,12 @@
       (if (:const-reduce item-set)
         ; If we don't need lookahead for this item, kill all of it!
         (filter-items item-set #{})
-        (filter-backlinks item-set child-deep-reduces)))))
+        ; Kill items and backlinks with irrelevant lookahead
+        (-> item-set
+          ; TODO this doesn't work... need a better aproach like lane splitting
+          ; or PGM
+          ;(filter-items (into (:deep-reduces item-set) child-deep-reduces))
+          (filter-backlinks child-deep-reduces))))))
 
 ; Some key not dependent on order. Any item set with the same items is the same set
 (defnmem item-set-key [item-set] [(into #{} (:items item-set))
