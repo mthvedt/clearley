@@ -44,7 +44,7 @@
                            ~(long \n) ~(long \r) ~(long \t)))] escaped-char)
   hex char-scanner)
 
-(defstar string-body 'string-char (fn ([] (java.lang.StringBuilder.))
+(defstar string-body `string-char (fn ([] (java.lang.StringBuilder.))
                                    ([^long c] (doto (java.lang.StringBuilder.)
                                                 (.append (unchecked-char c))))
                                    ([^StringBuilder arr ^long c]
@@ -79,7 +79,7 @@
   ([\- posnum] (-' posnum)))
 
 ; The sixth type is the array.
-(defdelimit array-values 'value \, (fn ([x] (transient [x]))
+(defdelimit array-values `value \, (fn ([x] (transient [x]))
                                     ([arr y] (conj! arr y))))
 
 (def array (brackets (match ([whitespace] []) ([array-values]

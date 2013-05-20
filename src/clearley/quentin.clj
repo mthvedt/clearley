@@ -87,6 +87,46 @@
 
 (defn fail [^ParseState stream] (t/RE "Failure to parse at position: " (.pos stream)))
 
+; === Main protocols
+
+(defprotocol QuentinStream
+  (pos [self])
+  (line [self])
+  (col [self]))
+
+; until Clojure
+(defprotocol TransientIntStream
+  (shift! ^long [self]))
+
+; PersistentIntStream--fill in later
+
+; parser bodies: {:tag, :name, :args, :body}
+(defn interface-body [{:keys [tag name args]}]
+  (if tag
+    `(~name ~(with-meta (vec args) {:tag tag}))
+    `(~name (vec args))))
+
+(defn impl-body [{:keys [name args body]}]
+  `(~name ~(vec args) ~@body))
+
+(defn gen-transient-parser [input-tag stream-tag parser-bodies]
+  ; We need a protocol and an implementing deftype. This is the only facility
+  ; in Clojure that generates Java classes at 100% native speed--gen-class won't
+  ; cut it.
+  (let [protocol-sym 'Parser
+        parser-sym 'ParserImpl
+        interface-bodies [] ; TODO
+        impl-bodies[]]
+  `(do
+     (defprotocol ~protocol-sym ~@interface-bodies)
+     (deftype ~parser-sym [^int ^:unsynchronized-mutable goto
+                           ~(with-meta 'stream {:tag stream-tag
+                                                :unsynchronized-mutable true})
+                           ~(with-meta 'input {:tag input-tag
+                                               :unsynchronized-mutable true})]
+       ~protocol-sym
+       ~@impl-bodies))))
+
 ; === Advance loops ===
 
 ; Creates an interleaved seq of case-num, body pairs for splicing into a case.
@@ -136,6 +176,7 @@
 ; that item set's body. See Aycock and Horspool's paper series
 ; on faster GLR parsing.
 ; TODO explode to graph library
+; TODO we can probably use backlink-map.
 (defn gen-advance-graph [{backlink-map :backlink-map :as item-set}]
   ;(println "EEEEEEEEE")
   (let [s (shifts item-set)
@@ -485,6 +526,7 @@
     (try
       (binding [*myns* myns]
         (.returnValue
+          ^ParseState
           (@(ns-resolve *myns*
                         (item-parser-sym (pep-item-set [(goal-item goal grammar)] #{})
                                          true))

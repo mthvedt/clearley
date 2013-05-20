@@ -1,6 +1,7 @@
 (ns clearley.lib
   "More fns and macros for context-free grammars."
-  (require [uncore.throw :as t])
+  (require [uncore.throw :as t]
+           backtick)
   (use clearley.match))
 
 (defrulefn token
@@ -49,7 +50,8 @@
   [name subrule action]
   `(let [action# ~action]
      (def ~name (or-rule [(rule [~subrule] action#)
-                          (rule ['~name ~subrule] action#)]))))
+                          (rule [(backtick/resolve-symbol '~name) ~subrule]
+                                action#)]))))
 
 (defmacro defstar
   "Creates a rule that matches zero or more of a given rule. Because
@@ -68,8 +70,10 @@
     `(do
        (let [action# ~action]
          (def ~name-plus (or-rule [(rule [~subrule] action#)
-                                     (rule ['~name-plus ~subrule] action#)]))
-           (def ~name (or-rule [(rule [] action#) ~name-plus]))))))
+                                     (rule [(backtick/resolve-symbol '~name-plus)
+                                            ~subrule] action#)]))
+           (def ~name (or-rule [(rule [] action#)
+                                (backtick/resolve-symbol '~name-plus)]))))))
 
 (defn opt
   "Creates a rule that matches a subrule, or nothing. The action will be passed
@@ -111,7 +115,7 @@
   [name a-rule delimiter action]
   `(let [delimited_action# ~action]
      (def ~name (or-rule [(rule [~a-rule] delimited_action#)
-                          (rule ['~name ~delimiter ~a-rule]
+                          (rule [(backtick/resolve-symbol '~name) ~delimiter ~a-rule]
                                 (fn [a# ~'_ b#] (delimited_action# a# b#)))]))))
 
 (defn char-to-num

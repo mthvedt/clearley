@@ -69,6 +69,7 @@
              (fn [~@(map first processed-clauses)] ~@body)))
     (t/IAE "Match clauses must be a vector")))
 
+; TODO: why split match-one and multi match?
 (defn- build-multi-match [form]
   (cond (list? form) (let [[f1 & rest] form]
                        (cond (vector? f1) `(match-one ~@form)
