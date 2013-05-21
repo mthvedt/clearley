@@ -8,14 +8,13 @@ package clearley;
  * To change this template use File | Settings | File Templates.
  */
 public interface ParseState {
-	ParseState shift(Object o);
-	ParseState reduce(int theGoto, Object returnValue);
+	ParseState shift();
+	ParseState reduce(int theGoto);
 	int pos();
 	public int getGoto();
 	public ParseState setGoto(int theGoto);
-	public Object returnValue();
-	public long getCurrent();
-//	public Object getCurrent();
-//	public Object hasCurrent();    // returns truthy or falsey
-	public boolean hasCurrent();
+//	public Object returnValue();
+	public long currentInput();
+//	public Object hasInput();    // returns truthy or falsey
+	public boolean hasInput();
 }

@@ -10,7 +10,7 @@
 ; TODO what does aot do?
 ; TODO figure out locking?
 
-(def ^:dynamic *print-code* true)
+(def ^:dynamic *print-code* false)
 (defn print-code [& vals]
   (binding [*print-meta* true]
     (if *print-code* (runmap
@@ -40,8 +40,7 @@
         (clojure.pprint/pprint f))
       (throw e))))
 
-;(defn parse-stream [input] (TransientParseState. (seq input)))
-;For now assume input is a string
+; For now assume input is a string
 (defn parse-stream [input] (TransientParseState. input))
 
 (declare continue-parsing item-parser-sym cont-parser-sym embed-parser-with-lookahead)
@@ -87,46 +86,6 @@
 
 (defn fail [^ParseState stream] (t/RE "Failure to parse at position: " (.pos stream)))
 
-; === Main protocols
-
-(defprotocol QuentinStream
-  (pos [self])
-  (line [self])
-  (col [self]))
-
-; until Clojure
-(defprotocol TransientIntStream
-  (shift! ^long [self]))
-
-; PersistentIntStream--fill in later
-
-; parser bodies: {:tag, :name, :args, :body}
-(defn interface-body [{:keys [tag name args]}]
-  (if tag
-    `(~name ~(with-meta (vec args) {:tag tag}))
-    `(~name (vec args))))
-
-(defn impl-body [{:keys [name args body]}]
-  `(~name ~(vec args) ~@body))
-
-(defn gen-transient-parser [input-tag stream-tag parser-bodies]
-  ; We need a protocol and an implementing deftype. This is the only facility
-  ; in Clojure that generates Java classes at 100% native speed--gen-class won't
-  ; cut it.
-  (let [protocol-sym 'Parser
-        parser-sym 'ParserImpl
-        interface-bodies [] ; TODO
-        impl-bodies[]]
-  `(do
-     (defprotocol ~protocol-sym ~@interface-bodies)
-     (deftype ~parser-sym [^int ^:unsynchronized-mutable goto
-                           ~(with-meta 'stream {:tag stream-tag
-                                                :unsynchronized-mutable true})
-                           ~(with-meta 'input {:tag input-tag
-                                               :unsynchronized-mutable true})]
-       ~protocol-sym
-       ~@impl-bodies))))
-
 ; === Advance loops ===
 
 ; Creates an interleaved seq of case-num, body pairs for splicing into a case.
@@ -151,13 +110,14 @@
       (assert ((:split-conflicts item-set) backlink)))
     r))
 
-; Anaphoric, needs a ~'result and a wrapping loop/recur and a ~'state
+; Anaphoric, needs a ~'result and a wrapping loop/recur and a ~'state and ~'nextVal
 ; For a backlink, calls the item-parser represented by that advance,
 ; and either looks up and recurs to a main branch, or calls the continuance.
 (defn gen-advance-handler
   ([item-set advanced-item-set]
    (gen-advance-handler item-set advanced-item-set
-                        `(~(item-parser-sym advanced-item-set) ~'state)))
+                        `(~(item-parser-sym advanced-item-set false false)
+                             ~'state ~'next-val)))
   ([item-set advanced-item-set form]
    ; If we know what case comes next, we can inline it.
    (let [rs (:deep-reduces advanced-item-set)
@@ -166,7 +126,8 @@
        (if-let [advanced-2 (checked-shift-advance item-set r)]
          ; Inline instead of recur
          (gen-advance-handler item-set advanced-2
-                              `(~(item-parser-sym advanced-2) ~form))
+                              `(~(item-parser-sym advanced-2 false false)
+                                   ~'state ~form))
          ; Return directly
          form)
        ; Don't know what's happing next, have to recur
@@ -176,9 +137,8 @@
 ; that item set's body. See Aycock and Horspool's paper series
 ; on faster GLR parsing.
 ; TODO explode to graph library
-; TODO we can probably use backlink-map.
+; TODO we can probably use backlink-map instead of all this item set nonsense.
 (defn gen-advance-graph [{backlink-map :backlink-map :as item-set}]
-  ;(println "EEEEEEEEE")
   (let [s (shifts item-set)
         s-sets (map #(pep-item-set % (:split-conflicts item-set)) s)
         entries (mapcat :deep-reduces s-sets)
@@ -186,7 +146,6 @@
         (loop [fgraph {} bgraph {} queue s-sets breadcrumbs #{}]
           (if-let [node (first queue)]
             (do
-            ;(println (item-set-str node))
             (if (breadcrumbs (item-set-key node))
               (recur fgraph bgraph (rest queue) breadcrumbs)
               (let [edges (:deep-reduces node)
@@ -196,12 +155,8 @@
                                     r
                                     :return))
                                 edges)]
-                ;(println "FFFFFFF")
-                ;(map (fn-> item-str-follow println) edges)
-                ;(map (fn-> item-set-str println) new-nodes)
                 (recur (assoc fgraph node edges)
-                       (reduce (fn [m [k v]] (assoc m k v)) 
-                               fgraph (zipmap edges new-nodes))
+                       (merge fgraph (zipmap edges new-nodes))
                        (concat (rest queue) new-nodes)
                        (conj breadcrumbs (item-set-key node))))))
             [fgraph bgraph]))]
@@ -209,15 +164,12 @@
     ; return items. Entries are the entry edges. :return means we return that edge.
     [(into #{} entries) fgraph bgraph]))
 
-; For an item set, builds the 'continuing table' which handles all steps after
-; the first initial shift. Implemented as a loop/recur with a case branch.
-; The branch table matches all possible advances (advancing shifts, continues)
-; to the appropriate branch. The appropriate branch either recurs (advancing shift)
-; or calls the next item set (continue).
-(defn gen-body-parser [{backlink-map :backlink-map :as item-set}]
+; Generates the automaton that handles the body (non-seed items) of a parse state.
+; When the automaton is done, it returns a value that can be used to advance seed items.
+(defn gen-body-automaton [{backlink-map :backlink-map :as item-set}]
   (let [[entries fgraph bgraph] (gen-advance-graph item-set)
         ; Our simple implementation just recurs whenever the graph bifurcates.
-        ; This gets all teh recur points.
+        ; Here, we get all the recur points.
         entries (reduce into entries (for [[_ v] fgraph :when (> (count v) 1)] v))
         cases (collate-cases item-id #(checked-shift-advance item-set %)
                              #(gen-advance-handler item-set %)
@@ -225,18 +177,13 @@
     (if (seq cases)
       (let [thunk
             (fn []
-              ;(println "+=+=+=+=+")
-              ;(runmap #(println (item-str-follow %)) entries)
-              ;(prn (map item-id entries))
-              ;(prn (into {} (map (fn [[k v]] [k (map item-id v)]) fgraph)))
-              ;(prn (map item-id (vals bgraph)))
-              (let [r `(fn [~(apply symbol '(^ParseState state))]
-                         (loop [~'state ~'state]
+              (let [r `(fn [~'state ~'next-val]
+                         (loop [~'next-val ~'next-val]
                            (case (.getGoto ~(apply symbol '(^ParseState state)))
                              ~@cases
                              ; Return and let parent item-set-parser pick it up
-                             ~'state)))
-                    _ (print-code "advancer" (item-set-str item-set) "with-code" r)
+                             ~'next-val)))
+                    _ (print-code "advancer" (item-set-str item-set) "with code" r)
                     f (compile r)]
                 (print-code "compiled to" f)
                 (if *parse-trace*
@@ -281,10 +228,10 @@
 (defn gen-return [item working-syms arg-count]
   (let [backlink-id (-> item :backlink item-id)
         action-operands (if working-syms working-syms 
-                          (map (fn [i] `(aget ~'partial-match ~i)) (range arg-count)))
-        hidden? (:hidden? item)]
-    `(.reduce ~'state ~backlink-id ~(if hidden? nil
-                                      (apply-args (:rule item) action-operands)))))
+                          (map (fn [i] `(aget ~'partial-match ~i)) (range arg-count)))]
+    `(do
+       (.reduce ~'state ~backlink-id)
+       ~(apply-args (:rule item) action-operands))))
 
 (defn filter-keys [m f]
   (apply hash-map (mapcat (fn [[k v]] (if (f k) [k v] [])) m)))
@@ -318,14 +265,14 @@
 
         ; Get input if we need
         body (if (or (seq tokens) (seq scanners))
-               `(let [~'input (.getCurrent ~'state)]
+               `(let [~'input (.currentInput ~'state)]
                   ~body)
                body)
 
         ; Terminus handled first
         term (first (selector :term)) ; there can be only one
         body (if term?
-               `(if (not (.hasCurrent ~'state))
+               `(if (not (.hasInput ~'state))
                   ~(if term (second term) `(fail ~'state))
                   ~body)
                body)]
@@ -337,7 +284,6 @@
 (defn gen-scanner-handler [scanner item-set working-syms arg-count]
   (let [shift (omm/get-vec (shift-map item-set) scanner)
         return (omm/get-vec (reduce-map item-set) scanner)
-        ; TODO enable/disable
         scanner (if (char? scanner) (long scanner) scanner)]
    (if (and (> (count return) 1) (not (:const-reduce item-set)))
       (do
@@ -352,8 +298,8 @@
             (println "Shift-reduce conflict in item set\n" (item-set-str item-set))))
         [:shift [scanner
                  `(~(item-parser-sym
-                      (pep-item-set shift (:split-conflicts item-set)))
-                      (.shift ~'state ~'input))]])
+                      (pep-item-set shift (:split-conflicts item-set)) false true)
+                      ~'state)]])
       ; ignore reduce-reduce for now
       (if (seq return)
         [:reduce [scanner (gen-return (first return) working-syms arg-count)]]
@@ -399,20 +345,24 @@
         (if (empty? shift-handlers)
           ; Fail early if we can't shift
           `(fail ~'state)
-          `(let [~(apply symbol '(^ParseState state))
+          `(let [~'rval
+                 ;~(apply symbol '(^ParseState state))
                  ~(gen-shift-table shift-handlers false `(fail ~'state)),
                  ; Splice in a body parser if we need
-                 ~@(if-let [body-parser (gen-body-parser item-set)]
-                     `(~(apply symbol '(^ParseState state))
-                          (~body-parser ~'state)))
+                 ~@(if-let [automaton (gen-body-automaton item-set)]
+                     `(~'rval
+                     ;`(~(apply symbol '(^ParseState state))
+                          (~automaton ~'state ~'rval)))
                  ; If monolithic, also get next-sym here
+                 ; TODO next sym is broken
                  ~@(if working-syms
-                     `(~next-sym (.returnValue ~'state)))]
+                     `(~next-sym ~'rval))]
              ; Save the output if we need
              ~@(if-not working-syms
-                 `((aset ~'partial-match ~argcount (.returnValue ~'state))))
+                 `((aset ~'partial-match ~argcount ~'rval)))
              ; Figure out what parser to call next
              ~@(case (count next-cases)
+                 ; TODO 0 case?
                  2 (list (second next-cases)) ; just put in the next case
                  ; default: splice in all cases
                  `((case (.getGoto ~'state) ~@next-cases)))))))))
@@ -448,49 +398,52 @@
                   (gen-slow-cont-parser item-set argcount))
                 "continuing-item-parser" `ParseState))
 
-(defn gen-slow-parser [item-set initial?]
-  (let [r `(fn [~(apply symbol '(^ParseState state))]
-             (let [~'partial-match (object-array ~(item-set-size item-set))
-                   ~@(if initial? [] `(~'arg0 (.returnValue ~'state)))]
+(defn gen-slow-parser [item-set initial? shift? #_tag]
+  (let [r `(fn [~(apply symbol '(^ParseState state))
+                ~@(when-not (or initial? shift?)
+                    `(~'arg0))]
+             (let [~'partial-match (object-array ~(item-set-size item-set))]
                ~(if initial?
                   (gen-parser item-set nil 0)
-                  `(do (aset ~'partial-match 0 ~'arg0)
+                  `(do 
+                     (aset ~'partial-match 0 ~(if shift?
+                                                `(.currentInput ~'state) 'arg0))
+                     ~@(if shift? `((.shift ~'state)))
                      ~(gen-parser item-set nil 1)))))]
     r))
 
-; TODO find a better way.
 (defn code-size [l]
   (if (coll? l)
     (reduce + 0 (map code-size l))
     1))
 
-; Sets up all the stuff to execute gen-initial-shift
-(defn gen-parser-body [item-set initial?]
-  (let [r `(fn [~(apply symbol '(^ParseState state))]
-             ; Some parsers are trivial. If so, we short-circuit.
-             ~(if-let [const-reduce (:const-reduce item-set)]
-                (if initial?
-                  (gen-return const-reduce [] -1)
-                  `(let [~'v0 (.returnValue ~'state)]
-                     ~(gen-return const-reduce ['v0] -1)))
-                (if initial?
-                  (gen-parser item-set [] -1)
-                  `(let [ ~'v0 (.returnValue ~'state)]
-                     ~(gen-parser item-set ['v0] -1)))))
-        _ (println (code-size r))
+(defn gen-parser-body [item-set initial? shift? #_tag]
+  (let [initial-arglist (if (or initial? shift?) [] ['v0])
+        body (if-let [const-reduce (:const-reduce item-set)]
+               ; Some parsers are trivial. If so, we short-circuit.
+               (if shift?
+                 `(let [~'v0 (.currentInput ~'state)]
+                    (.shift ~'state)
+                    ~(gen-return const-reduce ['v0] -1))
+                 (gen-return const-reduce initial-arglist -1))
+               (gen-parser item-set initial-arglist -1))
         ; The optimal code size number, chosen by magic.
         ; Also if the code gets big it can hit the 64k JVM limit.
-        r (if (> (code-size r) 160)
-            (gen-slow-parser item-set initial?)
-            r)
-        f (compile r)]
-    (print-code "item-set" (item-set-str item-set) "parser" r "compiled to" f)
+        body (if (> (code-size body) 160)
+               (gen-slow-parser item-set initial? shift?)
+               `(fn [~(apply symbol '(^ParseState state))
+                     ~@(when-not (or shift? initial?)
+                         initial-arglist)]
+                  ~body))
+        f (compile body)]
+    (print-code "item-set" (item-set-str item-set) "parser" body "compiled to" f)
+    ; TODO refactor the below
     (if *parse-trace*
       (fn [& args]
         (println "Parsing item set")
         (print (item-set-str item-set))
         (println "with code")
-        (clojure.pprint/pprint r)
+        (clojure.pprint/pprint body)
         (println "and args")
         (clojure.pprint/pprint args)
         (let [r (apply f args)]
@@ -500,14 +453,13 @@
       f)))
 
 (defn item-parser-sym
-  ([item-set] (item-parser-sym item-set false))
-  ([item-set initial?]
-   (when item-set
-     (lookup-thunk [(item-set-key item-set) initial?]
-                   (fn []
-                     (print-compile "Compiling item parser...")
-                     (gen-parser-body item-set initial?)) "item-parser"
-                   `ParseState))))
+  [item-set initial? shift?]
+  (when item-set
+    (lookup-thunk [(item-set-key item-set) initial? shift?]
+                  (fn []
+                    (print-compile "Compiling item parser...")
+                    (gen-parser-body item-set initial? shift?)) "item-parser"
+                  `ParseState)))
 
 (defn new-ns []
   (let [sym (gensym "quentin")
@@ -525,11 +477,9 @@
   (with-memoizer mem
     (try
       (binding [*myns* myns]
-        (.returnValue
-          ^ParseState
-          (@(ns-resolve *myns*
-                        (item-parser-sym (pep-item-set [(goal-item goal grammar)] #{})
-                                         true))
-              (parse-stream input))))
+        (@(ns-resolve *myns*
+                      (item-parser-sym (pep-item-set [(goal-item goal grammar)] #{})
+                                       true false))
+            (parse-stream input)))
       ; TODO the below
       (catch Exception e (clojure.stacktrace/print-stack-trace e) nil))))

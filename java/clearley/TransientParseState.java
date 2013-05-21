@@ -5,8 +5,7 @@ public class TransientParseState implements ParseState {
 	int theGoto = -1;
 	//ISeq input;
 	String input;
-	Object current;
-	Object returnValue; // todo rename
+//	Object returnValue; // todo rename
 
 	//public TransientParseState(ISeq input) {
 	public TransientParseState(String input) {
@@ -17,18 +16,18 @@ public class TransientParseState implements ParseState {
 //		}
 	}
 
-	public TransientParseState shift(Object o) {
+	public TransientParseState shift(/*Object o*/) {
 //		input = input.next();
 //		if (input != null) {
 //			current = input.first();
 //		}
-		returnValue = o;
+//		returnValue = o;
 		pos++;
 		return this;
 	}
 
-	public TransientParseState reduce(int theGoto, Object returnValue) {
-		this.returnValue = returnValue;
+	public TransientParseState reduce(int theGoto/*, Object returnValue*/) {
+//		this.returnValue = returnValue;
 		this.theGoto = theGoto;
 		return this;
 	}
@@ -42,17 +41,17 @@ public class TransientParseState implements ParseState {
 		return this;
 	}
 
-	public Object returnValue() {
-		return returnValue;
-	}
+//	public Object returnValue() {
+//		return returnValue;
+//	}
 
-	public long getCurrent() {
-		if (hasCurrent())
+	public long currentInput() {
+		if (hasInput())
 		return input.charAt(pos);
 		else return '\0';   // TODO: current parser gets current and throws away input. fix this
 	}
 
-	public boolean hasCurrent() {
+	public boolean hasInput() {
 		return pos < input.length();
 	}
 
@@ -66,8 +65,8 @@ public class TransientParseState implements ParseState {
 				"pos=" + pos +
 				", theGoto=" + theGoto +
 				//", input=" + input +
-				", current=" + current +
-				", returnValue=" + returnValue +
+//				", current=" + current +
+//				", returnValue=" + returnValue +
 				'}';
 	}
 }

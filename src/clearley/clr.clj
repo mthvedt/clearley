@@ -305,34 +305,33 @@
   (cond (empty? seeds) nil,
         (lookup ::item-set [seeds keep-backlinks])
         (lookup ::item-set [seeds keep-backlinks]),
-        ; If item-set is being built somewhere on the stack, Return the pass1 version.
-        (get @*crumbs* [seeds keep-backlinks])
-        (get @*crumbs* [seeds keep-backlinks]),
+        ; Indicates a parent of this thread has this item set on the stack.
+        (get *crumbs* [seeds keep-backlinks])
+        (get *crumbs* [seeds keep-backlinks]),
         true
-        (let [item-set (item-set-pass1 seeds keep-backlinks)
-              ; Save item-set pass 1 in crumbs
-              _ (swap! *crumbs* assoc [seeds keep-backlinks] item-set)
-              ;_ (if (zero? (mod (count @*crumbs*) 100))
-               ;   (println (count @*crumbs*) "candidate item sets examined"))
-              shift-children (map #(build-item-set* % (:split-conflicts item-set))
-                                   (concat (shifts item-set)
-                                           (shift-advances item-set)))
-              ; TODO do we even need to?
-              my-continues (runmap #(build-item-set* % (:split-conflicts item-set))
-                                   (continues item-set true))
-              item-set (item-set-pass2 item-set shift-children)
-              ; Dedup and capture the deduped value
-              prev-save-count (save-count ::dedup-item-set)
-              item-set (save-or-get! ::dedup-item-set
-                                     (item-set-key item-set) item-set)
-              curr-save-count (save-count ::dedup-item-set)]
-          (when (and (not (= prev-save-count curr-save-count))
-                     (zero? (mod curr-save-count 100)))
-            (println (save-count ::dedup-item-set) "item sets built"))
-          (save! ::item-set [seeds keep-backlinks] item-set))))
+        (let [item-set (item-set-pass1 seeds keep-backlinks)]
+          (binding [*crumbs* (assoc *crumbs* [seeds keep-backlinks]
+                                    (item-set-pass1 seeds keep-backlinks))]
+            (let [shift-children (map #(build-item-set* % (:split-conflicts item-set))
+                                      (concat (shifts item-set)
+                                              (shift-advances item-set)))
+                  ; TODO do we even need to?
+                  my-continues (runmap
+                                 #(build-item-set* % (:split-conflicts item-set))
+                                 (continues item-set true))
+                  item-set (item-set-pass2 item-set shift-children)
+                  ; Dedup and capture the deduped value
+                  prev-save-count (save-count ::dedup-item-set)
+                  item-set (save-or-get! ::dedup-item-set
+                                         (item-set-key item-set) item-set)
+                  curr-save-count (save-count ::dedup-item-set)]
+              (when (and (not (= prev-save-count curr-save-count))
+                         (zero? (mod curr-save-count 100)))
+                (println (save-count ::dedup-item-set) "item sets built"))
+              (save! ::item-set [seeds keep-backlinks] item-set))))))
 
 (defn pep-item-set [seeds keep-backlinks]
-  (binding [*crumbs* (atom {})]
+  (binding [*crumbs* {}]
     (build-item-set* seeds keep-backlinks)))
 
 ; Gets the next item set for some backlink
