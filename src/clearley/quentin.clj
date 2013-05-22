@@ -86,6 +86,21 @@
 
 (defn fail [^ParseState stream] (t/RE "Failure to parse at position: " (.pos stream)))
 
+(defn tracefn [title str f code]
+  (if *parse-trace*
+    (fn [& args]
+      (println "Calling" title f)
+      (print str)
+      (println "with code")
+      (clojure.pprint/pprint code)
+      (println "and args")
+      (clojure.pprint/pprint args)
+      (let [r (apply f args)]
+        (println f "returned")
+        (println r)
+        r))
+    f))
+
 ; === Advance loops ===
 
 ; Creates an interleaved seq of case-num, body pairs for splicing into a case.
@@ -103,6 +118,7 @@
 (defnmem checked-shift-advance [item-set backlink]
   (when-let [r (advance-item-set item-set backlink false)]
     (when (advance-item-set item-set backlink true)
+      ; TODO move all checks to clr
       (println "State split conflict for item set:")
       (println (item-set-str item-set))
       (println "and item:")
@@ -186,19 +202,7 @@
                     _ (print-code "advancer" (item-set-str item-set) "with code" r)
                     f (compile r)]
                 (print-code "compiled to" f)
-                (if *parse-trace*
-                  (fn [& args]
-                    (println "Calling advancer" f)
-                    (print (item-set-str item-set))
-                    (println "with code")
-                    (clojure.pprint/pprint r)
-                    (println "and args")
-                    (clojure.pprint/pprint args)
-                    (let [r (apply f args)]
-                      (println f "returned")
-                      (println r)
-                      r))
-                  f)))]
+                (tracefn "advancer" (item-set-str item-set) f r)))]
         (lookup-thunk item-set thunk "advancer" `ParseState))
       (do 
         (print-code "No advancer for" (item-set-str item-set))
@@ -377,19 +381,7 @@
         f (compile r)]
     (print-code "item-set" (item-set-str item-set) "continuing parser" r
                 "compiled to" f)
-    (if *parse-trace*
-      (fn [& args]
-        (println "Parsing item set")
-        (print (item-set-str item-set))
-        (println "with code")
-        (clojure.pprint/pprint r)
-        (println "and args")
-        (clojure.pprint/pprint args)
-        (let [r (apply f args)]
-          (println "Returned")
-          (println r)
-          r))
-      f)))
+    (tracefn "item set" (item-set-str item-set) f r)))
 
 (defn cont-parser-sym [item-set argcount]
   (lookup-thunk [:cont-slow-parser (item-set-key item-set) argcount]
@@ -437,20 +429,7 @@
                   ~body))
         f (compile body)]
     (print-code "item-set" (item-set-str item-set) "parser" body "compiled to" f)
-    ; TODO refactor the below
-    (if *parse-trace*
-      (fn [& args]
-        (println "Parsing item set")
-        (print (item-set-str item-set))
-        (println "with code")
-        (clojure.pprint/pprint body)
-        (println "and args")
-        (clojure.pprint/pprint args)
-        (let [r (apply f args)]
-          (println "Returned")
-          (println r)
-          r))
-      f)))
+    (tracefn "item set" (item-set-str item-set) f body)))
 
 (defn item-parser-sym
   [item-set initial? shift?]
