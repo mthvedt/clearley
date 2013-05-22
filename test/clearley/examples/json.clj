@@ -27,7 +27,7 @@
 (defmatch hex [\\ \u
               (r (rule "unicode-hex" [hex-digit hex-digit hex-digit hex-digit]
                      ; hex-char returns an int... we turn that into Unicode char
-                       (fn [^long a ^long b ^long c ^long d]
+                       (fn ^long [^long a ^long b ^long c ^long d]
                          (unchecked-add
                            (unchecked-multiply
                              16
