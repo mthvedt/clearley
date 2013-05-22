@@ -3,9 +3,10 @@
   (require [clojure string pprint]
            [clearley.rules :as rules]
            [clearley.quentin :as q]
+           [clearley.clr :as clr]
            [uncore.throw :as t]
            backtick)
-  (use clearley.match clearley.grammar uncore.core))
+  (use clearley.match clearley.grammar uncore.core uncore.memo))
 
 (defprotocol Parser
   (execute [parser input] "Parse the given input with the given parser, yielding
@@ -23,20 +24,46 @@
   [parser input]
   (q/finalize-state (parse-state parser input)))
 
-;(def parse-state parse) ; TODO kill
+; TODO
+; * parse trees
+; * faster building
+; * some notion of passthrough/hide?
 
-(defn parser
+(defn #_quentin-parser parser
+  "Constructs a parser given a grammar and goal symbol, using the Quentin parsing
+  engine."
+  [goal grammar & opts]
+  (let [opts (apply hash-map opts)
+        mem-atom (atom {})
+        ; TODO split
+        ; TODO this is hideous
+        _ (with-memoizer mem-atom (clr/build-item-sets goal grammar))
+        q-parser-context (atom @mem-atom)
+        match-parser-context (atom @mem-atom)
+        myns (q/new-ns)
+        goal (backtick/resolve-symbol goal)
+        ; TODO remove duplication
+        my-parse-fn (q/parse-fn grammar goal myns q-parser-context opts)]
+    (reify
+      Parser
+      (execute [_ input] (q/parse my-parse-fn input myns q-parser-context opts))
+      #_ChartParser
+      #_(charts [_ input] (parse-fn input))
+      #_(print-charts [_ input] (earley/pstr-charts (parse-fn input))))))
+
+#_(defn parser
   "Constructs a parser given a grammar and goal symbol."
-  ([goal grammar]
+  [goal grammar]
    (let [mem-atom (atom {})
          myns (q/new-ns)
-         goal (backtick/resolve-symbol goal)]
+         goal (backtick/resolve-symbol goal)
+         my-parse-fn (q/parse-fn grammar goal myns mem-atom)]
    (reify
      Parser
-     (execute [_ input] (q/parse grammar goal input myns mem-atom))
+     (execute [_ input] (q/parse my-parse-fn input myns mem-atom))
      #_ChartParser
      #_(charts [_ input] (parse-fn input))
-     #_(print-charts [_ input] (earley/pstr-charts (parse-fn input)))))))
+     #_(print-charts [_ input] (earley/pstr-charts (parse-fn input))))))
 
 ; TODO work on this
 #_(defn print-match

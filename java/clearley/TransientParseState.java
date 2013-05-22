@@ -1,58 +1,24 @@
 package clearley;
 
-public class TransientParseState implements ParseState {
+public class TransientParseState<S extends ParseStream> implements ParseState<S> {
 	int pos = 0;
 	int theGoto = -1;
-	//ISeq input;
-	String input;
-//	Object returnValue; // todo rename
+	S stream;
 
-	//public TransientParseState(ISeq input) {
-	public TransientParseState(String input) {
-		assert input == null || clojure.lang.RT.seq(input) != null;
-		this.input = input;
-//		if (input != null) {
-//			this.current = input.first();
-//		}
+	public TransientParseState(S stream) {
+		this.stream = stream;
 	}
 
-	public TransientParseState shift(/*Object o*/) {
-//		input = input.next();
-//		if (input != null) {
-//			current = input.first();
-//		}
-//		returnValue = o;
-		pos++;
-		return this;
-	}
-
-	public TransientParseState reduce(int theGoto/*, Object returnValue*/) {
-//		this.returnValue = returnValue;
-		this.theGoto = theGoto;
-		return this;
+	public S stream() {
+		return stream;
 	}
 
 	public int getGoto() {
 		return theGoto;
 	}
 
-	public TransientParseState setGoto(int theGoto) {
+	public void setGoto(int theGoto) {
 		this.theGoto = theGoto;
-		return this;
-	}
-
-//	public Object returnValue() {
-//		return returnValue;
-//	}
-
-	public long currentInput() {
-		if (hasInput())
-		return input.charAt(pos);
-		else return '\0';   // TODO: current parser gets current and throws away input. fix this
-	}
-
-	public boolean hasInput() {
-		return pos < input.length();
 	}
 
 	public int pos() {
@@ -64,9 +30,7 @@ public class TransientParseState implements ParseState {
 		return "TransientParseState{" +
 				"pos=" + pos +
 				", theGoto=" + theGoto +
-				//", input=" + input +
-//				", current=" + current +
-//				", returnValue=" + returnValue +
+				", stream=" + stream +
 				'}';
 	}
 }

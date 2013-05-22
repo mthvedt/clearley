@@ -334,6 +334,12 @@
   (binding [*crumbs* {}]
     (build-item-set* seeds keep-backlinks)))
 
+; TODO progress reporting optional
+(defn build-item-sets [goal grammar]
+  (println "Building item sets...")
+  (pep-item-set [(goal-item goal grammar)] #{})
+  (println (save-count ::dedup-item-set) "item sets built"))
+
 ; Gets the next item set for some backlink
 (defnmem advance-item-set [item-set backlink seed?]
   (pep-item-set (advances item-set backlink seed?)

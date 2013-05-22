@@ -19,15 +19,18 @@
 (def ^:const backslash-l (long \\))
 (def ^:const quote-l (long \"))
 
-(def char-scanner
-  (scanner (fn [^long c] (and (> c 0x1f)
-                              (not (= backslash-l c)) (not (= quote-l c))))))
+; TODO write a macro
+(defn char-scanner-fn [^long c]
+  (and (> c 0x1f)
+       (not (= backslash-l c)) (not (= quote-l c))))
+
+(def char-scanner (scanner `char-scanner-fn))
 
 ; Matches a unicode literal: \u007f for example
 (defmatch hex [\\ \u
               (r (rule "unicode-hex" [hex-digit hex-digit hex-digit hex-digit]
                      ; hex-char returns an int... we turn that into Unicode char
-                       (fn ^long [^long a ^long b ^long c ^long d]
+                       (fn [a b c d]
                          (unchecked-add
                            (unchecked-multiply
                              16
@@ -38,17 +41,21 @@
                                    (unchecked-multiply 16 a) b)) c)) d))))]
   r)
 
+; TODO does not work teriffically well
+; TODO cast to long in quentin
 ; A string character can be an escaped char, a hex char, or anything else.
 (defmatch string-char
   ([\\ (escaped-char `(:or ~(long \") ~(long \\) ~(long \/) ~(long \b) ~(long \f)
                            ~(long \n) ~(long \r) ~(long \t)))] escaped-char)
   hex char-scanner)
 
-(defstar string-body `string-char (fn ([] (java.lang.StringBuilder.))
-                                   ([^long c] (doto (java.lang.StringBuilder.)
-                                                (.append (unchecked-char c))))
-                                   ([^StringBuilder arr ^long c]
-                                    (.append arr (unchecked-char c)))))
+(defn string-body-fn
+  ([] (java.lang.StringBuilder.))
+  ([c] (doto (java.lang.StringBuilder.)
+                              (.append (unchecked-char c))))
+  ([^StringBuilder arr c] (.append arr (unchecked-char c))))
+
+(defstar string-body `string-char `string-body-fn)
 
 (def string (quotes string-body (fn [^StringBuilder s] (.toString s))))
 

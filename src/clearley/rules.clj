@@ -35,7 +35,8 @@
 
 (defn goal-rule [sym grammar]
   (CfgRule. 0 {:name ::goal, :tag :seq,
-               :value [(clearley.grammar/normalize sym nil)], :action identity}
+               :value [(clearley.grammar/normalize sym nil)],
+               :action clearley.grammar/fast-identity}
             {} grammar))
 
 ; For a rule that has been nulled out, gets a reduced version of the rule
@@ -222,7 +223,9 @@
           subactions (map take-action* submatches)
           ; TODO eventually, token rules shouldn't appear on the stack?
           action (get rule :action (fn [] rule))
-          action (if (= :token (:tag rule)) (fn [_] (action)) action)]
+          ; TODO is the below neccesary?
+          action (if (= :token (:tag rule)) (fn [_] (action)) action)
+          action (if (symbol? action) (resolve action) action)]
       (try
         (apply action subactions)
         (catch clojure.lang.ArityException e

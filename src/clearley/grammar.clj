@@ -9,6 +9,9 @@
 
 ; === Grammar building ===
 
+(definline ^{:doc "An inlinable identity fn for use in parsers."}
+  fast-identity [x] x)
+
 ; Resolves a symbol
 (defn- lookup-symbol [thesym thens theenv]
   (if (symbol? thesym)
@@ -26,22 +29,13 @@
         (symbol? rule) ::symbol
         true ::token))
 
-; TODO this is evil
-(defrecord ^{:doc "An IFn record that matches a token. Is a record
-                  to support =."}
-  TokenAction [token]
-  clojure.lang.IFn
-  (invoke [_] token)
-  (invoke [_ _] token) ; TODO which of these?
-  (applyTo [_ args] token))
-
 (defmulti default-action
   "Gets the default action for a (nonnormalized) rule."
   (fn [tag _] tag))
-(defmethod default-action :default [& _] identity)
+(defmethod default-action :default [& _] `fast-identity)
 (defmethod default-action :star [& _] list-identity)
 (defmethod default-action :seq [& _] list-identity)
-(defmethod default-action :token [_ {[token] :value}] (TokenAction. token))
+(defmethod default-action :token [_ {[token] :value}] `fast-identity)
 
 (declare map-normalize)
 
@@ -63,9 +57,10 @@
              (merge rule {:name name, :value value, :original rule}))
     ::symbol {:name (name rule), :tag :symbol,
               :value [(backtick/resolve-symbol rule)],
-              :action identity, :original rule}
+              :action `fast-identity, :original rule}
+    ; TODO fix: chars instead of longs
     ::token {:name (pr-str rule), :tag :token, :value [rule],
-             :action (TokenAction. rule), :original rule}))
+             :action `fast-identity, :original rule}))
 
 (defn- map-normalize [rules parent-name parent-tag]
   (if (contains? #{:token :scanner} parent-tag)
