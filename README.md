@@ -1,7 +1,7 @@
 # Clearley
 
 ```
-[clearley "0.3.0"]
+[clearley "0.4.0-SNAPSHOT"]
 ```
 
 Parsing for Earthlings.
@@ -75,7 +75,7 @@ You can also substitute names in defmatch, by supplying a name-rule pair:
 (defmatch sum [(foo sum) \+ (bar times)] (+ foo bar))
 ```
 
-In defmatch, symbols will be resolved if they can, and in the current namespace if htey can't. This lets you use symbols as forward-references so you can make recursive grammars. The parser/grammar builder will figure out the symbols at build time. The auto-qualification means you can have rules that point to rules from a different namespace. (This also means that you can extend rules by substituting rules into grammar maps--see below.)
+In defmatch, symbols will be resolved if they can, and in the current namespace if they can't. This lets you use symbols as forward-references so you can make recursive grammars. The parser/grammar builder will figure out the symbols at build time. The auto-qualification means you can have rules that point to rules from a different namespace. (This also means that you can extend rules by substituting rules into grammar maps--see below.)
 
 The match macro is like defmatch, but doesn't def anything:
 ```clojure
@@ -122,7 +122,7 @@ You can mix-and-match shorthand:
 (def foo `(:or bar baz \x (:seq ~(star-rule 'bitcoin) satoshi)))
 ```
 
-but note that tagged sequences don't work in match/defmatch, because that's how match names subrules.
+but note that tagged sequences don't work in match/defmatch, because match uses lists for assigning alternate symbols to rules.
 
 ### Rules in detail
 
