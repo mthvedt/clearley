@@ -50,11 +50,12 @@
             ObjParseStream CharParseStream SeqParseStream StringParseStream]))
 (do-imports)
 
-(defn stream-getter []
+; Returns two forms: ~'stream (.stream ~'state), with the appropriate type hint
+(defn stream-binder []
   (let [stream-tag (case (:stream-type *opts*)
-                     :chars CharParseStream
-                     :objs ObjParseStream)]
-    (vary-meta `(.stream ~'state) assoc :tag stream-tag)))
+                     :chars `CharParseStream
+                     :objs `ObjParseStream)]
+    [(vary-meta 'stream assoc :tag stream-tag) `(.stream ~'state)]))
 
 (defn new-stream [input]
   (case (:stream-type *opts*)
@@ -430,7 +431,7 @@
              ; Some parsers are trivial. If so, we short-circuit.
              ~(if-let [const-reduce (:const-reduce item-set)]
                 (gen-return const-reduce nil argcount)
-                `(let [~'stream ~(stream-getter)]
+                `(let [~@(stream-binder)]
                    ~(gen-parser item-set nil argcount))))
         f (compile r)]
     (print-code "item-set" (item-set-str item-set) "continuing parser" r
@@ -449,7 +450,7 @@
                 ~@(when-not (or initial? shift?)
                     `(~'arg0))]
              (let [~'partial-match (object-array ~(item-set-size item-set))
-                   ~'stream ~(stream-getter)]
+                   ~@(stream-binder)]
                ~(if initial?
                   (gen-parser item-set nil 0)
                   `(do 
@@ -469,12 +470,12 @@
         body (if-let [const-reduce (:const-reduce item-set)]
                ; Some parsers are trivial. If so, we short-circuit.
                (if shift?
-                 `(let [~'stream ~(stream-getter)
+                 `(let [~@(stream-binder)
                         ~'v0 (.current ~'stream)]
                     (.shift ~'stream)
                     ~(gen-return const-reduce ['v0] -1))
                  (gen-return const-reduce initial-arglist -1))
-               `(let [~'stream ~(stream-getter)]
+               `(let [~@(stream-binder)]
                   ~(gen-parser item-set initial-arglist -1)))
         ; The optimal code size number, chosen by magic.
         ; Also if the code gets big it can hit the 64k JVM limit.

@@ -10,7 +10,7 @@ package clearley;
 public class StringParseStream implements CharParseStream {
 	final String input;
 	int pos;
-	long current;
+	int current;
 
 	public StringParseStream(String input) {
 		this.input = input;
@@ -32,7 +32,7 @@ public class StringParseStream implements CharParseStream {
 		return pos < input.length();
 	}
 
-	public long current() {
+	public int current() {
 		return current;
 	}
 
