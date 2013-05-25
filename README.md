@@ -1,7 +1,7 @@
 # Clearley
 
 ```
-[clearley "0.3.0-SNAPSHOT"]
+[clearley "0.3.0"]
 ```
 
 Parsing for Earthlings.

@@ -1,8 +1,8 @@
-(defproject clearley "0.3.0-SNAPSHOT"
+(defproject clearley "0.3.0"
   :description "Parsing for Earthlings."
   :dependencies [[org.clojure/clojure "1.5.1"]
-                 [eightnotrump/uncore "0.2.0-SNAPSHOT"]
-                 [backtick "0.3.0-SNAPSHOT"]]
+                 [eightnotrump/uncore "0.2.0"]
+                 [backtick "0.3.0-20130220.225123-3"]]
   :test-resource-paths ["test"]
   :java-source-paths ["java"]
   :aliases {"bench" ["with-profile" "dev,benchmark" "run"]
