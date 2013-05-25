@@ -80,15 +80,12 @@
   [match]
   (rules/take-action* match))
 
-#_(defn execute
-  "Parses some input and executes the parse actions."
-  [parser input]
-  (rules/take-action* (parse parser input)))
-
 (defmacro build-parser
   "Build a parser in the current ns from the given goal rule."
-  [goal] `(build-parser-with-ns '~goal *ns*))
+  [goal & opts] `(build-parser-with-ns '~goal *ns* ~@opts))
 
 (defn build-parser-with-ns
   "Build a parser in a given ns from the given goal rule."
-  [goal thens] (parser goal (build-grammar-with-ns goal thens)))
+  [goal thens & opts]
+  (binding [*ns* thens]
+    (apply parser goal (build-grammar-with-ns goal *ns*) opts)))

@@ -1,25 +1,39 @@
 (ns clearley.test.utils
   (require [clojure.java.io :as io]
-           [uncore.throw :as t])
-  (:use uncore.test.utils clearley.core lazytest.deftest))
+           [uncore.throw :as t]
+           [backtick]
+           [clearley.grammar :as g])
+  (:use uncore.test.utils clearley.core lazytest.test-case lazytest.deftest))
 
-(def ^:dynamic local-parser)
+(def ^:dynamic *local-parser*)
+(def ^:dynamic *parser-ns*)
+(def ^:dynamic *parser-builder*
+  (fn [goal grammar] (parser goal grammar)))
+
+; Macro for defing a test that builds a parser with the dynamically bound
+; parser builder fn and runs the given tests
+(defmacro defptest [name goal & forms]
+  `(let [goal# (backtick/resolve-symbol '~goal) ; Capture the namespaced goal
+         ; This delay is a hack to avoid ugly local state dumps on test failure.
+         grammar# (let [foo# (g/build-grammar ~goal)]
+                    (delay foo#))]
+     (def ~name
+       (test-case
+         (vary-meta (fn []
+                      (binding [*local-parser* (*parser-builder* goal# @grammar#)]
+                        ~@forms))
+                    merge '~(meta name) {:name '~name})))))
 
 (defmacro with-parser [parser & forms]
-  `(binding [local-parser ~parser] ~@forms))
+  `(binding [*local-parser* ~parser] ~@forms))
 
-; I want to make this more compact by building the parser inline,
-; but deftest closes over the tests you pass it -> can't build a parser off
-; a local symbol...
-
-; TODO: use macro for other tests
 (defmacro def-parser-test [test-name parser & forms]
   `(deftest ~test-name
      (with-parser ~parser
        ~@forms)))
 
 (defn parses? [input]
-  (execute local-parser input))
+  (execute *local-parser* input))
 
 (defmacro is-parsing [input]
   `(is (parses? ~input)))
@@ -28,11 +42,11 @@
   `(is (not (parses? ~input))))
 
 (defmacro action-throws [exception-type input]
-  `(is (thrown? ~exception-type (execute local-parser ~input))))
+  `(is (thrown? ~exception-type (execute *local-parser* ~input))))
 
 ; valued trees of the form (value & branches)
 ; neccesary for comparing heterogeneous seqables (here, vec vs lazy-seq)
-(defn tree-eq [tree1 tree2]
+#_(defn tree-eq [tree1 tree2]
   (if (nil? tree1)
     (nil? tree2)
     (and (not (nil? tree2))
@@ -41,7 +55,7 @@
          ; this is ugly because and is a macro--is there an and fn?
          (reduce #(and % %2) true (map tree-eq (rest tree1) (rest tree2))))))
 
-(deftest tree-eq-test
+#_(deftest tree-eq-test
   ; only need to test for falsehoods here... avoid false positives
   (is (not (tree-eq [\1] [\2])))
   (is (not (tree-eq [] [[]])))
@@ -49,7 +63,7 @@
   (is (not (tree-eq [] nil))))
 
 ; Yields a simple AST of the match, in the form [rule submatches*]
-(defn match-tree [match]
+#_(defn match-tree [match]
   ((fn f [m]
      (if (instance? clearley.rules.Match m)
        (let [{:keys [rule submatches]} m]
@@ -57,7 +71,7 @@
        m)) match))
 
 ; Strips rule nodes from tree
-(defn stripped-match-tree [match]
+#_(defn stripped-match-tree [match]
   ((fn f [m] ; This fn will recursively reduce the match tree
      (if-let [submatches (seq (rest m))]
        (vec (map f submatches))
@@ -65,13 +79,13 @@
      (match-tree match)))
 
 #_(defmacro is-ast [expected testval]
-  `(is= ~expected (stripped-match-tree (parse local-parser ~testval))))
+  `(is= ~expected (stripped-match-tree (parse *local-parser* ~testval))))
 
 #_(defmacro is-parse [expected testval]
-  `(is (tree-eq ~expected (match-tree (parse local-parser ~testval)))))
+  `(is (tree-eq ~expected (match-tree (parse *local-parser* ~testval)))))
 
 (defmacro is-action [expected testval]
-  `(is= ~expected (execute local-parser ~testval)))
+  `(is= ~expected (execute *local-parser* ~testval)))
 
 (defn get-resource [filename]
   (-> filename io/resource io/reader))

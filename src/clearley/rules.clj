@@ -27,6 +27,8 @@
 ; The instrumented core abstraction
 (defrecord CfgRule [dot raw-rule elisions grammar])
 
+(declare rule-str)
+
 (defn cfg-rule [rule grammar]
   (CfgRule. 0 rule {} grammar))
 
@@ -59,12 +61,14 @@
 
 ; Predicts a rule, returning a seq [rule | fn]
 (defmulti predict* (fn-> :raw-rule :tag))
-(defmethod predict* :symbol [{dot :dot, grammar :grammar, {value :value} :raw-rule}]
+(defmethod predict* :symbol [{dot :dot, grammar :grammar, {value :value} :raw-rule
+                              :as rule}]
   (if-let [resolved (predict-singleton :symbol (get grammar (first value)))]
     (if (= resolved [])
       []
       [(cfg-rule resolved grammar)])
-    (t/RE "Cannot find symbol in grammar: " (first value))))
+    (t/RE "Cannot find symbol in grammar: " (first value)
+          " for rule: " (rule-str rule))))
 (defmethod predict* :or [{dot :dot, grammar :grammar, {value :value} :raw-rule}]
   (map #(cfg-rule % grammar) (if (= dot 1) [] value)))
 (defmethod predict* :seq [{dot :dot, grammar :grammar, {value :value} :raw-rule}]
@@ -87,7 +91,6 @@
   (applyTo [_ args] (assert (= (count args) 1)) (= v (first args))))
 
 (defnmem predict [cfg-rule] (predict* cfg-rule))
-(declare rule-str)
 (defmulti scanner (fn-> :raw-rule :tag))
 (defmethod scanner :token [{dot :dot {[value] :value} :raw-rule}]
   (if (zero? dot) [:token value] nil))

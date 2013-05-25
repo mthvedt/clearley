@@ -10,7 +10,7 @@
 ; TODO what does aot do?
 ; TODO figure out locking?
 
-(def ^:dynamic *print-code* true)
+(def ^:dynamic *print-code* false)
 (defn print-code [& vals]
   (binding [*print-meta* true]
     (if *print-code* (runmap
@@ -19,7 +19,7 @@
 
 (def ^:dynamic *parse-trace* false)
 
-(def ^:dynamic *print-compile* true)
+(def ^:dynamic *print-compile* false)
 (defn print-compile [& vals]
   (if *print-compile* (runmap println vals)))
 
@@ -43,7 +43,7 @@
 
 (declare continue-parsing item-parser-sym cont-parser-sym embed-parser-with-lookahead)
 
-(def default-opts {:stream-type :objs})
+(def default-opts {:stream-type :chars})
 
 (defn do-imports []
   (import '[clearley ParseState ParseStream TransientParseState
@@ -430,7 +430,8 @@
              ; Some parsers are trivial. If so, we short-circuit.
              ~(if-let [const-reduce (:const-reduce item-set)]
                 (gen-return const-reduce nil argcount)
-                (gen-parser item-set nil argcount)))
+                `(let [~'stream ~(stream-getter)]
+                   ~(gen-parser item-set nil argcount))))
         f (compile r)]
     (print-code "item-set" (item-set-str item-set) "continuing parser" r
                 "compiled to" f)
@@ -506,8 +507,7 @@
     ;(remove-ns sym) ; TODO
     (binding [*ns* r]
       (use 'clojure.core 'clearley.quentin)
-      (do-imports)
-      (set! *unchecked-math* true))
+      (do-imports))
     (intern r 'item-set-var-map (atom {})) ; map: seeds -> symbol
     (intern r 'ns-lock (Object.))
     r))
