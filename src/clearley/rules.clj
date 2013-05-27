@@ -5,6 +5,28 @@
   (use uncore.core uncore.memo))
 ; Core stuff for context free grammar parsing.
 
+; just for speed
+(defrecord Match [rule submatches])
+(def match ->Match)
+
+;(def ^:dynamic *grammar*)
+
+; A rule with instrumentation
+; TODO elisions is not a business key
+(defrecord CfgRule [dot raw-rule elisions grammar])
+
+(declare rule-str)
+
+(defn cfg-rule [rule grammar]
+  (->CfgRule 0 rule {} grammar))
+
+(defn goal-rule [sym grammar]
+  (->CfgRule 0 {:name ::goal, :tag :seq,
+               :value [(clearley.grammar/normalize sym nil)],
+               :action clearley.grammar/fast-identity}
+            {} grammar))
+
+; Helpers for get-original
 (defn interleave-map [coll i->vals]
   (loop [r [] coll coll i 0]
     (if (contains? i->vals i)
@@ -19,34 +41,14 @@
   (fn [& args]
     (apply f (interleave-map args themap))))
 
-; just for speed
-(defrecord Match [rule submatches])
-
-(def match ->Match)
-
-; The instrumented core abstraction
-(defrecord CfgRule [dot raw-rule elisions grammar])
-
-(declare rule-str)
-
-(defn cfg-rule [rule grammar]
-  (CfgRule. 0 rule {} grammar))
-
-(defn rule? [x]
-  (instance? clearley.rules.CfgRule x))
-
-(defn goal-rule [sym grammar]
-  (CfgRule. 0 {:name ::goal, :tag :seq,
-               :value [(clearley.grammar/normalize sym nil)],
-               :action clearley.grammar/fast-identity}
-            {} grammar))
-
 ; For a rule that has been nulled out, gets a reduced version of the rule
 ; appropriate for take-action. Not used for Quentin which can generate code instead.
-(defnmem get-original [{{:keys [action] :as raw-rule} :raw-rule :keys [elisions]}]
+#_(defnmem get-original [{{:keys [action] :as raw-rule} :raw-rule :keys [elisions]}]
   (if (seq elisions)
     (assoc raw-rule :action (rpartial action elisions))
     raw-rule))
+
+; === Predicting rules
 
 ; Anaphoric, uses 'value and 'dot
 ; Makes sure a rule has only one subrule
@@ -55,73 +57,49 @@
      ~result
      (t/IAE ~tag "must have only one subrule")))
 
-; For rules that only match one clause, once
-(defmacro predict-singleton [tag result]
-  `(check-singleton ~tag (if (= ~'dot 1) [] ~result)))
+; Predicts rule that can only be advanced once
+(defmacro predict-oneshot [result]
+  `(when-not (= ~'dot 1) ~result))
 
 ; Predicts a rule, returning a seq [rule | fn]
 (defmulti predict* (fn-> :raw-rule :tag))
 (defmethod predict* :symbol [{dot :dot, grammar :grammar, {value :value} :raw-rule
                               :as rule}]
-  (if-let [resolved (predict-singleton :symbol (get grammar (first value)))]
-    (if (= resolved [])
-      []
-      [(cfg-rule resolved grammar)])
+  (if-let [got (get grammar (first value))]
+    (predict-oneshot (check-singleton :symbol [got]))
     (t/RE "Cannot find symbol in grammar: " (first value)
           " for rule: " (rule-str rule))))
 (defmethod predict* :or [{dot :dot, grammar :grammar, {value :value} :raw-rule}]
-  (map #(cfg-rule % grammar) (if (= dot 1) [] value)))
+  (predict-oneshot value))
 (defmethod predict* :seq [{dot :dot, grammar :grammar, {value :value} :raw-rule}]
-  (if (= dot (count value)) []
-    [(cfg-rule (get value dot) grammar)]))
+  (when-not (= dot (count value))
+    [(get value dot)]))
 #_(defmethod predict* :star [{dot :dot, grammar :grammar, {value :value} :raw-rule}]
-  (map #(cfg-rule % grammar) (check-singleton :star value)))
-(defmethod predict* :scanner [{dot :dot {value :value} :raw-rule}] [])
-  ;(predict-singleton :scanner value))
-(defmethod predict* :token [{dot :dot {value :value} :raw-rule}] []
-  #_(predict-singleton :token [(let [v (first value)]
-                               (fn [x] (= v x)))]))
+    (check-singleton :star value))
+(defmethod predict* :scanner [_] [])
+(defmethod predict* :token [_] [])
 (defmethod predict* :default [rule]
   (t/RE "Don't know how to predict:" (pr-str rule)))
 
-; TODO this is evil
-(defrecord TokenScanner [v]
-  clojure.lang.IFn
-  (invoke [_ v2] (= v v2))
-  (applyTo [_ args] (assert (= (count args) 1)) (= v (first args))))
+(defnmem predict [{grammar :grammar :as a-rule}] (map #(cfg-rule % grammar)
+                                                      (predict* a-rule)))
 
-(defnmem predict [cfg-rule] (predict* cfg-rule))
-(defmulti scanner (fn-> :raw-rule :tag))
-(defmethod scanner :token [{dot :dot {[value] :value} :raw-rule}]
-  (if (zero? dot) [:token value] nil))
-  ;(if (zero? dot) (->TokenScanner value) nil))
-  ;[:token value])
-(defmethod scanner :scanner [{dot :dot {[value] :value} :raw-rule}]
-  (if (zero? dot) [:scanner value] nil))
-  ;[:scanner value])
-(defmethod scanner :default [_] nil)
+(defmulti terminal (fn-> :raw-rule :tag))
+(defmethod terminal :token [{dot :dot {[value] :value} :raw-rule}]
+  (predict-oneshot [:token value]))
+(defmethod terminal :scanner [{dot :dot {[value] :value} :raw-rule}]
+  (predict-oneshot [:scanner value]))
+(defmethod terminal :default [_] nil)
 
-; Is this rule complete?
 (defmulti is-complete? (fn-> :raw-rule :tag))
 ;(defmethod is-complete? :star [{:keys [dot]}] true)
 (defmethod is-complete? :seq [{dot :dot {value :value} :raw-rule}]
   (= dot (count value)))
 (defmethod is-complete? :default [{:keys [dot]}] (= 1 dot))
 
-(defn clause-strs
-  ([clauses] (clause-strs clauses 0))
-  ([clauses dot]
-   (let [clause-strs (map pr-str clauses)]
-     (concat (take dot clause-strs)
-             (if (zero? dot) [] ["*"])
-             (drop dot clause-strs)))))
-
-(defn clause-name [clause]
-  (if (:name clause) (:name clause) (pr-str clause)))
-
 (defmulti rule-str (fn-> :raw-rule :tag))
 (defmethod rule-str :seq [{dot :dot, {:keys [name value]} :raw-rule :as rule}]
-  (let [clause-strs (map clause-name value)]
+  (let [clause-strs (map :name value)]
     (str name " -> "
          (cond (= dot 0) (s/separate-str " " clause-strs)
                (is-complete? rule) (s/separate-str " " (concat clause-strs ["✓"]))
@@ -129,7 +107,7 @@
                                                 (drop dot clause-strs)))))))
 (defmethod rule-str :default [{dot :dot, {:keys [name tag value]} :raw-rule}]
   (str name " -> " tag " ("
-       (s/separate-str " " (map clause-name value))
+       (s/separate-str " " (map :name value))
        ")"
        (if (zero? dot) "" " ✓")))
 
@@ -137,6 +115,7 @@
   (assert (not (is-complete? cfg-rule)))
   (let [predictions (predict cfg-rule)
         prediction (if (= 1 (count predictions)) (first predictions))
+        ; TODO hidden subrules not supported ATM
         ; disallow hidden subrules if >1 prediction, semantics don't make sense here
         _ (when-not prediction (if (some (fn-> :raw-rule :hidden?) predictions)
                                  (println "Warning: hidden rule inside"
@@ -148,15 +127,11 @@
         cfg-rule (update cfg-rule :dot inc)]
     cfg-rule))
 
-; Null advance: for advancing a rule that can predict the empty string
-; See Aycock+Horspool Practical Earley Parsing
-(defn null-advance [rule result]
-  (let [dot (:dot rule)]
-    (update-all rule {:dot inc, :elisions #(assoc % dot result)})))
-
 (defn goal? [cfg-rule]
   (and (is-complete? cfg-rule)
        (-> cfg-rule :raw-rule :name (= ::goal))))
+
+; === First and follow sets
 
 ; TODO: test something of the form a -> x -> b -> y -> a for legal/illegal matches,
 ; where x and y are nullable.
@@ -164,21 +139,19 @@
 ; Basically, this does a top-down match on the empty string for a rule.
 ; If more than one match is possible, returns the first one
 (defn null-result* [rule]
-  (if ;(not (rule? rule)) nil
-    (contains? *breadcrumbs* rule)
+  (if (contains? *breadcrumbs* rule)
     (get *breadcrumbs* rule)
-        ;true
-        (do
-          ; Avoid infinite recursion
-          (set! *breadcrumbs* (assoc *breadcrumbs* rule nil))
-          (let [r (if (is-complete? rule)
-                    (match (:raw-rule rule) [])
-                    (if-let [r (some identity (map null-result* (predict rule)))]
-                      (if-let [r2 (null-result* (advance rule))]
-                        (match (:raw-rule rule)
-                               (apply vector r (:submatches r2))))))]
-            (set! *breadcrumbs* (assoc *breadcrumbs* rule r))
-            r))))
+    (do
+      ; Avoid infinite recursion
+      (set! *breadcrumbs* (assoc *breadcrumbs* rule nil))
+      (let [r (if (is-complete? rule)
+                (match (:raw-rule rule) [])
+                (if-let [r (some identity (map null-result* (predict rule)))]
+                  (if-let [r2 (null-result* (advance rule))]
+                    (match (:raw-rule rule)
+                           (apply vector r (:submatches r2))))))]
+        (set! *breadcrumbs* (assoc *breadcrumbs* rule r))
+        r))))
 (defnmem null-result [^CfgRule rule]
   (binding [*breadcrumbs* {}]
     (null-result* rule)))
@@ -187,7 +160,7 @@
 ; Gets the first set of an item, including ::empty if item is nullable
 (defn first-set* [rule]
   (cond
-    (scanner rule) #{(scanner rule)}
+    (terminal rule) #{(terminal rule)}
     ; The first set of a rule always contains the first sets of its subrules.
     ; The 'canon first set' is a full first set of a subrule (as opposed to the
     ; partial ones this fn calculates, because it terminates on recursion)
@@ -212,7 +185,6 @@
       (save! ::canon-first-set rule (first-set* rule)))))
 
 ; For a rule R that predicts items R1..N, calculates the follow set for those items.
-; TODO is this correct?
 (defn follow-first [^CfgRule rule parent-follow]
   (let [follow-set (first-set (advance rule))]
     (if (follow-set ::empty)
@@ -224,20 +196,21 @@
     (throw (RuntimeException. "Failure to parse"))
     (let [{:keys [rule submatches]} match
           subactions (map take-action* submatches)
-          ; TODO eventually, token rules shouldn't appear on the stack?
-          action (get rule :action (fn [] rule))
-          ; TODO is the below neccesary?
-          action (if (= :token (:tag rule)) (fn [_] (action)) action)
+          action (get rule :action)
           action (if (symbol? action) (resolve action) action)]
       (try
         (apply action subactions)
         (catch clojure.lang.ArityException e
           (throw (RuntimeException. (str "Wrong # of params taking action for rule "
-                                         (if (rule? rule)
-                                           (rule-str rule)
-                                           (pr-str rule)) ", "
+                                         (rule-str rule) ", "
                                          "was given " (count subactions))
                                     e)))))))
+
+; Null advance: for advancing a rule that can predict the empty string
+; See Aycock+Horspool Practical Earley Parsing
+(defn null-advance [rule result]
+  (let [dot (:dot rule)]
+    (update-all rule {:dot inc, :elisions #(assoc % dot result)})))
 
 (defn eager-advance [rule]
   (when-let [eager-match (some identity (map null-result (predict rule)))]

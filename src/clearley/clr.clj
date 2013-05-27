@@ -58,7 +58,7 @@
 (defnmem new-item [rule seed? follow]
   (->Item rule nil 0 seed? follow))
 
-(defnmem eager-advance [item prediction?]
+(defn eager-advance [item prediction?]
   (if item
     (if-let [rule2 (rules/eager-advance (:rule item))]
       (if (and prediction? (rules/is-complete? rule2))
@@ -68,20 +68,16 @@
 (defnmem eager-advances [item prediction?]
   (take-while identity (iterate #(eager-advance % prediction?) item)))
 
-(defnmem predict-item [{:keys [rule follow]}]
+(defnmem predict [{:keys [rule follow]}]
   (mapcat #(eager-advances % true)
           (for [prediction (rules/predict rule)
                 follow-terminal (rules/follow-first rule follow)]
             (new-item prediction false follow-terminal))))
 
-(defnmem advance-item [item]
+(defnmem advance [item]
   (assoc (update-all item {:rule rules/advance, :match-count inc,
                            :backlink #(if % % item)})
          :seed? true))
-
-(defn scan-item [item input-token]
-  (if (some #(% input-token) (rules/scanner (:rule item)))
-    (advance-item item)))
 
 (defn unfollow [item]
   (let [item (assoc item :follow nil)
@@ -132,8 +128,8 @@
 ; ordered multimap of scanners -> shift items
 (defnmem shift-map [item-set]
   (reduce (fn [m {:keys [rule] :as item}]
-            (if-let [s (rules/scanner rule)]
-              (omm/assoc m s (advance-item item))
+            (if-let [s (rules/terminal rule)]
+              (omm/assoc m s (advance item))
               m))
     omm/empty (:items item-set)))
 
@@ -150,7 +146,7 @@
                     (-> item-set reduce-map omm/keys))))
 
 (defnmem advances [{backlink-map :backlink-map} backlink seed?]
-  (map advance-item (filter #(= seed? (:seed? %))
+  (map advance (filter #(= seed? (:seed? %))
                             (omm/get-vec backlink-map backlink))))
 
 (defnmem rule-size [rule]
@@ -217,7 +213,7 @@
       (loop [c (->ItemSet seeds more-seeds (vec more-seeds) omm/empty), dot 0]
         (if-let [s (get (:items c) dot)]
           (recur (reduce #(predict-into-item-set % %2 s)
-                         c (predict-item s))
+                         c (predict s))
                  (inc dot))
           (let [const-reduce (if (or (can-shift? c) (reduce-reduce? c))
                                 nil
@@ -287,8 +283,6 @@
         (filter-seeds item-set #{})
         ; Kill items and backlinks with irrelevant lookahead
         (-> item-set
-          ; TODO the naïve approach doesn't work. We need something heavyweight
-          ; like the PGM or lane tracing.
           (filter-items (into (:deep-reduces item-set) child-deep-reduces))
           (filter-backlinks child-deep-reduces))))))
 
