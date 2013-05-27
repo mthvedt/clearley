@@ -1,40 +1,39 @@
 (ns clearley.examples.calculator
   (use clearley.match clearley.lib clojure.math.numeric-tower))
 
-; It turns out making ordinary arithmetic an LR(1) grammar is pretty tough!
-; TODO add ignore conflicts
 (defmatch sum
   ([sum \+ term] (+ sum term))
   ([sum \- term] (- sum term)) ; left associative
   term)
+; Prevent a state split conflict
 (defmatch term
-  ([term \* pow] (* term pow))
-  ([term \/ pow] (/ term pow))
-  ([\- term] (- term))
-  ;([\- parenexpr] (- parenexpr))
-  parenexpr
-  term-lparen)
-(defmatch term-lparen
-  ([term-lparen parenexpr] (* term-lparen parenexpr))
-  ([parenexpr term-rparen] (* parenexpr term-rparen))
-  ([(p1 parenexpr) (p2 parenexpr)] (* p1 p2))
-  ([term-lparen parenexpr pow-noparen] (* term-lparen parenexpr pow-noparen))
-  pow-noparen)
-(defmatch term-rparen ; neccesary for LR(1)
-  ([parenexpr term-rparen] (* parenexpr term-rparen))
-  ([\- parenexpr term-rparen] (- (* parenexpr term-rparen)))
-  pow-noparen)
+  posterm
+  ([\- term] (- term)))
+(defmatch posterm
+  ([posterm \* pow] (* posterm pow))
+  ([posterm \/ pow] (/ posterm pow))
+  bare-pow ; Avoid -term and -pow conflict
+  parenexpr)
+(defmatch parenexpr
+  ; Getting this right while remaining LR(1) is a little tricky.
+  ; The approach is: 1) stay left-recursive, 2) two bare-pows cannot be adjacent.
+  ; We do a sort of induction.
+  ; base cases
+  paren-sum
+  ([bare-pow paren-sum] (* bare-pow paren-sum))
+  ([paren-sum bare-pow] (* bare-pow paren-sum))
+  ([(p1 bare-pow) paren-sum (p2 bare-pow)] (* p1 p2 paren-sum))
+  ; recursive cases
+  ([parenexpr paren-sum] (* parenexpr paren-sum))
+  ([parenexpr paren-sum bare-pow] (* parenexpr paren-sum bare-pow)))
 (defmatch pow
-  parenexpr
-  ([\- parenexpr] (- parenexpr))
-  pow-noparen)
-(defmatch pow-noparen
-  ([numexpr \^ pow] (expt numexpr pow)) ; right associative
-  numexpr)
-(defmatch numexpr
-  ;([\- numexpr] (- numexpr))
-  ([natnum] natnum))
-(def parenexpr (parens sum))
+  ([\- pow] (- pow))
+  paren-sum
+  bare-pow)
+(defmatch bare-pow
+  ([natnum \^ pow] (expt natnum pow)) ; right associative
+  natnum)
+(def paren-sum (parens sum))
 
 (def my-calculator (clearley.core/build-parser sum))
 

@@ -1,7 +1,6 @@
 (ns clearley.quentin
   (require [uncore.throw :as t]
            [uncore.str :as s]
-           [clearley.rules :as rules]
            [uncore.collections.worm-ordered-multimap :as omm]
            clojure.stacktrace clojure.pprint)
   (:refer-clojure :exclude [compile])
@@ -250,6 +249,7 @@
 
 (defn obj-sym [obj] (get-or-bind obj identity "match-result" {}))
 
+; TODO deduplicate advance loops by item set body.
 ; === Shifts and scanning
 
 ; A code snippet for applying a rule's action to some operands, faster than 'apply
@@ -322,7 +322,7 @@
         term (first (selector :term)) ; there can be only one
         body (if term?
                `(if (not (.hasInput ~'stream))
-                  ~(if term (second term) `(fail ~'state))
+                  ~(if term (second term) `(fail ~'stream))
                   ~body)
                body)]
     body))
@@ -405,9 +405,9 @@
         ; OK, let's shift
         (if (empty? shift-handlers)
           ; Fail early if we can't shift
-          `(fail ~'state)
+          `(fail ~'stream)
           `(let [~'rval
-                 ~(gen-shift-table shift-handlers false `(fail ~'state)),
+                 ~(gen-shift-table shift-handlers false `(fail ~'stream)),
                  ; Splice in a body parser if we need
                  ~@(if-let [automaton (gen-body-automaton item-set)]
                      `(~'rval

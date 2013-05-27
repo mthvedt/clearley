@@ -14,13 +14,14 @@
 ; parser builder fn and runs the given tests
 (defmacro defptest [name goal & forms]
   `(let [goal# (backtick/resolve-symbol '~goal) ; Capture the namespaced goal
-         ; This delay is a hack to avoid ugly local state dumps on test failure.
-         grammar# (let [foo# (g/build-grammar ~goal)]
-                    (delay foo#))]
+         ; Avoid ugly local state dumps on test failure. I call this
+         ; the Brad Pitt technique because print-object doesn't know what's in the box
+         grammar# (clojure.lang.Box. (g/build-grammar ~goal))]
      (def ~name
        (test-case
          (vary-meta (fn []
-                      (binding [*local-parser* (*parser-builder* goal# @grammar#)]
+                      (binding [*local-parser* (*parser-builder* goal#
+                                                                 (.val grammar#))]
                         ~@forms))
                     merge '~(meta name) {:name '~name})))))
 
