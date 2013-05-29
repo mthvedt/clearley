@@ -23,7 +23,7 @@ public class TransientParseState<S extends ParseStream> implements ParseState<S>
 	@Override
 	public String toString() {
 		return "TransientParseState{" +
-				", theGoto=" + theGoto +
+				"theGoto=" + theGoto +
 				", stream=" + stream +
 				'}';
 	}

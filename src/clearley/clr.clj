@@ -5,17 +5,25 @@
            [uncore.str :as s])
   (use uncore.core uncore.memo))
 
+; TODO steps:
+; * unfollow backlinks
+
 ; Tools for CLR(1) grammars.
 
 ; === Item record ===
 ; name: an object representing the clause that predicted this item
 ; should have a short str representation
 ; rule: the rule for this item
+; seed? is this a seed item?
+; exit? is this an exit item?
+; (For mutual-automaton parsing models, certain items must be 'exit items'
+; that cause automaton states to return. These might collide with non exit items.
+; The current impl generates items for an Earley automaton.)
 ; backlink: the rule from the original item set, before shifts
 ; (but including initial eager advances)
 ; follow: a terminal that can follow this item
 ; (depends on predicting items)
-(defrecord Item [rule backlink seed? follow])
+(defrecord Item [rule backlink seed? exit? follow])
 
 (defn follow-str [[tag follow]]
   (case tag
@@ -23,14 +31,17 @@
     :scanner (pr-str follow)
     :term "$"))
 
-(defn item-str [{:keys [rule seed?] :as item}]
-  (str (if seed? "" "+ ") (rules/rule-str rule)))
+(defn item-str [{:keys [rule seed? exit?] :as item}]
+  (str (if seed?
+         ; We want nonseeds, and returns, to have a visual offset.
+        (if exit? " ↩" "")
+        (if exit? "+↩ " "+  ")) (rules/rule-str rule)))
 
 (defn item-str-follow [{follow :follow :as item}]
   (str (item-str item) (if follow (str " : " (follow-str follow)) "")))
 
-(defnmem new-item [rule seed? follow]
-  (->Item rule nil seed? follow))
+(defnmem new-item [rule seed? exit? follow]
+  (->Item rule nil seed? exit? follow))
 
 (defnmem eager-advance [item prediction?]
   (if item
@@ -42,11 +53,12 @@
 (defnmem eager-advances [item prediction?]
   (take-while identity (iterate #(eager-advance % prediction?) item)))
 
-(defnmem predict [{:keys [rule follow]}]
+(defnmem predict [{:keys [rule seed? follow]}]
   (mapcat #(eager-advances % true)
           (for [prediction (rules/predict rule)
                 follow-terminal (rules/follow-first rule follow)]
-            (new-item prediction false follow-terminal))))
+            ; An item predicted by a seed item is an exit item.
+            (new-item prediction false seed? follow-terminal))))
 
 (defnmem advance [item]
   (assoc (update-all item {:rule (fn-> :advance deref) :backlink #(if % % item)})
@@ -60,7 +72,7 @@
     item))
 
 (defnmem goal-item [goal grammar]
-  (new-item (rules/goal-rule goal grammar) true [:term nil]))
+  (new-item (rules/goal-rule goal grammar) true true [:term nil]))
 
 ; === Item sets ===
 
@@ -136,7 +148,7 @@
 (defnmem raw-reduces [item-set]
   (->> item-set :more-seeds (filter (fn-> :rule rules/is-complete?))))
 
-(defnmem reduce-rules [item-set]
+#_(defnmem reduce-rules [item-set]
   (->> item-set raw-reduces (map :rule) (apply hash-set)))
 
 ; If there's a shift reduce conflict NOT accounting for lookahead.
@@ -145,7 +157,8 @@
 
 ; If there's a reduce reduce conflict NOT accounting for lookahead.
 (defnmem reduce-reduce? [item-set]
-  (> (count (reduce-rules item-set)) 1))
+  (->> item-set raw-reduces (map unfollow) (apply hash-set) count (< 1)))
+  ;(> (count (reduce-rules item-set)) 1))
 
 ; All possible reduces for this item-set, or the single reduce (in a seq)
 (defnmem reduces [item-set]
@@ -176,10 +189,6 @@
     (assert false) ; not yet implemented
     ))
 
-; Returns all backlinks for which there is a state split conflict
-(defnmem split-conflicts [item-set]
-  (into #{} (map key (filter (fn-> val count (> 1)) (goto-map item-set)))))
-
 (def item-set-pass0
   (fcache
     (fn [seeds] (into #{} seeds))
@@ -191,14 +200,11 @@
               (recur (reduce #(predict-into-item-set % %2 s)
                              c (predict s))
                      (inc dot))
+              ; TODO the below
               (let [const-reduce (if (or (can-shift? c) (reduce-reduce? c))
                                    nil
                                    (-> c raw-reduces first unfollow))]
-                (-> c
-                  (assoc :const-reduce const-reduce)
-                  ; Save the split-conflicts--they might be removed form the
-                  ; backlink map, but we still need to remember them
-                  (assoc :split-conflicts (split-conflicts c)))))))))))
+                c))))))))
 
 ; === Building item sets: second pass
 
@@ -235,15 +241,10 @@
 
 ; Figures out the return values for an item set and all its continuations.
 ; This works in pass2 because continuations are guaranteed to not be recursive.
-(defnmem item-set-pass1 [seeds keep-backlinks]
+(defnmem item-set-pass1 [seeds]
   (if (seq seeds)
     (let [item-set (item-set-pass0 seeds)
-          item-set (if (keep-backlinks (:backlink (:const-reduce item-set)))
-                     (assoc item-set :const-reduce nil)
-                     item-set)
-          conflicts (:split-conflicts item-set)
-          my-continues (map #(item-set-pass1 % conflicts)
-                             (continues item-set true))
+          my-continues (map item-set-pass1 (continues item-set true))
           descendant-deep-reduces (into #{} (mapcat :deep-reduces my-continues))
           deep-reduces (into descendant-deep-reduces
                              (map :backlink (reduces item-set)))
@@ -256,9 +257,11 @@
     (let [child-deep-reduces (into #{} (mapcat :deep-reduces children))]
       (if (:const-reduce item-set)
         ; If we don't need lookahead for this item, kill all of it!
-        (filter-seeds item-set #{})
+        ;(filter-seeds item-set #{})
+        item-set
+        item-set
         ; Kill items and backlinks with irrelevant lookahead
-        (-> item-set
+        #_(-> item-set
           (filter-items (into (:deep-reduces item-set) child-deep-reduces))
           (filter-backlinks child-deep-reduces))))))
 
@@ -272,8 +275,8 @@
 (def ^:dynamic *crumbs* nil)
 
 ; Builds an item set, and as a side effect, all its children.
-(defn build-item-set* [seeds keep-backlinks]
-  (let [build-key [(apply hash-set seeds) keep-backlinks]]
+(defn build-item-set* [seeds]
+  (let [build-key (apply hash-set seeds)]
     (cond (empty? seeds) nil,
           (lookup ::item-set build-key)
           (lookup ::item-set build-key),
@@ -281,16 +284,14 @@
           (get *crumbs* build-key)
           (get *crumbs* build-key),
           true
-          (let [item-set (item-set-pass1 seeds keep-backlinks)]
-            (binding [*crumbs* (assoc *crumbs* build-key
-                                      (item-set-pass1 seeds keep-backlinks))]
-              (let [shift-children (map #(build-item-set* %
-                                                          (:split-conflicts item-set))
+          (let [item-set (item-set-pass1 seeds)]
+            (binding [*crumbs* (assoc *crumbs* build-key item-set)]
+              (let [shift-children (map build-item-set*
                                         (concat (shifts item-set)
                                                 (shift-advances item-set)))
                     ; We don't use these, but let's make sure they are built
                     my-continues (runmap
-                                   #(build-item-set* % (:split-conflicts item-set))
+                                   build-item-set*
                                    (continues item-set true))
                     item-set (item-set-pass2 item-set shift-children)
                     ; Dedup and capture the deduped value
@@ -304,19 +305,16 @@
                   (println (save-count ::dedup-item-set) "item sets built"))
                 (save! ::item-set build-key item-set)))))))
 
-(defn pep-item-set [seeds keep-backlinks]
+(defn pep-item-set [seeds]
   (binding [*crumbs* {}]
-    (build-item-set* seeds keep-backlinks)))
-
-; TODO kill split conflicts
+    (build-item-set* seeds)))
 
 ; TODO progress reporting optional
 (defn build-item-sets [goal grammar]
   (println "Building item sets...")
-  (pep-item-set [(goal-item goal grammar)] #{})
+  (pep-item-set [(goal-item goal grammar)])
   (println (save-count ::dedup-item-set) "item sets built"))
 
 ; Gets the next item set for some backlink
 (defnmem advance-item-set [item-set backlink seed?]
-  (pep-item-set (advances item-set backlink seed?)
-                (:split-conflicts item-set)))
+  (pep-item-set (advances item-set backlink seed?)))

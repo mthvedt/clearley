@@ -140,16 +140,6 @@
                       k->ls))
                   {} vals)))
 
-(defnmem checked-shift-advance [item-set backlink]
-  (when-let [r (advance-item-set item-set backlink false)]
-    (when (advance-item-set item-set backlink true)
-      (println "State split conflict for item set:")
-      (println (item-set-str item-set))
-      (println "and item:")
-      (println (item-str-follow backlink))
-      (assert ((:split-conflicts item-set) backlink)))
-    r))
-
 ; Anaphoric, needs a ~'result and a wrapping loop/recur and a ~'state and ~'nextVal
 ; Generates the code required to parse an item set and handle the result.
 ; Can return or recur.
@@ -158,10 +148,11 @@
   ([item-set advanced-item-set]
    (gen-advance-handler item-set advanced-item-set 'next-val))
   ([item-set advanced-item-set form]
+   (assert form)
    (let [rs (:deep-reduces advanced-item-set)
          ; If we know what's coming next, we can inline it.
          r (if (= (count rs) 1) (first rs))
-         advanced-2 (checked-shift-advance item-set r)
+         advanced-2 (advance-item-set item-set r false)
          form (if-let [const-reduce (:const-reduce advanced-item-set)]
                 ; If we know the advanced item set's behavior, we can inline it.
                 (if advanced-2
@@ -189,7 +180,7 @@
 ; TODO we can probably use backlink-map instead of all this item set nonsense.
 (defn gen-advance-graph [{backlink-map :backlink-map :as item-set}]
   (let [s (shifts item-set)
-        s-sets (map #(pep-item-set % (:split-conflicts item-set)) s)
+        s-sets (map pep-item-set s)
         entries (mapcat :deep-reduces s-sets)
         [fgraph bgraph]
         (loop [fgraph {} bgraph {} queue s-sets breadcrumbs #{}]
@@ -200,7 +191,7 @@
               (let [edges (:deep-reduces node)
                     new-nodes (map
                                 (fn [edge]
-                                  (if-let [r (checked-shift-advance item-set edge)]
+                                  (if-let [r (advance-item-set item-set edge false)]
                                     r
                                     :return))
                                 edges)]
@@ -221,7 +212,7 @@
         ; Our simple implementation just recurs whenever the graph bifurcates.
         ; Here, we get all the recur points.
         entries (reduce into entries (for [[_ v] fgraph :when (> (count v) 1)] v))
-        cases (collate-cases item-id #(checked-shift-advance item-set %)
+        cases (collate-cases item-id #(advance-item-set item-set % false)
                              #(gen-advance-handler item-set %)
                              entries)]
     (if (seq cases)
@@ -346,8 +337,7 @@
             (assert (shift-reduce? item-set))
             (println "Shift-reduce conflict in item set\n" (item-set-str item-set))))
         [:shift [scanner
-                 `(~(item-parser-sym
-                      (pep-item-set shift (:split-conflicts item-set)) false true)
+                 `(~(item-parser-sym (pep-item-set shift) false true)
                       ~'state)]])
       ; ignore reduce-reduce for now
       (if (seq return)
@@ -364,15 +354,6 @@
 ; TODO continuation bouncing plan! You cna't have primitive returns without it.
 ; TODO: be able to pull items from a grammar
 ; TODO pregenerate all items
-;
-; Call (item-set, adv) with initial val. It can inline or drop a continuation
-;
-; WHAT IT LOOKS LIKE
-; Advancer fn: (fn state result cont)
-; -Start with Beast? Think we should start with Beast...
-;
-; Step 1: convert it to a trampoline
-; Step 2: inline
 (defn gen-parser [item-set working-syms argcount]
   (let [handlers (map #(gen-scanner-handler % item-set working-syms argcount)
                       (all-scanners item-set))
@@ -475,8 +456,14 @@
                     (.shift ~'stream)
                     ~(gen-return const-reduce ['v0] -1))
                  (gen-return const-reduce initial-arglist -1))
-               `(let [~@(stream-binder)]
-                  ~(gen-parser item-set initial-arglist -1)))
+               ; TODO this can use a lot of cleanup.
+               (if shift?
+                 `(let [~@(stream-binder)
+                        ~'v0 (.current ~'stream)]
+                    (.shift ~'stream)
+                    ~(gen-parser item-set ['v0] -1))
+                 `(let [~@(stream-binder)]
+                    ~(gen-parser item-set initial-arglist -1))))
         ; The optimal code size number, chosen by magic.
         ; Also if the code gets big it can hit the 64k JVM limit.
         body (if (> (code-size body) 160)
@@ -518,7 +505,7 @@
     (binding [*myns* myns
               *opts* (merge default-opts opts)]
       @(ns-resolve *myns*
-                   (item-parser-sym (pep-item-set [(goal-item goal grammar)] #{})
+                   (item-parser-sym (pep-item-set [(goal-item goal grammar)] #_{})
                                     true false)))))
 
 (defn parse [a-parse-fn input myns mem opts]
