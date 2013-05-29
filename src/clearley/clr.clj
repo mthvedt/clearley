@@ -5,9 +5,6 @@
            [uncore.str :as s])
   (use uncore.core uncore.memo))
 
-; TODO steps:
-; * unfollow backlinks
-
 ; Tools for CLR(1) grammars.
 
 ; === Item record ===
@@ -60,27 +57,23 @@
             ; An item predicted by a seed item is an exit item.
             (new-item prediction false seed? follow-terminal))))
 
-(defnmem advance [item]
-  (assoc (update-all item {:rule (fn-> :advance deref) :backlink #(if % % item)})
-         :seed? true))
+(defn unfollow [item] (assoc item :follow nil))
 
-(defnmem unfollow [item]
-  (let [item (assoc item :follow nil)
-        item (if (:backlink item)
-               (update item :backlink #(assoc % :follow nil))
-               item)]
-    item))
+(defnmem advance [item]
+  (assoc (update-all item {:rule (fn-> :advance deref)
+                           :backlink #(if % % (unfollow item))}) :seed? true))
 
 (defnmem goal-item [goal grammar]
   (new-item (rules/goal-rule goal grammar) true true [:term nil]))
 
 ; === Item sets ===
 
+; TODO Item set format:
+; 1. goal -> whatever
+; 2. whatever -> whatever | called by 1, 3
 ; items: the items in the set
 ; backlink-map: maps items -> predicting items
 ; gotos: map rule -> item set kernels.
-; actinos: map lookahead -> shift (item set kernel) or reduce (item).
-; we should eliminate code that peers into back-link-map, seeds, &c.
 (defrecord ItemSet [seeds more-seeds items backlink-map])
 
 (defn item-set-item-str [item backlink-map]
@@ -106,10 +99,6 @@
                            (omm/assoc (unfollow item) predictor)))]
     item-set))
 
-; TODO Item set format:
-; 1. goal -> whatever
-; 2. whatever -> whatever | called by 1, 3
-
 ; ordered multimap of scanners -> shift items
 (defnmem shift-map [item-set]
   (reduce (fn [m {:keys [rule] :as item}]
@@ -122,7 +111,7 @@
 (defnmem reduce-map [item-set]
   (reduce (fn [themap {:keys [rule follow] :as seed}]
             (if (rules/is-complete? rule)
-              (omm/assoc themap follow seed)
+              (omm/assoc themap follow (unfollow seed))
               themap))
           omm/empty (:more-seeds item-set)))
 
@@ -145,26 +134,16 @@
   (->> item-set :items (map :rule) (mapcat rules/predict) seq))
 
 ; All possible reduces for this item-set
-(defnmem raw-reduces [item-set]
+(defnmem reduces [item-set]
   (->> item-set :more-seeds (filter (fn-> :rule rules/is-complete?))))
-
-#_(defnmem reduce-rules [item-set]
-  (->> item-set raw-reduces (map :rule) (apply hash-set)))
 
 ; If there's a shift reduce conflict NOT accounting for lookahead.
 (defnmem shift-reduce? [item-set]
-  (and (can-shift? item-set) (seq (raw-reduces item-set))))
+  (and (can-shift? item-set) (seq (reduces item-set))))
 
 ; If there's a reduce reduce conflict NOT accounting for lookahead.
 (defnmem reduce-reduce? [item-set]
-  (->> item-set raw-reduces (map unfollow) (apply hash-set) count (< 1)))
-  ;(> (count (reduce-rules item-set)) 1))
-
-; All possible reduces for this item-set, or the single reduce (in a seq)
-(defnmem reduces [item-set]
-  (if-let [r (:const-reduce item-set)]
-    [r]
-    (raw-reduces item-set)))
+  (->> item-set reduces (map unfollow) (apply hash-set) count (< 1)))
 
 (defnmem goto-map [item-set]
   (zipmap
@@ -200,45 +179,11 @@
               (recur (reduce #(predict-into-item-set % %2 s)
                              c (predict s))
                      (inc dot))
-              ; TODO the below
-              (let [const-reduce (if (or (can-shift? c) (reduce-reduce? c))
-                                   nil
-                                   (-> c raw-reduces first unfollow))]
-                c))))))))
-
-; === Building item sets: second pass
-
-; Removes the lookahead from any item not in filter-set
-(defn filter-items [item-set filter-set]
-  (update item-set :items
-          (fn [items] (distinct (map (fn [item] (if (or (:seed? item)
-                                                        (filter-set item))
-                                                  item
-                                                  (unfollow item)))
-                                     items)))))
-
-(defn filter-seeds [item-set filter-set]
-  (let [filter-fn (fn [items]
-                    (distinct (map (fn [seed]
-                                     ; The only seed w/o backlink is the goal
-                                     (if (filter-set (:backlink seed))
-                                       seed
-                                       (unfollow seed)))
-                                   items)))]
-    (update-all item-set {:seeds filter-fn
-                          :more-seeds filter-fn
-                          :items filter-fn})))
-
-; Removes everything from backlink map not present in rvals
-; TODO this might be obsolete once advancer loops are fixed
-(defn filter-backlinks [item-set rvals]
-  (update item-set :backlink-map
-          (fn [themap]
-            (reduce #(if (rvals %2) % (omm/dissoc % %2))
-                    themap (omm/keys themap)))))
+                c)))))))
 
 ; === Building item sets: actually doing it
 
+; TODO don't need to save deep reduces, can defnmem it
 ; Figures out the return values for an item set and all its continuations.
 ; This works in pass2 because continuations are guaranteed to not be recursive.
 (defnmem item-set-pass1 [seeds]
@@ -251,24 +196,8 @@
           item-set (assoc item-set :deep-reduces deep-reduces)]
       item-set)))
 
-; Builds a pass2, given pass1 children and pass2 non-recurisve children.
-(defnmem item-set-pass2 [item-set children]
-  (if item-set
-    (let [child-deep-reduces (into #{} (mapcat :deep-reduces children))]
-      (if (:const-reduce item-set)
-        ; If we don't need lookahead for this item, kill all of it!
-        ;(filter-seeds item-set #{})
-        item-set
-        item-set
-        ; Kill items and backlinks with irrelevant lookahead
-        #_(-> item-set
-          (filter-items (into (:deep-reduces item-set) child-deep-reduces))
-          (filter-backlinks child-deep-reduces))))))
-
 ; Some key not dependent on order. Item set is fully determined by items
-; and const-reduce if it exists
-(defnmem item-set-key [item-set] [(into #{} (:items item-set))
-                                  (:const-reduce item-set)])
+(defnmem item-set-key [item-set] [(into #{} (:items item-set))])
 
 ; Prevent infinite recursion. When building an item set, pass2 needs to know
 ; of the pass2 of its recursive children but only the pass1 of itself if recursive
@@ -286,17 +215,13 @@
           true
           (let [item-set (item-set-pass1 seeds)]
             (binding [*crumbs* (assoc *crumbs* build-key item-set)]
-              (let [shift-children (map build-item-set*
-                                        (concat (shifts item-set)
-                                                (shift-advances item-set)))
-                    ; We don't use these, but let's make sure they are built
-                    my-continues (runmap
-                                   build-item-set*
-                                   (continues item-set true))
-                    item-set (item-set-pass2 item-set shift-children)
-                    ; Dedup and capture the deduped value
-                    ; Also get stuff for progress reporting
-                    prev-save-count (save-count ::dedup-item-set)
+              ; Eagerly build child item sets
+              (runmap build-item-set* (concat (shifts item-set)
+                                              (shift-advances item-set)))
+              (runmap build-item-set* (continues item-set true))
+              ; Dedup and capture the deduped value
+              ; Also get stuff for progress reporting
+              (let [prev-save-count (save-count ::dedup-item-set)
                     item-set (save-or-get! ::dedup-item-set
                                            (item-set-key item-set) item-set)
                     curr-save-count (save-count ::dedup-item-set)]
