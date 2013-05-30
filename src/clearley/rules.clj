@@ -158,13 +158,14 @@
   (binding [*breadcrumbs* {}]
     (null-result* rule)))
 
-; TODO we can speed this up by always storing results for the nonrecursive case.
+; first sets can't be calculated lazily by clr
 (def ^:dynamic *breadcrumbs-firsts*)
 ; Gets the first set of an item, including ::empty if item is nullable
 (defn- first-set* [rule]
   (cond
+    (not rule) #{}
     (terminal rule) #{(terminal rule)}
-    ; The first set of a rule always contains the first sets of its subrules.
+    ; The first set of a rule contains the first sets of its predicted subrules.
     ; The 'canon first set' is a full first set of a subrule (as opposed to the
     ; partial ones this fn calculates, because it terminates on recursion)
     (lookup ::canon-first-set rule) (lookup ::canon-first-set rule)
@@ -174,11 +175,10 @@
       ; Avoid infinite recursion by noting which rules are on the stack.
       (set! *breadcrumbs-firsts* (assoc *breadcrumbs-firsts* rule #{}))
       (let [r (apply clojure.set/union (map first-set* (predict rule)))
-            r (cond (null-result rule) (conj r ::empty)
-                    (r ::empty) (disj (clojure.set/union
-                                        r (first-set* @(:advance rule)))
-                                      ::empty)
-                    true r)]
+            r (if (or (null-result rule)
+                      (some identity (map null-result (predict rule))))
+                (clojure.set/union r (first-set* @(:advance rule)))
+                r)]
         (set! *breadcrumbs-firsts* (assoc *breadcrumbs-firsts* rule r))
         r))))
 
@@ -188,11 +188,11 @@
     (binding [*breadcrumbs-firsts* {}]
       (save! ::canon-first-set rule (first-set* rule)))))
 
-; For a rule R that predicts items R1..N, calculates the follow set for those items.
-(defnmem follow-first [^CfgRule rule parent-follow]
-  (let [follow-set (first-set @(:advance rule))]
-    (if (follow-set ::empty)
-      (disj (conj follow-set parent-follow) ::empty)
+; For a rule R with follow X that predicts subrule R1, caclulates the follow for R1.
+(defn follow-first [^CfgRule rule parent-follow]
+  (let [follow-set @(:follow-first rule)]
+    (if (null-result @(:advance rule))
+      (conj follow-set parent-follow)
       follow-set)))
 
 (defn take-action* [match]
@@ -226,7 +226,8 @@
 ; for eager matches we store that don't obey =
 (defn populate-cfg-rule [r]
   (let [r (assoc r :eager-advance (delay (eager-advance r)))
-        r (assoc r :advance (delay (if-not (is-complete? r) (advance r))))]
+        r (assoc r :advance (delay (if-not (is-complete? r) (advance r))))
+        r (assoc r :follow-first (delay (first-set @(:advance r))))]
     r))
 
 ; Construct a cfg rule from an initial rule. These are the only ones we need
