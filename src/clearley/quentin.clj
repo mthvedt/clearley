@@ -9,7 +9,7 @@
 ; TODO what does aot do?
 ; TODO figure out locking?
 
-(def ^:dynamic *print-code* false)
+(def ^:dynamic *print-code* true)
 (defn print-code [& vals]
   (binding [*print-meta* true]
     (if *print-code* (runmap
@@ -152,7 +152,8 @@
    (let [rs (returns advanced-item-set)
          ; If we know what's coming next, we can inline it.
          r (if (= (count rs) 1) (first rs))
-         advanced-2 (advance-item-set item-set r false)
+         advanced-2 (get-in item-set [:shift-advances r])
+         ; TODO fix const-reduce
          form (if-let [const-reduce (:const-reduce advanced-item-set)]
                 ; If we know the advanced item set's behavior, we can inline it.
                 (if advanced-2
@@ -166,7 +167,7 @@
      (if r
        (if advanced-2
          ; We can inline this
-         (gen-advance-handler item-set advanced-2 form)
+         (gen-advance-handler item-set @advanced-2 form)
          ; We can rturn directly
          form)
        ; We don't know what's coming next... let the main loop handle it
@@ -179,8 +180,7 @@
 ; TODO explode to graph library
 ; TODO we can probably use backlink-map instead of all this item set nonsense.
 (defn gen-advance-graph [{backlink-map :backlink-map :as item-set}]
-  (let [s (shifts item-set)
-        s-sets (map pep-item-set s)
+  (let [s-sets (map deref (vals (:shift-map item-set)))
         entries (mapcat returns s-sets)
         [fgraph bgraph]
         (loop [fgraph {} bgraph {} queue s-sets breadcrumbs #{}]
@@ -191,8 +191,9 @@
               (let [edges (returns node)
                     new-nodes (map
                                 (fn [edge]
-                                  (if-let [r (advance-item-set item-set edge false)]
-                                    r
+                                  (if-let [r (get-in item-set [:shift-advances edge])]
+                                  ;(if-let [r (advance-item-set item-set edge false)]
+                                    @r
                                     :return))
                                 edges)]
                 (recur (assoc fgraph node edges)
@@ -207,12 +208,16 @@
 ; Generates the automaton that handles the body (non-seed items) of a parse state.
 ; When the automaton is done,
 ; it returns a value that can be used to advance seed items.
+;
+; TODO memoize body automatons correctly
+; TODO how to inline shifts?
 (defn gen-body-automaton [{backlink-map :backlink-map :as item-set}]
   (let [[entries fgraph bgraph] (gen-advance-graph item-set)
         ; Our simple implementation just recurs whenever the graph bifurcates.
         ; Here, we get all the recur points.
         entries (reduce into entries (for [[_ v] fgraph :when (> (count v) 1)] v))
-        cases (collate-cases item-id #(advance-item-set item-set % false)
+        cases (collate-cases item-id #(if-let [r (get-in item-set
+                                                         [:shift-advances %])] @r)
                              #(gen-advance-handler item-set %)
                              entries)]
     (if (seq cases)
@@ -321,23 +326,25 @@
 ; Requires 'input, 'state, 'advancer, and 'partial-match OR non-null 'working-syms.
 ; Returns a code snippet for handling a state after a scanner is matched.
 ; Can either take action and return, or call a advancer returning the result.
+; TODO some stuff belongs in clr
 (defn gen-scanner-handler [scanner item-set working-syms arg-count]
-  (let [shift (omm/get-vec (shift-map item-set) scanner)
+  (let [shift (get (:shift-map item-set) scanner)
+        shift (if shift @shift)
         return (omm/get-vec (reduce-map item-set) scanner)
         scanner (if (char? scanner) (long scanner) scanner)]
    (if (> (count return) 1)
       (do
-        ;(assert (reduce-reduce? item-set))
+        (assert (reduce-reduce? item-set))
         (println "Reduce-reduce conflict in item set\n" (item-set-str item-set))
         (println "for items" (s/separate-str " " (map item-str-follow return)))))
-    (if (seq shift)
+    (if shift
       (do
         (if (seq return)
           (do
-            ;(assert (shift-reduce? item-set))
+            (assert (shift-reduce? item-set))
             (println "Shift-reduce conflict in item set\n" (item-set-str item-set))))
         [:shift [scanner
-                 `(~(item-parser-sym (pep-item-set shift) false true)
+                 `(~(item-parser-sym shift false true)
                       ~'state)]])
       ; ignore reduce-reduce for now
       (if (seq return)
@@ -360,7 +367,10 @@
         return-handlers (untag handlers :reduce)
         shift-handlers (untag handlers :shift)
         next-sym (symbol (str "v" (count working-syms)))
-        next-cases (collate-cases item-id #(advance-item-set item-set % true)
+        next-cases (collate-cases item-id #(if-let [r (get-in item-set
+                                                              [:continue-advances %])]
+                                             @r)
+                                  ;#(advance-item-set item-set % true)
                                   (if working-syms
                                     ; If monolithc, splice in the next parser...
                                     (fn [item-set]
@@ -505,7 +515,7 @@
     (binding [*myns* myns
               *opts* (merge default-opts opts)]
       @(ns-resolve *myns*
-                   (item-parser-sym (pep-item-set [(goal-item goal grammar)] #_{})
+                   (item-parser-sym @(pep-item-set [(goal-item goal grammar)] #_{})
                                     true false)))))
 
 (defn parse [a-parse-fn input myns mem opts]

@@ -75,8 +75,8 @@
 (defmethod predict* :default [rule]
   (t/RE "Don't know how to predict:" (pr-str rule)))
 
-(defnmem predict [{grammar :grammar :as a-rule}] (map #(cfg-rule % grammar)
-                                                      (predict* a-rule)))
+(defnmem predict [{grammar :grammar :as a-rule}]
+  (map #(cfg-rule % grammar) (predict* a-rule)))
 
 (defmulti terminal (fn-> :raw-rule :tag))
 (defmethod terminal :token [{dot :dot {[value] :value} :raw-rule}]
@@ -93,12 +93,13 @@
 
 (defmulti rule-str (fn-> :raw-rule :tag))
 (defmethod rule-str :seq [{dot :dot, {:keys [name value]} :raw-rule :as rule}]
-  (let [clause-strs (map :name value)]
-    (str name " -> "
+  (str name " -> "
+       (if-let [clause-strs (seq (map :name value))]
          (cond (= dot 0) (s/separate-str " " clause-strs)
                (is-complete? rule) (s/separate-str " " (concat clause-strs ["✓"]))
                true (s/separate-str " " (concat (take dot clause-strs) ["•"]
-                                                (drop dot clause-strs)))))))
+                                                (drop dot clause-strs))))
+         "(empty)")))
 
 (defn singleton-rule-str [{dot :dot, {:keys [name tag]} :raw-rule} clause-str]
   (str name " -> " tag " " clause-str (if (zero? dot) "" " ✓")))
@@ -155,8 +156,9 @@
         r))))
 
 (defnmem null-result [^CfgRule rule]
-  (binding [*breadcrumbs* {}]
-    (null-result* rule)))
+  (when rule
+    (binding [*breadcrumbs* {}]
+      (null-result* rule))))
 
 ; first sets can't be calculated lazily by clr
 (def ^:dynamic *breadcrumbs-firsts*)
@@ -224,9 +226,11 @@
 ; Two reasons for this... one is performance, other is so that
 ; any advance/eager-advance is only constructed once. This matters for example
 ; for eager matches we store that don't obey =
+; TODO is this true? defnmem should take care of it
 (defn populate-cfg-rule [r]
   (let [r (assoc r :eager-advance (delay (eager-advance r)))
         r (assoc r :advance (delay (if-not (is-complete? r) (advance r))))
+        ; TODO not necessary
         r (assoc r :follow-first (delay (first-set @(:advance r))))]
     r))
 
