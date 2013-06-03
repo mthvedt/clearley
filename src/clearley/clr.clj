@@ -71,14 +71,16 @@
 ; TODO Item set format:
 ; 1. goal -> whatever
 ; 2. whatever -> whatever | called by 1, 3
+;
+; seeds: the seed items
+; more-seeds: all possible seed items including eager advances
 ; items: the items in the set
 ; backlink-map: maps items -> predicting items
 ; gotos: map rule -> item set kernels.
 (defrecord ItemSet [seeds more-seeds items backlink-map])
 
 (defn item-set-item-str [item backlink-map]
-  (let [predictors (concat (omm/get-vec backlink-map item); TODO into ordered set
-                           (omm/get-vec backlink-map (unfollow item)))
+  (let [predictors (omm/get-vec backlink-map (unfollow item))
         predictor-str (->> predictors
                         (map item-str) (s/separate-str ", ") s/cutoff)]
     (str (item-str-follow item) (if (seq predictor-str) (str " | " predictor-str)))))
@@ -87,15 +89,14 @@
   (with-out-str
     (runmap println (map #(item-set-item-str % backlink-map) items))))
 
-(defn predict-into-item-set [{:keys [items backlink-map] :as item-set}
-                             {backlink :backlink :as item} predictor]
-  (assert predictor) (assert (not backlink))
+(defn predict-into-item-set [{:keys [items backlink-map] :as item-set} item predictor]
+  (assert predictor)
   (let [item-set (if (empty? (omm/get-vec backlink-map item))
                    (update item-set :items #(conj % item))
                    item-set)
         item-set (update item-set :backlink-map
-                         (fn->
-                           (omm/assoc item predictor)
+                         (fn-> ; TODO rather hacky
+                           (omm/assoc item nil)
                            (omm/assoc (unfollow item) predictor)))]
     item-set))
 
@@ -127,23 +128,20 @@
   (- (-> rule :raw-rule :value count) (-> rule :null-results count)))
 
 (defnmem item-set-size [item-set]
-  (apply max (map-> (concat (:seeds item-set) (:more-seeds item-set))
-                    :rule rule-size)))
+  (apply max (map-> (:more-seeds item-set) :rule rule-size)))
 
-(defnmem can-shift? [item-set]
-  (->> item-set :items (map :rule) (mapcat rules/predict) seq))
+;(defnmem can-shift? [item-set]
+ ; (->> item-set :items (map :rule) (mapcat rules/predict) seq))
 
-; All possible reduces for this item-set
-(defnmem reduces [item-set]
-  (->> item-set :more-seeds (filter (fn-> :rule rules/is-complete?))))
+(defnmem returns [{:keys [more-seeds]}] (distinct (map :backlink more-seeds)))
 
 ; If there's a shift reduce conflict NOT accounting for lookahead.
-(defnmem shift-reduce? [item-set]
-  (and (can-shift? item-set) (seq (reduces item-set))))
+;(defnmem shift-reduce? [item-set]
+ ; (and (can-shift? item-set) (seq (returns item-set))))
 
 ; If there's a reduce reduce conflict NOT accounting for lookahead.
-(defnmem reduce-reduce? [item-set]
-  (->> item-set reduces (map unfollow) (apply hash-set) count (< 1)))
+;(defnmem reduce-reduce? [item-set]
+  ;(->> item-set returns (apply hash-set) count (< 1)))
 
 (defnmem goto-map [item-set]
   (zipmap
@@ -168,6 +166,7 @@
     (assert false) ; not yet implemented
     ))
 
+; TODO make more elegant, perhaps parents store child item set numbers eagerly
 (def item-set-pass0
   (fcache
     (fn [seeds] (into #{} seeds))
@@ -183,19 +182,6 @@
 
 ; === Building item sets: actually doing it
 
-; TODO don't need to save deep reduces, can defnmem it
-; Figures out the return values for an item set and all its continuations.
-; This works in pass2 because continuations are guaranteed to not be recursive.
-(defnmem item-set-pass1 [seeds]
-  (if (seq seeds)
-    (let [item-set (item-set-pass0 seeds)
-          my-continues (map item-set-pass1 (continues item-set true))
-          descendant-deep-reduces (into #{} (mapcat :deep-reduces my-continues))
-          deep-reduces (into descendant-deep-reduces
-                             (map :backlink (reduces item-set)))
-          item-set (assoc item-set :deep-reduces deep-reduces)]
-      item-set)))
-
 ; Some key not dependent on order. Item set is fully determined by items
 (defnmem item-set-key [item-set] [(into #{} (:items item-set))])
 
@@ -203,6 +189,11 @@
 ; of the pass2 of its recursive children but only the pass1 of itself if recursive
 (def ^:dynamic *crumbs* nil)
 
+; TODO delete all the bullshit.
+;
+; VISION: an [item-set, known lookahead] pair.
+; knows how to inline itself.
+;
 ; Builds an item set, and as a side effect, all its children.
 (defn build-item-set* [seeds]
   (let [build-key (apply hash-set seeds)]
@@ -213,7 +204,7 @@
           (get *crumbs* build-key)
           (get *crumbs* build-key),
           true
-          (let [item-set (item-set-pass1 seeds)]
+          (let [item-set (item-set-pass0 seeds)]
             (binding [*crumbs* (assoc *crumbs* build-key item-set)]
               ; Eagerly build child item sets
               (runmap build-item-set* (concat (shifts item-set)

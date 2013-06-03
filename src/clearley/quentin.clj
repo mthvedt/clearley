@@ -149,7 +149,7 @@
    (gen-advance-handler item-set advanced-item-set 'next-val))
   ([item-set advanced-item-set form]
    (assert form)
-   (let [rs (:deep-reduces advanced-item-set)
+   (let [rs (returns advanced-item-set)
          ; If we know what's coming next, we can inline it.
          r (if (= (count rs) 1) (first rs))
          advanced-2 (advance-item-set item-set r false)
@@ -181,14 +181,14 @@
 (defn gen-advance-graph [{backlink-map :backlink-map :as item-set}]
   (let [s (shifts item-set)
         s-sets (map pep-item-set s)
-        entries (mapcat :deep-reduces s-sets)
+        entries (mapcat returns s-sets)
         [fgraph bgraph]
         (loop [fgraph {} bgraph {} queue s-sets breadcrumbs #{}]
           (if-let [node (first queue)]
             (do
               (if (breadcrumbs (item-set-key node))
               (recur fgraph bgraph (rest queue) breadcrumbs)
-              (let [edges (:deep-reduces node)
+              (let [edges (returns node)
                     new-nodes (map
                                 (fn [edge]
                                   (if-let [r (advance-item-set item-set edge false)]
@@ -325,16 +325,16 @@
   (let [shift (omm/get-vec (shift-map item-set) scanner)
         return (omm/get-vec (reduce-map item-set) scanner)
         scanner (if (char? scanner) (long scanner) scanner)]
-   (if (and (> (count return) 1) (not (:const-reduce item-set)))
+   (if (> (count return) 1)
       (do
-        (assert (reduce-reduce? item-set))
+        ;(assert (reduce-reduce? item-set))
         (println "Reduce-reduce conflict in item set\n" (item-set-str item-set))
         (println "for items" (s/separate-str " " (map item-str-follow return)))))
     (if (seq shift)
       (do
         (if (seq return)
           (do
-            (assert (shift-reduce? item-set))
+            ;(assert (shift-reduce? item-set))
             (println "Shift-reduce conflict in item set\n" (item-set-str item-set))))
         [:shift [scanner
                  `(~(item-parser-sym (pep-item-set shift) false true)
