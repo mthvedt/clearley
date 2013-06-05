@@ -35,9 +35,6 @@
   [goal grammar & opts]
   (let [opts (apply hash-map opts)
         mem-atom (atom {})
-        ; TODO split
-        ; TODO this is hideous
-        _ (with-memoizer mem-atom (clr/build-item-sets goal grammar))
         q-parser-context (atom @mem-atom)
         match-parser-context (atom @mem-atom)
         myns (q/new-ns)

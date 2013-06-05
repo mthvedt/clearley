@@ -190,6 +190,7 @@
     (binding [*breadcrumbs-firsts* {}]
       (save! ::canon-first-set rule (first-set* rule)))))
 
+; TODO delete
 ; For a rule R with follow X that predicts subrule R1, caclulates the follow for R1.
 (defn follow-first [^CfgRule rule parent-follow]
   (let [follow-set @(:follow-first rule)]

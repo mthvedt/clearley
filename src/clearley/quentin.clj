@@ -153,15 +153,14 @@
          ; If we know what's coming next, we can inline it.
          r (if (= (count rs) 1) (first rs))
          advanced-2 (get-in item-set [:shift-advances r])
-         ; TODO fix const-reduce
-         form (if-let [const-reduce (:const-reduce advanced-item-set)]
+         form (if-let [a-const-reduce (const-reduce advanced-item-set)]
                 ; If we know the advanced item set's behavior, we can inline it.
                 (if advanced-2
                   ; If we furthermore know it's a shift advance, we do not have
                   ; to set the goto number.
-                  `(~(-> const-reduce :rule :raw-rule :action action-sym) ~form)
+                  `(~(-> a-const-reduce :rule :raw-rule :action action-sym) ~form)
                   `(do (.setGoto ~'state ~(item-id r))
-                     (~(-> const-reduce :rule :raw-rule :action action-sym) ~form)))
+                     (~(-> a-const-reduce :rule :raw-rule :action action-sym) ~form)))
                 `(~(item-parser-sym advanced-item-set false false)
                      ~'state ~form))]
      (if r
@@ -192,7 +191,6 @@
                     new-nodes (map
                                 (fn [edge]
                                   (if-let [r (get-in item-set [:shift-advances edge])]
-                                  ;(if-let [r (advance-item-set item-set edge false)]
                                     @r
                                     :return))
                                 edges)]
@@ -267,7 +265,8 @@
 (defn gen-return [item working-syms arg-count]
   (let [backlink-id (-> item :backlink item-id)
         action-operands (if working-syms working-syms 
-                          (map (fn [i] `(aget ~'partial-match ~i)) (range arg-count)))]
+                          (map (fn [i] `(aget ~'partial-match ~i))
+                               (range arg-count)))]
     `(do
        (.setGoto ~'state ~backlink-id)
        ~(apply-args (:rule item) action-operands))))
@@ -278,7 +277,6 @@
 
 ; Scanners: from gen-scanner-handler, of form [scanner code-form]
 ; TODO nomenclature: some scanners are tokens and some scanners?
-; TODO inline some parsers?
 (defn gen-shift-table [scanners term? continuation]
   (let [selector (fn [wanted-tag]
                    (remove nil? (map (fn [[[tag scanner] form]]
@@ -334,15 +332,18 @@
         scanner (if (char? scanner) (long scanner) scanner)]
    (if (> (count return) 1)
       (do
-        (assert (reduce-reduce? item-set))
         (println "Reduce-reduce conflict in item set\n" (item-set-str item-set))
-        (println "for items" (s/separate-str " " (map item-str-follow return)))))
+        (println "for items" (s/separate-str " " (map prn return)))
+        (println "for items" (s/separate-str " " (map #(item-str-follow
+                                                         % (:follow-map item-set))
+                                                      return)))
+        (assert (reduce-reduce? item-set))))
     (if shift
       (do
         (if (seq return)
           (do
-            (assert (shift-reduce? item-set))
-            (println "Shift-reduce conflict in item set\n" (item-set-str item-set))))
+            (println "Shift-reduce conflict in item set\n" (item-set-str item-set))
+            (assert (shift-reduce? item-set))))
         [:shift [scanner
                  `(~(item-parser-sym shift false true)
                       ~'state)]])
@@ -367,10 +368,10 @@
         return-handlers (untag handlers :reduce)
         shift-handlers (untag handlers :shift)
         next-sym (symbol (str "v" (count working-syms)))
+        ; TODO safe deref? item set getter helper?
         next-cases (collate-cases item-id #(if-let [r (get-in item-set
                                                               [:continue-advances %])]
                                              @r)
-                                  ;#(advance-item-set item-set % true)
                                   (if working-syms
                                     ; If monolithc, splice in the next parser...
                                     (fn [item-set]
@@ -379,16 +380,15 @@
                                         (conj working-syms next-sym) -1))
                                     ; Othwerise, it's a funcall
                                     (fn [item-set]
-                                      `(~(cont-parser-sym item-set
-                                                          (inc argcount))
+                                      `(~(cont-parser-sym item-set (inc argcount))
                                            ~'state ~'partial-match)))
                                   (omm/keys (:backlink-map item-set)))]
 
     ; Short-circuit if this is a trivial parser body.
-    (if-let [const-reduce (:const-reduce item-set)]
+    (if-let [a-const-reduce (const-reduce item-set)]
       (do
         (assert (empty? shift-handlers))
-        (gen-return const-reduce working-syms argcount))
+        (gen-return a-const-reduce working-syms argcount))
 
       (gen-shift-table
         ; First, should return?
@@ -420,8 +420,8 @@
   (let [r `(fn [~(apply symbol '(^ParseState state))
                 ~(apply symbol '(^objects partial-match))]
              ; Some parsers are trivial. If so, we short-circuit.
-             ~(if-let [const-reduce (:const-reduce item-set)]
-                (gen-return const-reduce nil argcount)
+             ~(if-let [a-const-reduce (const-reduce item-set)]
+                (gen-return a-const-reduce nil argcount)
                 `(let [~@(stream-binder)]
                    ~(gen-parser item-set nil argcount))))
         f (compile r)]
@@ -458,15 +458,15 @@
 
 (defn gen-parser-body [item-set initial? shift?]
   (let [initial-arglist (if (or initial? shift?) [] ['v0])
-        body (if-let [const-reduce (:const-reduce item-set)]
+        body (if-let [a-const-reduce (const-reduce item-set)]
                ; Some parsers are trivial. If so, we short-circuit.
                (if shift?
                  `(let [~@(stream-binder)
                         ~'v0 (.current ~'stream)]
                     (.shift ~'stream)
-                    ~(gen-return const-reduce ['v0] -1))
-                 (gen-return const-reduce initial-arglist -1))
-               ; TODO this can use a lot of cleanup.
+                    ~(gen-return a-const-reduce ['v0] -1))
+                 (gen-return a-const-reduce initial-arglist -1))
+               ; TODO this can use cleanup.
                (if shift?
                  `(let [~@(stream-binder)
                         ~'v0 (.current ~'stream)]
@@ -515,8 +515,7 @@
     (binding [*myns* myns
               *opts* (merge default-opts opts)]
       @(ns-resolve *myns*
-                   (item-parser-sym @(pep-item-set [(goal-item goal grammar)] #_{})
-                                    true false)))))
+                   (item-parser-sym (build-item-sets goal grammar) true false)))))
 
 (defn parse [a-parse-fn input myns mem opts]
   (with-memoizer mem
