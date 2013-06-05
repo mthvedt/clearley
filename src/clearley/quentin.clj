@@ -333,7 +333,7 @@
    (if (> (count return) 1)
       (do
         (println "Reduce-reduce conflict in item set\n" (item-set-str item-set))
-        (println "for items" (s/separate-str " " (map prn return)))
+        ;(println "for items" (s/separate-str " " (map prn return)))
         (println "for items" (s/separate-str " " (map #(item-str-follow
                                                          % (:follow-map item-set))
                                                       return)))

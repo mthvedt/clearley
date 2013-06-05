@@ -2,7 +2,8 @@
   (require [clearley.rules :as rules]
            [uncore.collections.worm-ordered-multimap :as omm]
            [uncore.collections.worm-ordered-set :as os]
-           [uncore.str :as s])
+           [uncore.str :as str]
+           [clojure.set :as set])
   (use uncore.core uncore.memo))
 ; Tools for CLR(1) grammars.
 
@@ -27,12 +28,10 @@
 ; The current impl generates items for an Earley automaton.)
 ; backlink: the rule from the original item set, before shifts
 ; (but including initial eager advances)
-; follow: a terminal that can follow this item
-; (depends on predicting items)
-(defrecord Item [rule backlink seed? exit? follow])
+(defrecord Item [rule backlink seed? exit?])
 
-(defnmem new-item [rule seed? exit? follow]
-  (->Item rule nil seed? exit? follow))
+(defnmem new-item [rule seed? exit?]
+  (->Item rule nil seed? exit?))
 
 (defnmem eager-advance [item prediction?]
   (if item
@@ -44,28 +43,19 @@
 (defnmem eager-advances [item prediction?]
   (take-while identity (iterate #(eager-advance % prediction?) item)))
 
-(defnmem predict [{:keys [rule seed? follow]}]
+(defnmem predict [{:keys [rule seed?]}]
   (mapcat #(eager-advances % true)
-          (for [prediction (rules/predict rule)
-                follow-terminal (rules/follow-first rule follow)]
+          (for [prediction (rules/predict rule)]
+            ; TODO map not for
             ; An item predicted by a seed item is an exit item.
-            (new-item prediction false seed? follow-terminal))))
-
-; TODO kill
-(defn unfollow [item] (if (:follow item) (assoc item :follow nil) item))
+            (new-item prediction false seed?))))
 
 (defnmem advance [item]
   (assoc (update-all item {:rule (fn-> :advance deref)
-                           :backlink #(if % % (unfollow item))}) :seed? true))
+                           :backlink #(if % % item)}) :seed? true))
 
 (defnmem goal-item [goal grammar]
-  (new-item (rules/goal-rule goal grammar) true true [:term nil]))
-
-(defn follow-str [[tag follow]]
-  (case tag
-    :token (pr-str follow)
-    :scanner (pr-str follow)
-    :term "$"))
+  (new-item (rules/goal-rule goal grammar) true true))
 
 (defn item-str [{:keys [rule seed? exit?] :as item}]
   (str (if seed?
@@ -73,11 +63,17 @@
          (if exit? " ↩" "")
          (if exit? "+↩ " "+  ")) (rules/rule-str rule)))
 
-(defn item-str-follow [{follow :follow :as item} follow-map]
-  (let [follows (get follow-map (unfollow item))
-        follows-str (s/separate-str " " (map follow-str follows))]
-    (str (item-str item) (if follow (str " : " (follow-str follow)) "")
-         " || " follows-str)))
+(defn follow-str [[tag follow]]
+  (case tag
+    :token (pr-str follow)
+    :scanner (pr-str follow)
+    :item (str "<item" (item-str follow) ">")
+    :term "$"))
+
+(defn item-str-follow [item {follow-map :follow-map}]
+  (let [follows (get follow-map item)
+        follows-str (str/separate-str " " (map follow-str follows))]
+    (str (item-str item) (if (seq follows-str) (str " : " follows-str) ""))))
 
 ; === Item sets ===
 
@@ -96,74 +92,15 @@
 ; at the end of item set construction, all unused items are tossed.
 (defrecord ItemSet [seeds more-seeds items backlink-map follow-map])
 
-(defn item-set-item-str [item backlink-map follow-map]
-  (let [predictors (omm/get-vec backlink-map (unfollow item))
+(defn item-set-item-str [item item-set]
+  (let [predictors (omm/get-vec (:backlink-map item-set) item)
         predictor-str (->> predictors
-                        (map item-str) (s/separate-str ", ") s/cutoff)]
-    (str (item-str-follow item follow-map)
+                        (map item-str) (str/separate-str ", ") #_str/cutoff)]
+    (str (item-str-follow item item-set)
          (if (seq predictor-str) (str " | " predictor-str)))))
 
-(defn item-set-str [{:keys [items backlink-map follow-map]}]
-  (with-out-str ; TODO change
-    (runmap println (map #(item-set-item-str % backlink-map follow-map) items))))
-
-; A follow set is formed from the union of follow-first and follow sets.
-; Check out any book on parsing theory for more information.
-; These unions are stored in delays so we can tell if they are ever derefenced
-; by the item set builder (if they never are we can just discard them).
-; If a follow set contains any follow sets from other rules, we iteratively derefernce
-; those sets, and so on. Eventually we will end up with the full follow set.
-; We also need to be able to mark which follow sets we need to know about,
-; and to be able to construct them lazily.
-(defn follow-set! [item follow-map]
-  (let [item (unfollow item)]
-    (loop [follow-set #{}
-           queue [item]
-           breadcrumbs #{}]
-      ; We loop until there are no more transitive follows to dereference.
-      (if-let [top (first queue)]
-        (let [{:keys [visited transitive-follows follow-firsts delay-follow-set]}
-              (get follow-map (unfollow top))]
-          ; Delay follow sets will only be carried over from noncyclic parent
-          ; item sets. There's no danger of unbounded recursion.
-          (if delay-follow-set
-            (do
-              @visited
-              (recur (clojure.set/union follow-set @delay-follow-set)
-                     (rest queue) (conj breadcrumbs top)))
-            (let [new-follow-set (apply clojure.set/union follow-set
-                                        (map-> follow-firsts :rule :follow-first
-                                               deref))
-                  ; TODO should transitive follows b unfollowed?
-                  ; Only add transitive follow sets to the queue we haven't seen
-                  new-queue (concat queue (remove breadcrumbs transitive-follows))]
-              ; Mark that we've visited this follow set
-              @visited
-              (recur new-follow-set (rest new-queue) (conj breadcrumbs item)))))
-        follow-set))))
-
-(defn predict-into-item-set [{:keys [items backlink-map follow-map] :as item-set}
-                             item predictor]
-  (assert predictor) (assert item)
-  (when-not (rules/is-complete? item)
-    (let [item-set (if (empty? (omm/get-vec backlink-map item))
-                     (update item-set :items #(conj % item))
-                     item-set)
-          ; TODO simplify
-          item-set (update-in item-set [:follow-map (unfollow item) :follow-firsts]
-                              (fnil conj #{}) (unfollow predictor))
-          item-set (if (rules/null-result @(:advance (:rule predictor)))
-                     (update-in item-set [:follow-map (unfollow item)
-                                          :transitive-follows]
-                                (fnil conj #{}) (unfollow predictor))
-                     item-set)
-          item-set (update-in item-set [:follow-map (unfollow item) :visited]
-                              #(if % % (delay)))
-          item-set (update item-set :backlink-map
-                           (fn-> ; TODO rather hacky TODO eventually won't need
-                                 (omm/assoc item nil)
-                                 (omm/assoc (unfollow item) predictor)))]
-      item-set)))
+(defn item-set-str [item-set]
+  (str/separate-str \newline (map #(item-set-item-str % item-set) (:items item-set))))
 
 ; ordered multimap scanner -> shift items
 (defn shift-map [item-set]
@@ -175,10 +112,10 @@
 
 ; ordered multimap of scanners -> return items
 (defnmem reduce-map [item-set]
-  (reduce (fn [themap {:keys [rule follow] :as seed}]
+  (reduce (fn [themap {rule :rule :as seed}]
             (if (rules/is-complete? rule)
-              (reduce #(omm/assoc % %2 (unfollow seed))
-                      themap (get-in item-set [:follow-map (unfollow seed)]))
+              (reduce #(omm/assoc % %2 seed)
+                      themap (get-in item-set [:follow-map seed]))
               themap))
           omm/empty (:more-seeds item-set)))
 
@@ -201,8 +138,7 @@
 (defnmem can-shift? [item-set]
   (->> item-set :items (map :rule) (mapcat rules/predict) seq))
 
-(defnmem returns [{:keys [more-seeds]}] (distinct (map unfollow
-                                                       (map :backlink more-seeds))))
+(defnmem returns [{:keys [more-seeds]}] (distinct (map :backlink more-seeds)))
 
 ; If there's a shift reduce conflict NOT accounting for lookahead.
 (defnmem shift-reduce? [item-set]
@@ -217,8 +153,8 @@
 (defnmem const-reduce [item-set]
   (let [my-returns (returns item-set)]
     (if-not (or (shift-reduce? item-set) (reduce-reduce? item-set))
-    ;(if (and (= 1 (count my-returns)) (not (shift-reduce? item-set)))
-      (unfollow (first (:more-seeds item-set))))))
+      ; TODO fix
+      (first (:more-seeds item-set)))))
 
 (defn advancable-map [item-set seed?]
   (into {} (filter second (zipmap
@@ -226,75 +162,106 @@
                               (map #(seq (advancables item-set % seed?))
                                    (omm/keys (:backlink-map item-set)))))))
 
+; === Building item sets
+
+; Adds a follow set for a predictor to an item in an item-set.
+; If the given item is one advance from completion (meaning some follow sets
+; might depend on its own), transitively closes those follow sets by recursion.
+(defn add-follow [{:keys [items backlink-map follow-map] :as item-set} item predictor
+                  new?]
+  (assert predictor) (assert item)
+  (let [fset1 (get-in item-set [:follow-map item] #{})
+        ffirst (-> predictor :rule :follow-first deref)
+        ;_ (println (item-str item))
+        ;_ (println (item-str predictor))
+        ;_ (println (map follow-str fset1))
+        ;_ (println (map follow-str ffirst))
+        ; TODO integrate into rules/follow-first
+        ; TODO require set
+        ; Transitive close if we need
+        ffirst (if (rules/null-result @(:advance (:rule predictor)))
+                 (set/union ffirst (get-in item-set [:follow-map predictor]))
+                 ffirst)
+        ;_ (println (map follow-str ffirst))
+        fset2 (set/union fset1 ffirst)
+        item-set (assoc-in item-set [:follow-map item] fset2)]
+    (if new?
+      ; If this was a new item, there are no transitive follow sets to update.
+      item-set
+      ; Only do the transitive closure if A) we need to and
+      ; B) the follow set was updated.
+      (if (and (rules/null-result @(:advance (:rule item)))
+               (not= fset1 fset2))
+        (do
+          ;(println "Recursing")
+          (let [r (reduce #(add-follow % %2 predictor false) item-set (predict item))]
+            ;(println "Done recursing")
+            r))
+        item-set))))
+
+(defn predict-into-item-set [{:keys [items backlink-map follow-map] :as item-set}
+                             item predictor]
+  (assert predictor) (assert item)
+  (when-not (rules/is-complete? item)
+    (let [item-set (if (empty? (omm/get-vec backlink-map item))
+                     (-> item-set
+                       (update :items #(conj % item))
+                       (add-follow item predictor true))
+                     (add-follow item-set item predictor false))
+          item-set (update item-set :backlink-map #(omm/assoc % item predictor))]
+      item-set)))
+
 ; TODO make more elegant, perhaps parents store child item set numbers eagerly
 (defn seeds-key [seeds follow-map]
-  (into #{} (map (fn [seed]
-                   (let [{:keys [transitive-follows follow-firsts]}
-                         (get follow-map (unfollow seed))]
-                     (merge seed {:transitive-follows transitive-follows
-                                  :follow-firsts follow-firsts})))
-                 seeds)))
+  (into #{} (map #(assoc % :lane (-> follow-map (get %))) seeds)))
 
-; TODO no need for fchce
-(def item-set-pass0
+(defn populate-item-set [item-set]
+  (loop [c item-set, dot 0]
+    (if-let [s (get (:items c) dot)]
+      (recur (reduce #(predict-into-item-set % %2 s)
+                     c (predict s))
+             (inc dot))
+      c)))
+
+(def clr-item-set
   (fcache
     seeds-key
-    (fn [seeds follow-map]
+    (fn [seeds parent-follow]
       (if (seq seeds)
         (let [more-seeds (mapcat #(eager-advances % false) seeds)
-              ; TODO the below is guly
-              follow-map (apply hash-map
-                                (mapcat (fn [[k v]]
-                                          (mapcat #(list % v)
-                                                  (eager-advances k false)))
-                                        follow-map))]
-          (loop [c (->ItemSet seeds more-seeds (vec more-seeds) omm/empty follow-map),
-                 dot 0]
-            (if-let [s (get (:items c) dot)]
-              (recur (reduce #(predict-into-item-set % %2 s)
-                             c (predict s))
-                     (inc dot))
-                c)))))))
+              follow-map (reduce (fn [m [item follow]]
+                                   (reduce (fn [m aitem]
+                                             (update m aitem #(set/union % follow)))
+                                           m (eager-advances item false)))
+                                 parent-follow parent-follow)]
+          ;(println "pass0")
+          ;(println (item-set-str
+          ;           (->ItemSet seeds more-seeds (vec more-seeds) omm/empty nil)))
+          (populate-item-set
+            (->ItemSet seeds more-seeds (vec more-seeds) omm/empty follow-map)))))))
 
 ; === Building item sets: actually doing it
 
-; TODO do we even need follow-firsts in follow-map? or just transitive follows?
-;
-; TODO pass0 and pass1 can be combined? nah shoudl stay modular
-; but don't name pass0 and pass1
 (defnmem item-set-pass1 [seeds follow-map]
-  (if (seq seeds)
-    (let [item-set (item-set-pass0 seeds follow-map)
-          ; Wrap the follow set calculations in delays.
-          item-set (update item-set :follow-map
-                           (fn [old-follow-set]
-                             (mapm (fn [k v]
-                                     [k (assoc v :delay-follow-set
-                                               (delay
-                                                 (follow-set! k old-follow-set)))])
-                                   old-follow-set)))]
-      item-set)))
+  (update (clr-item-set seeds follow-map) :follow-map
+          (fn [m]
+            (mapvals (fn [v] (apply hash-set (map identity v)))
+                     m))))
 
-; The final pass. Resolve conflicts.
+; Build the final follow map
 (defn item-set-pass2 [item-set]
-  ; This fn will build the final follow-map
   ; TODO error here if deterministic? Or maybe helper fn to find
   ; conflicts that is invoked in quentin
-  (let [follow-map-fn (if
-                        ;true
-                        (or (shift-reduce? item-set) (reduce-reduce? item-set))
-                        ; resolve conflicts--we have to resolve all of them
-                        (fn [{:keys [visited delay-follow-set]}]
-                          ;(println "Realizing unrealized follow")
-                          @visited  @delay-follow-set)
-                        ; Only resolve a conflict if visited has been deref'd
-                        (fn [{:keys [visited delay-follow-set]}]
-                          (if (realized? visited)
-                            (do
-                              ;(println "Visited!")
-                              @delay-follow-set)
-                            #_(println "Unvisited; discarding follow"))))]
-    (update item-set :follow-map #(mapvals follow-map-fn %))))
+  ;(println "========")
+  ;(println "Building item set")
+  ;(println (item-set-str (dissoc item-set :follow-map)))
+  ;(println)
+  (let [r item-set]
+    ;(println)
+    ;(println "Built")
+    ;(println (item-set-str r))
+    ;(println "========")
+    r))
 
 ; Deduplication key for a fully built item set
 ; TODO not separate fn
@@ -310,24 +277,15 @@
   (into {} (map (fn [k]
                   (let [v (get m k)]
                     ; ugly and inefficient. Oh well
-                    ;(println "keys")
-  ;(runmap println (map item-str v))
-  ;                  (println "a")
-  ;(runmap println (map item-str (keys follow-map)))
-  ;                  (println "b")
-  ;(runmap println (map item-str (keys (mapkeys advance (select-keys follow-map (map unfollow v))))))
                     [k (build-item-set* (map advance v)
-                                        (->> v (map unfollow)
+                                        (->> v
                                           (select-keys follow-map)
                                           (mapkeys advance)))]))
-                                        ;(mapkeys advance
-                                         ;        (select-keys follow-map (map unfollow v))))]))
                 (keys m))))
 
 ; Builds an item set, and as a side effect, all its children. Returns a ref.
 ; TODO this delay thing is a hack
 (defn build-item-set* [seeds follow-map]
-  ;(let [build-key (apply hash-set seeds)]
   (let [build-key (seeds-key seeds follow-map)]
     (cond (empty? seeds) (ref-box nil),
           (lookup ::item-set build-key)
@@ -344,7 +302,6 @@
               (let [item-set
                     (merge
                       item-set
-                      ; TODO no reason to break up advance map
                       {:shift-map
                        (item-set-map-helper (mapvals os/vec (shift-map item-set))
                                             follow-map),
@@ -364,18 +321,14 @@
                     curr-save-count (save-count ::dedup-item-set)]
                 (when (and (not (= prev-save-count curr-save-count))
                            (zero? (mod curr-save-count 100)))
-                  ; TODO this is not the acutal number of item sets
                   (println (save-count ::dedup-item-set) "item sets built"))
                 (save! ::item-set build-key (ref-box item-set))))))))
 
 ; TODO progress reporting optional
-; TODO build everything in advance
 (defn build-item-sets [goal grammar]
   (println "Building item sets...")
   (binding [*crumbs* {}]
     (let [g (goal-item goal grammar)
-          r @(build-item-set* [g] {(unfollow g)
-                                   {:visited (delay)
-                                    :delay-follow-set (delay #{[:term nil]})}})]
+          r @(build-item-set* [g] {g #{[:term nil]}})]
       (println (save-count ::dedup-item-set) "item sets built")
       r)))
