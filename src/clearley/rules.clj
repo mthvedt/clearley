@@ -101,7 +101,8 @@
                                                 (drop dot clause-strs))))
          "(empty)")))
 
-(defn singleton-rule-str [{dot :dot, {:keys [name tag]} :raw-rule} clause-str]
+(defn singleton-rule-str [{dot :dot, {:keys [name tag]} :raw-rule :as rule}
+                          clause-str]
   (str name " -> " tag " " clause-str (if (zero? dot) "" " ✓")))
 (defmethod rule-str :or [{{value :value} :raw-rule :as rule}]
   (singleton-rule-str rule (str "(" (s/separate-str " " (map :name value)) ")")))

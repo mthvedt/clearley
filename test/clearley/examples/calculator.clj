@@ -1,4 +1,5 @@
 (ns clearley.examples.calculator
+  (require clearley.core)
   (use clearley.match clearley.lib clojure.math.numeric-tower))
 
 (defmatch sum
@@ -26,6 +27,7 @@
   ; recursive cases
   ([parenexpr paren-sum] (* parenexpr paren-sum))
   ([parenexpr paren-sum bare-pow] (* parenexpr paren-sum bare-pow)))
+(def paren-sum (parens sum))
 (defmatch pow
   ([\- pow] (- pow))
   paren-sum
@@ -33,7 +35,6 @@
 (defmatch bare-pow
   ([natnum \^ pow] (expt natnum pow)) ; right associative
   natnum)
-(def paren-sum (parens sum))
 
 (def my-calculator (clearley.core/build-parser sum))
 

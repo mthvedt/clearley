@@ -9,7 +9,7 @@
 ; TODO what does aot do?
 ; TODO figure out locking?
 
-(def ^:dynamic *print-code* true)
+(def ^:dynamic *print-code* false)
 (defn print-code [& vals]
   (binding [*print-meta* true]
     (if *print-code* (runmap
@@ -18,9 +18,9 @@
 
 (def ^:dynamic *parse-trace* false)
 
-(def ^:dynamic *print-compile* false)
-(defn print-compile [& vals]
-  (if *print-compile* (runmap println vals)))
+(def ^:dynamic *print-build* false)
+(defn print-build [& vals]
+  (if *print-build* (runmap println vals)))
 
 (def ^:dynamic *myns*)
 (def ^:dynamic *opts*)
@@ -56,15 +56,15 @@
                      :objs `ObjParseStream)]
     [(vary-meta 'stream assoc :tag stream-tag) `(.stream ~'state)]))
 
+; We can expand this in the future
 (defn new-stream [input]
   (case (:stream-type *opts*)
-    :chars (StringParseStream. input) ; TODO more cases
+    :chars (StringParseStream. input)
     :objs (SeqParseStream. (seq input))))
 
 ; For a factory seed, obj, and a factory method, factory,
 ; looks up a sym for the value created by the seed obj in the given namespace's map.
 ; If it doesn't exist, creates it, interns it, and returns the sym.
-; TODO combine with get-or-bind?
 (defn get-or-bind [obj factory a-str a-meta]
   (let [item-set-var-map @(ns-resolve *myns* 'item-set-var-map)
         ns-lock @(ns-resolve *myns* 'ns-lock)]
@@ -75,13 +75,14 @@
         (if-let [sym0 (get-in @item-set-var-map [a-str obj])]
           sym0
           (let [r (factory obj)]
-            (print-compile (s/cutoff (str "Interning " sym " : " r) 80))
+            (print-build (s/cutoff (str "Interning " sym " : " r) 80))
             (intern *myns* sym r)
             (swap! item-set-var-map #(assoc-in % [a-str obj] sym))
             sym))))))
 
 ; An evil way to def a thunk that, when called, generates a fn and redefs the sym
 ; to the fn! Returns the bound symbol.
+; TODO combine with get-or-bind?
 (defn lookup-thunk [key candidate-thunk a-str a-meta]
   (let [item-set-var-map @(ns-resolve *myns* 'item-set-var-map)
         ns-lock @(ns-resolve *myns* 'ns-lock)]
@@ -93,7 +94,7 @@
           ; TODO this is not actually true
           (let [thunk (fn [& args]
                         (let [r (candidate-thunk)]
-                          (print-compile (s/cutoff (str "Interning " sym " : " r) 80))
+                          (print-build (s/cutoff (str "Interning " sym " : " r) 80))
                           (intern *myns* sym r)
                           (apply r args)))]
             (intern *myns* sym thunk)
@@ -101,7 +102,10 @@
             sym))))))
 
 (defn item-id [item]
-  (generate ::item item (fn [_ id] id)))
+  ; TODO print only if new
+  (let [r (generate ::item item (fn [_ id] id))]
+    (print-build (str "Generated item id " r " for item " (item-str item)))
+    r))
 
 (defn fail [^ParseState stream, #_item-set]
   (t/RE "Failure to parse at position: " (.pos stream)))
@@ -159,8 +163,12 @@
                   ; If we furthermore know it's a shift advance, we do not have
                   ; to set the goto number.
                   `(~(-> a-const-reduce :rule :raw-rule :action action-sym) ~form)
-                  `(do (.setGoto ~'state ~(item-id r))
-                     (~(-> a-const-reduce :rule :raw-rule :action action-sym) ~form)))
+                  `(let [~'return ~form]
+                     (.setGoto ~'state ~(item-id r))
+                     (~(-> a-const-reduce :rule :raw-rule :action action-sym)
+                         ~'return)))
+                  ;`(do (.setGoto ~'state ~(item-id r))
+                   ;  (~(-> a-const-reduce :rule :raw-rule :action action-sym) ~form)))
                 `(~(item-parser-sym advanced-item-set false false)
                      ~'state ~form))]
      (if r
@@ -225,7 +233,8 @@
                          (loop [~'next-val ~'next-val]
                            (case (.getGoto ~'state)
                              ~@cases
-                             ; Return and let parent item-set-parser pick it up
+                             ; If cases don't match it's probably intended for
+                             ; the parent item set parser.
                              ~'next-val)))
                     _ (print-code "advancer" (item-set-str item-set) "with code" r)
                     f (compile r)]
@@ -324,16 +333,16 @@
 ; Requires 'input, 'state, 'advancer, and 'partial-match OR non-null 'working-syms.
 ; Returns a code snippet for handling a state after a scanner is matched.
 ; Can either take action and return, or call a advancer returning the result.
-; TODO some stuff belongs in clr
 (defn gen-scanner-handler [scanner item-set working-syms arg-count]
   (let [shift (get (:shift-map item-set) scanner)
         shift (if shift @shift)
         return (omm/get-vec (reduce-map item-set) scanner)
+        ; TODO mode switching
+        ; TODO fix long/char in json test
         scanner (if (char? scanner) (long scanner) scanner)]
    (if (> (count return) 1)
       (do
         (println "Reduce-reduce conflict in item set\n" (item-set-str item-set))
-        ;(println "for items" (s/separate-str " " (map prn return)))
         (println "for items" (s/separate-str " " (map #(item-str-follow
                                                          % (:follow-map item-set))
                                                       return)))
@@ -347,7 +356,6 @@
         [:shift [scanner
                  `(~(item-parser-sym shift false true)
                       ~'state)]])
-      ; ignore reduce-reduce for now
       (if (seq return)
         [:reduce [scanner (gen-return (first return) working-syms arg-count)]]
         [:reduce [scanner nil]]))))
@@ -361,14 +369,15 @@
 ; If split, will have argcount > 0.
 ; TODO continuation bouncing plan! You cna't have primitive returns without it.
 ; TODO: be able to pull items from a grammar
-; TODO pregenerate all items
 (defn gen-parser [item-set working-syms argcount]
   (let [handlers (map #(gen-scanner-handler % item-set working-syms argcount)
-                      (all-scanners item-set))
+                      (into #{} (concat (-> item-set shift-map omm/keys)
+                                        (-> item-set reduce-map omm/keys))))
         return-handlers (untag handlers :reduce)
         shift-handlers (untag handlers :shift)
         next-sym (symbol (str "v" (count working-syms)))
         ; TODO safe deref? item set getter helper?
+        ; TODO un-inline shifter
         next-cases (collate-cases item-id #(if-let [r (get-in item-set
                                                               [:continue-advances %])]
                                              @r)
@@ -432,7 +441,7 @@
 (defn cont-parser-sym [item-set argcount]
   (lookup-thunk [:cont-slow-parser (item-set-key item-set) argcount]
                 (fn []
-                  (print-compile "Compiling item parser...")
+                  (print-build "Compiling item parser...")
                   (gen-slow-cont-parser item-set argcount))
                 "continuing-item-parser" nil))
 
@@ -495,7 +504,7 @@
                    "initial-parser" nil)
       (lookup-thunk [(item-set-key item-set) initial? shift?]
                     (fn []
-                      (print-compile "Compiling item parser...")
+                      (print-build "Compiling item parser...")
                       (gen-parser-body item-set initial? shift?)) "item-parser"
                     nil))))
 
