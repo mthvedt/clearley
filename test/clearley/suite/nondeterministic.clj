@@ -1,6 +1,11 @@
-(ns clearley.test.nd
+(ns clearley.suite.nondeterministic
   (use clearley.match clearley.test.utils uncore.test.utils))
 ; Nondeterministic parser tests
+
+; TODO what here?
+#_(defmatch S
+  ([(s1 S) (s2 S)] (str s1 s2))
+  ([(s1 S) (s2 S) (s3 S)] (str s1 s2 s3)))
 
 ; Test from 'Practical Earley Parsing'
 ; http://courses.engr.illinois.edu/cs421/sp2012/project/PracticalEarleyParsing.pdf

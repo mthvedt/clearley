@@ -6,7 +6,8 @@
   :test-resource-paths ["test"]
   :java-source-paths ["java"]
   :aliases {"bench" ["with-profile" "dev,benchmark" "run"]
-            "bench-verbose" ["with-profile" "dev,benchmark,vminfo" "run"]}
+            "bench-verbose" ["with-profile" "dev,benchmark,vminfo" "run"]
+            "test" ["run" "-m" "clearley.test"]}
   :profiles {:dev {:repositories {"stuartsierra-releases"
                                   "http://stuartsierra.com/maven2",
                                   "stuartsierra-snapshots"
@@ -14,8 +15,7 @@
                    :dependencies [[com.stuartsierra/lazytest "2.0.0-SNAPSHOT"]
                                   [org.clojure/math.numeric-tower "0.0.2"]
                                   [criterium "0.3.1"]]
-                   :plugins [[eightnotrump/lein-lazytest "1.0.5"]
-                             [codox "0.6.4"]]
+                   :plugins [[codox "0.6.4"]]
                    :global-vars {*assert* true}
                    :codox {:exclude [clearley.npda clearley.earley
                                      clearley.rules]}}

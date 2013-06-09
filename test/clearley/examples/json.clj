@@ -106,13 +106,8 @@
 (def value (surround `whitespace `(:or json-keyword string number array object)))
 (def whitespace-object (surround `whitespace object))
 
-; And we are done
-(def json-parser (clearley.core/build-parser whitespace-object))
-
-; Let's prove that it works
+; And we're done. Let's prove that it works
 (use 'clearley.test.utils 'lazytest.deftest)
-
-(def json-value-parser (clearley.core/build-parser value))
 
 (defptest json-values value
   (testing "Literals"
@@ -177,5 +172,5 @@
   (not-parsing "{\"a\" : 1 \"b\" : 2}")
   (is-action {"a" 1 "b" 2} "{\"a\" : 1, \"b\" : 2}")
   (is-action {"a" 1 "b" true "c" "3"} "{\"a\" : 1, \"b\" : true, \"c\" : \"3\"}")
-  (is (compare-to-file json-parser "clearley/examples/json_test.json"
-                   "clearley/examples/json_test.edn")))
+  (is (compare-to-file *local-parser* "clearley/examples/json_test.json"
+                       "clearley/examples/json_test.edn")))

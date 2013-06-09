@@ -1,4 +1,5 @@
-(ns clearley.test.d
+(ns clearley.suite.deterministic
+  (require [lazytest.suite :as suite])
   (use clearley.match [clearley.lib :exclude [digit]] clearley.test.utils
        uncore.test.utils lazytest.deftest))
 ; Deterministic parser tests

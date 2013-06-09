@@ -13,17 +13,14 @@
   ([\- number] (- number))
   natnum)
 
-(def my-calculator (clearley.core/build-parser sum))
+(use 'clearley.test.utils)
 
-(use 'lazytest.deftest 'clearley.test.utils)
-
-(deftest simple-calculator-test
-  (with-parser my-calculator
-    (is-action 1 "1")
-    (is-action 2 "1+1")
-    (is-action 15 "15")
-    (is-action 153 "0153")
-    (is-action -2 "-2")
-    (is-action -2 "2-2-2")
-    (is-action 4 "2--2")
-    (is-action 0 "2-----2")))
+(defptest the-test sum
+  (is-action 1 "1")
+  (is-action 2 "1+1")
+  (is-action 15 "15")
+  (is-action 153 "0153")
+  (is-action -2 "-2")
+  (is-action -2 "2-2-2")
+  (is-action 4 "2--2")
+  (is-action 0 "2-----2"))

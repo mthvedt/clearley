@@ -9,27 +9,24 @@
   (use clearley.match clearley.grammar uncore.core uncore.memo))
 
 (defprotocol Parser
+  #_(trees [parser input] "Parse the given input with the given parser, yielding
+                        a potentially lazy seq of match trees.")
+  #_(multitree [parser input] "Parse the given input with the given parser, yielding
+                            a nondeterministic match tree.")
   (execute [parser input] "Parse the given input with the given parser, yielding
                           a result."))
 
 (defprotocol ChartParser
-  (^:private charts [parser input]) ; Yields raw charts. Not for human consumption
   (print-charts [parser input] "Prints this parser's charts to *out*.
+                               Only applies to chart parsers.
                                Format is not fixed. A good explanation of parse charts
                                (for an Earley parser, but same idea) is at
                                http://www.wikipedia.org/wiki/Earley_parser."))
-
-#_(defn parse
-  "Parse the given input with the given parser, yielding a match tree."
-  [parser input]
-  (q/finalize-state (parse-state parser input)))
-
 ; TODO
-; * parse trees
 ; * faster building
 ; * some notion of passthrough/hide?
 
-(defn #_quentin-parser parser
+(defn quentin-parser
   "Constructs a parser given a grammar and goal symbol, using the Quentin parsing
   engine."
   [goal grammar & opts]
@@ -43,10 +40,9 @@
         my-parse-fn (q/parse-fn grammar goal myns q-parser-context opts)]
     (reify
       Parser
-      (execute [_ input] (q/parse my-parse-fn input myns q-parser-context opts))
-      #_ChartParser
-      #_(charts [_ input] (parse-fn input))
-      #_(print-charts [_ input] (earley/pstr-charts (parse-fn input))))))
+      (execute [_ input] (q/parse my-parse-fn input myns q-parser-context opts)))))
+
+(def parser quentin-parser)
 
 #_(defn parser
   "Constructs a parser given a grammar and goal symbol."
@@ -79,10 +75,10 @@
 
 (defmacro build-parser
   "Build a parser in the current ns from the given goal rule."
-  [goal & opts] `(build-parser-with-ns '~goal *ns* ~@opts))
+  [builder goal & opts] `(build-parser-with-ns ~builder '~goal *ns* ~@opts))
 
 (defn build-parser-with-ns
   "Build a parser in a given ns from the given goal rule."
-  [goal thens & opts]
+  [builder goal thens & opts]
   (binding [*ns* thens]
-    (apply parser goal (build-grammar-with-ns goal *ns*) opts)))
+    (apply builder goal (build-grammar-with-ns goal *ns*) opts)))

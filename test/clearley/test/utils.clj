@@ -1,14 +1,19 @@
 (ns clearley.test.utils
   (require [clojure.java.io :as io]
-           [uncore.throw :as t]
            [backtick]
-           [clearley.grammar :as g])
+           [clearley.grammar :as g]
+           lazytest.find lazytest.suite)
   (:use uncore.test.utils clearley.core lazytest.test-case lazytest.deftest))
+
+; TODO test building parser from different ns in core
 
 (def ^:dynamic *local-parser*)
 (def ^:dynamic *parser-ns*)
 (def ^:dynamic *parser-builder*
   (fn [goal grammar] (parser goal grammar)))
+
+(defn build-parser-dynamic-with-ns [a-ns form]
+  (*parser-builder* form (g/build-grammar-with-ns form a-ns)))
 
 ; Macro for defing a test that builds a parser with the dynamically bound
 ; parser builder fn and runs the given tests

@@ -5,6 +5,7 @@
                           _ (token 'bar)
                           _ (scanner vector?)]
   "hello world!")
-(def any-object-test-parser (build-parser any-object-test-rule :stream-type :objs))
+(def any-object-test-parser (build-parser quentin-parser
+                                          any-object-test-rule :stream-type :objs))
 (def-parser-test match-any-object any-object-test-parser
   (is-action "hello world!" [:foo 'bar []]))

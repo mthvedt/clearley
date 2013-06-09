@@ -9,7 +9,7 @@
 ; TODO what does aot do?
 ; TODO figure out locking?
 
-(def ^:dynamic *print-code* false)
+(def ^:dynamic *print-code* true)
 (defn print-code [& vals]
   (binding [*print-meta* true]
     (if *print-code* (runmap
@@ -44,6 +44,7 @@
 
 (def default-opts {:stream-type :chars})
 
+; We will need these in the namespaces we build
 (defn do-imports []
   (import '[clearley ParseState ParseStream TransientParseState
             ObjParseStream CharParseStream SeqParseStream StringParseStream]))
@@ -167,8 +168,6 @@
                      (.setGoto ~'state ~(item-id r))
                      (~(-> a-const-reduce :rule :raw-rule :action action-sym)
                          ~'return)))
-                  ;`(do (.setGoto ~'state ~(item-id r))
-                   ;  (~(-> a-const-reduce :rule :raw-rule :action action-sym) ~form)))
                 `(~(item-parser-sym advanced-item-set false false)
                      ~'state ~form))]
      (if r
@@ -377,7 +376,6 @@
         shift-handlers (untag handlers :shift)
         next-sym (symbol (str "v" (count working-syms)))
         ; TODO safe deref? item set getter helper?
-        ; TODO un-inline shifter
         next-cases (collate-cases item-id #(if-let [r (get-in item-set
                                                               [:continue-advances %])]
                                              @r)
@@ -420,7 +418,6 @@
                  `((aset ~'partial-match ~argcount ~'rval)))
              ; Figure out what parser to call next
              ~@(case (count next-cases)
-                 ; TODO 0 case?
                  2 (list (second next-cases)) ; just put in the next case
                  ; default: splice in all cases
                  `((case (.getGoto ~'state) ~@next-cases)))))))))

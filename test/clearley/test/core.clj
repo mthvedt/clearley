@@ -1,4 +1,6 @@
 (ns clearley.test.core
+  "Tests for core. Very little is tested here--most goes in
+  various parser testers."
   (use clearley.core clearley.match clearley.grammar clearley.test.utils
        uncore.test.utils lazytest.deftest))
 
@@ -10,11 +12,7 @@
   digit)
 (defmatch digit [\3] 3)
 
-(def parser1 (build-parser sum))
-
-; TODO
-#_(deftest parser-smoke-test
-  (is (with-out-str (print-charts parser1 "3+3"))))
+(def parser1 (build-parser quentin-parser sum))
 
 (def-parser-test build-parser-test parser1
   (testing "Basic parsing"
