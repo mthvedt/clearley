@@ -4,13 +4,13 @@
 ; Make sure building and running parsers is thread safe
 
 ; Fresh parser (don't use json's)
-(def json-ns (find-ns 'clearley.examples.json))
-(def json-parser (build-parser-dynamic-with-ns
+#_(def json-ns (find-ns 'clearley.examples.json))
+#_(def json-parser (build-parser-dynamic-with-ns
                    json-ns 'clearley.examples.json/whitespace-object))
-(def json-parser-parallel (build-parser-dynamic-with-ns
+#_(def json-parser-parallel (build-parser-dynamic-with-ns
                             json-ns 'clearley.examples.json/whitespace-object))
 
-(def-parser-test multithreaded-parser-test json-parser
+#_(def-parser-test multithreaded-parser-test json-parser
   (let [r-atom (atom [])
         test-map (read (java.io.PushbackReader.
                          (get-resource "clearley/examples/json_test.edn")))

@@ -38,6 +38,7 @@
         goal (backtick/resolve-symbol goal)
         ; TODO remove duplication
         my-parse-fn (q/parse-fn grammar goal myns q-parser-context opts)]
+    ;(remove-ns  TODO
     (reify
       Parser
       (execute [_ input] (q/parse my-parse-fn input myns q-parser-context opts)))))
