@@ -9,7 +9,7 @@
 ; TODO what does aot do?
 ; TODO figure out locking?
 
-(def ^:dynamic *print-code* true)
+(def ^:dynamic *print-code* false)
 (defn print-code [& vals]
   (binding [*print-meta* true]
     (if *print-code* (runmap
@@ -50,12 +50,15 @@
             ObjParseStream CharParseStream SeqParseStream StringParseStream]))
 (do-imports)
 
-; Returns two forms: ~'stream (.stream ~'state), with the appropriate type hint
-(defn stream-binder []
+; Returns the symbol ~'stream with appropriate type hint
+(defn stream-sym []
   (let [stream-tag (case (:stream-type *opts*)
                      :chars `CharParseStream
                      :objs `ObjParseStream)]
-    [(vary-meta 'stream assoc :tag stream-tag) `(.stream ~'state)]))
+    (vary-meta 'stream assoc :tag stream-tag)))
+
+; Returns two forms: ~'stream (.stream ~'state), with the appropriate type hint
+(defn stream-binder [] [(stream-sym) `(.stream ~'state)])
 
 ; We can expand this in the future
 (defn new-stream [input]
@@ -125,6 +128,38 @@
         (println r)
         r))
     f))
+
+; === Protocol generator
+
+(defn dotify [name]
+  (symbol (str "." name)))
+
+; parser bodies: {:tag, :name, :args, :body}
+(defn interface-body [{:keys [tag name args]}]
+  (if tag
+    `(~(dotify name) ~(with-meta (vec args) {:tag tag}))
+    `(~(dotify name) (vec args))))
+
+(defn impl-body [{:keys [name args body]}]
+  `(~(dotify name) ~(vec args) ~@body))
+
+(defn stash-parse-fn [tag name args body]
+  (println "Stashing")
+  (save! ::parse-fns name {:tag tag, :name name, :args args, :body body}))
+
+(defn gen-parser-protocols []
+  ; We need a protocol and an implementing deftype. This is the only facility
+  ; in Clojure that generates Java classes at 100% native speed--gen-class won't
+  ; cut it. Nor do fns for our use case (see the docs for details).
+  (println (get-mmap ::parse-fns))
+  `(do
+     (defprotocol ~'ParserInterface
+       ~@(map interface-body (vals (get-mmap ::parse-fns))))
+     (deftype ~'Parser [^int ^:unsynchronized-mutable goto
+                        ~(vary-meta (stream-sym)
+                           assoc :unsynchronized-mutable true)]
+       ~'ParserInterface
+       ~@(map impl-body (vals (get-mmap ::parse-fns))))))
 
 ; === Advance loops ===
 
@@ -490,6 +525,8 @@
                   ~body))
         f (compile body)]
     (print-code "item-set" (item-set-str item-set) "parser" body "compiled to" f)
+    ; TODO
+    (stash-parse-fn java.lang.Object (gensym) [] body)
     (tracefn "item set" (item-set-str item-set) f body)))
 
 (defn item-parser-sym
@@ -520,14 +557,24 @@
   (with-memoizer mem
     (binding [*myns* myns
               *opts* (merge default-opts opts)]
-      @(ns-resolve *myns*
-                   (item-parser-sym (build-item-sets goal grammar) true false)))))
+      (let [r @(ns-resolve *myns*
+                   (item-parser-sym (build-item-sets goal grammar) true false))]
+      (binding [*print-meta* true]
+        (println "===")
+        (clojure.pprint/pprint (gen-parser-protocols))
+        (println "==="))
+        r))))
 
 (defn parse [a-parse-fn input myns mem opts]
   (with-memoizer mem
     (try
       (binding [*myns* myns
                 *opts* (merge default-opts opts)]
-        (a-parse-fn (TransientParseState. (new-stream input))))
-      ; TODO parsing should exception on failure
-      (catch Exception e (clojure.stacktrace/print-stack-trace e) nil))))
+        (let [r (a-parse-fn (TransientParseState. (new-stream input)))]
+          (binding [*print-meta* true]
+            (println "===")
+            (clojure.pprint/pprint (gen-parser-protocols))
+            (println "==="))
+          r)
+        ; TODO parsing should exception on failure
+        (catch Exception e (clojure.stacktrace/print-stack-trace e) nil)))))
