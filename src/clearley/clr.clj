@@ -302,9 +302,7 @@
           ; Look it up later (the original result will be saved).
           (delay @(lookup ::item-set build-key)),
           true
-          (let [
-                ;item-set (clr-item-set seeds follow-map)
-                item-set (fill-item-set (holey-item-set seeds) follow-map)
+          (let [item-set (fill-item-set (holey-item-set seeds) follow-map)
                 follow-map (:follow-map item-set)]
             (binding [*crumbs* (assoc *crumbs* build-key item-set)]
               ; Eagerly build child item sets
