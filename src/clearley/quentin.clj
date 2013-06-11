@@ -3,12 +3,11 @@
            [uncore.str :as s]
            [uncore.collections.worm-ordered-multimap :as omm]
            clojure.stacktrace clojure.pprint)
-  (:refer-clojure :exclude [compile])
   (import clearley.ParseState)
   (use clearley.clr uncore.core uncore.memo
        [uncore.ref :only [oderef]]))
-; TODO what does aot do?
 
+; TODO
 (def ^:dynamic *print-code* false)
 (defn print-code [& vals]
   (binding [*print-meta* true]
@@ -18,6 +17,7 @@
 
 (def ^:dynamic *parse-trace* false)
 
+; TODO
 (def ^:dynamic *print-build* false)
 (defn print-build [& vals]
   (if *print-build* (runmap println vals)))
@@ -53,6 +53,7 @@
 ; looks up a sym for the value created by the seed obj in the given namespace's map.
 ; If it doesn't exist, creates it, interns it, and returns the sym.
 ; TODO improve this
+; TODO don't need meta
 (defn get-or-bind [obj factory a-str a-meta]
   (let [item-set-var-map @(ns-resolve *myns* 'item-set-var-map)
         ns-lock @(ns-resolve *myns* 'ns-lock)]
@@ -77,8 +78,20 @@
 (defn fail [^ParseStream stream, #_item-set]
   (t/RE "Failure to parse at position: " (.pos stream)))
 
+; === Protocol generator
+
+; parser bodies: {:tag, :name, :args, :body}
+(defn interface-body [{:keys [tag name args]}]
+  (if tag
+    `(~name ~(with-meta (vec args) {:tag tag}))
+    `(~name (vec args))))
+
+(defn impl-body [{:keys [name args body]}]
+  ; Dissoc tags--let compiler automatch type hints, avoids some hint match bugs
+  `(~name ~(vec (map #(vary-meta % dissoc :tag) args)) ~(deref body)))
+
 ; TODO
-(defn tracefn [title str f code]
+#_(defn tracefn [title str f code]
   (if *parse-trace*
     (fn [& args]
       (println "Calling" title f)
@@ -93,29 +106,35 @@
         r))
     f))
 
-; === Protocol generator
-
-; parser bodies: {:tag, :name, :args, :body}
-(defn interface-body [{:keys [tag name args]}]
-  (if tag
-    `(~name ~(with-meta (vec args) {:tag tag}))
-    `(~name (vec args))))
-
-(defn impl-body [{:keys [name args body]}]
-  ; Dissoc tags--let compiler automatch type hints, avoids some hint match bugs
-  `(~name ~(vec (map #(vary-meta % dissoc :tag) args)) ~(deref body)))
+(defn trace [name info body]
+  (if *parse-trace*
+    `(do
+       (println "Calling" ~name)
+       ~@(if info `((println ~info)))
+       (println "with code")
+       (clojure.pprint/pprint ~(get-or-bind body identity "code-form" {}))
+       (println "and state")
+       ; TODO state
+       ~body
+       ; TODO why does this error?
+       #_(let [r# ~body]
+         (println "Method" ~name "returned")
+         (prn r#)
+         r#))
+    body))
 
 ; Generates a method body for gen-praser-protocols.
 ; Body should be a ref (probably a delay, for mutual references to other bodies).
 ; Stashed into the memo key ::parse-fns. If we've seen the given
 ; keys before, does nothing instad. Returns a method name.
-(defn stash-method [name tag args body & key]
+(defn stash-method [name info tag args body & key]
   (->>
     (generate ::parse-fns (apply vector name key)
               (fn [_ i]
-                (swap! *queue* conj body)
-                {:body body :idx i :name (symbol (str name "_" i))
-                 :tag tag :args args}))
+                (let [name (symbol (str name "_" i))
+                      body (delay (trace (str "." name) info @body))]
+                  (swap! *queue* conj body)
+                  {:body body :idx i :name name :tag tag :args args})))
     :name (str ".") symbol))
 
 (defn gen-parser-protocols []
@@ -233,13 +252,16 @@
                              #(gen-advance-handler item-set %)
                              entries)]
     (if (seq cases)
-      (stash-method "advance" java.lang.Object
+      (stash-method "advance"
+                    (str "with item set\n" (item-set-str item-set))
+                    java.lang.Object
                     ['self 'next-val]
-                    (delay `(case ~'goto
-                              ~@cases
-                              ; If cases don't match it's probably intended for
-                              ; the parent item set parser.
-                              ~'next-val))
+                    (delay `(loop [~'next-val ~'next-val]
+                              (case ~'goto
+                                ~@cases
+                                ; If cases don't match it's probably intended for
+                                ; the parent item set parser.
+                                ~'next-val)))
                     ; TODO which key?
                     (item-set-key item-set))
                     ;(omm/map backlink-map))
@@ -424,7 +446,9 @@
 
 ; TODO reevaluate printing to out instrumentation
 (defn cont-parser-sym [item-set argcount]
-  (stash-method "continue" java.lang.Object
+  (stash-method "continue"
+                (str "with item set\n" (item-set-str item-set))
+                java.lang.Object
                 (vector 'self (apply symbol '(^objects partial-match)))
                 (delay (gen-slow-cont-parser item-set argcount))
                 (item-set-key item-set) argcount))
@@ -469,7 +493,9 @@
 (defn item-parser-sym
   [item-set initial? shift?]
   (when item-set
-    (stash-method "parse" java.lang.Object
+    (stash-method "parse"
+                  (str "with item set\n" (item-set-str item-set))
+                  java.lang.Object
                   (vec (if (or shift? initial?) ['self] ['self 'v0]))
                   (delay (gen-parser-body item-set initial? shift?))
                   (item-set-key item-set) initial? shift?)))
@@ -505,10 +531,17 @@
               (print-code ppcode)
               (print-code "===")
               (binding [*ns* *myns*]
-                (eval ppcode)
-                ; TODO doesn't need eval in namespace?
-                (eval `(defn ~'parse-state [stream#]
-                         (~method-name (~'->Parser stream# 0)))))
+                (try
+                  (eval ppcode)
+                  ; TODO doesn't need eval in namespace?
+                  (eval `(defn ~'parse-state [stream#]
+                           (~method-name (~'->Parser stream# 0)))))
+                (catch Exception e
+                  (binding [*out* *err* ; TODO
+                            *print-meta* true]
+                    (println "Exception compiling:" (.getMessage e))
+                    (clojure.pprint/pprint ppcode))
+                  (throw (RuntimeException. "Exception compiling parser" e))))
               @(ns-resolve *myns* 'parse-state))))))))
 
 (defn parse [a-parse-fn input myns mem opts]

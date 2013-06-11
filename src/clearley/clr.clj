@@ -144,42 +144,12 @@
 
 ; === Building item sets ===
 
-; Adds a follow set for a predictor to an item in an item-set.
-; If the given item is one advance from completion (meaning some follow sets
-; might depend on its own), transitively closes those follow sets by recursion.
-(defn add-follow [{:keys [items backlink-map follow-map] :as item-set} item predictor
-                  new?]
-  (let [fset1 (get-in item-set [:follow-map item] #{})
-        ffirst (-> predictor :rule :follow-first deref)
-        ; TODO integrate into rules/follow-first
-        ; Transitive close if we need
-        ffirst (if (rules/null-result @(:advance (:rule predictor)))
-                 (set/union ffirst (get-in item-set [:follow-map predictor]))
-                 ffirst)
-        fset2 (set/union fset1 ffirst)
-        item-set (assoc-in item-set [:follow-map item] fset2)]
-    (if new?
-      ; If this was a new item, there are no transitive follow sets to update.
-      item-set
-      ; Only do the transitive closure if A) we need to and
-      ; B) the follow set was updated.
-      (if (and (rules/null-result @(:advance (:rule item)))
-               (not= fset1 fset2))
-        (do
-          (let [r (reduce #(add-follow % %2 predictor false) item-set (predict item))]
-            r))
-        item-set))))
-
-(defn predict-into-item-set [{:keys [items backlink-map follow-map] :as item-set}
-                             item predictor]
-  (when-not (rules/is-complete? item)
+(defn add-item [{:keys [items backlink-map] :as item-set} item predictor]
     (let [item-set (if (empty? (omm/get-vec backlink-map item))
-                     (-> item-set
-                       (update :items #(conj % item))
-                       (add-follow item predictor true))
-                     (add-follow item-set item predictor false))
+                     (update item-set :items #(conj % item))
+                     item-set)
           item-set (update item-set :backlink-map #(omm/assoc % item predictor))]
-      item-set)))
+      item-set))
 
 (defn seeds-key [seeds follow-map]
   (into #{} (map #(assoc % :lane (-> follow-map (get %))) seeds)))
@@ -187,12 +157,65 @@
 (defn populate-item-set [item-set]
   (loop [c item-set, dot 0]
     (if-let [s (get (:items c) dot)]
-      (recur (reduce #(predict-into-item-set % %2 s)
+      (recur (reduce #(add-item % %2 s)
                      c (predict s))
              (inc dot))
       c)))
 
-; TODO can we combine eager-advances w/ predict-into-item-set?
+; Building follow sets.
+; The algorithm: Items X1..XN predict item Y. For any tokens that can follow Y
+; in X1..XN (first sets), those are the initial follow set of Y.
+; If no tokens might follow Y within Xn,
+; then we add the follow set of Xn also. We call Xn's follow set a transitive
+; follow item and the set of all such Xns the transitive follow set.
+; The full follow set is the transitive closure of the initial follow sets.
+
+; Build an initial follow set and transitive follow set
+(defn init-follow-for-item
+  [{:keys [items backlink-map follow-map transitive-follows visited-set] :as item-set}
+   item]
+  (if (visited-set item)
+    item-set
+    (let [predictors (omm/get-vec backlink-map item)
+          init-follow (apply clojure.set/union (get follow-map item #{})
+                             (map-> predictors
+                                    :rule rules/advance rules/first-set (disj :empty)))
+          transitive-follows (into #{}
+                                   (filter (fn-> :rule rules/advance rules/null-result)
+                                           predictors))]
+      (update-all item-set {:follow-map #(assoc % item init-follow)
+                            :visited-set #(conj % item)
+                            :transitive-follows #(assoc % item transitive-follows)}))))
+
+; Builds the full follow set for an item
+(defn build-follow-for-item [item-set item breadcrumbs]
+  (if (breadcrumbs item)
+    item-set ; Avoid infinite recursion
+    (loop [item-set (init-follow-for-item item-set item)
+           follow-set (get-in item-set [:follow-map item])
+           transitive-follows (get-in item-set [:transitive-follows item])]
+      ; Transitively close follow-set, iterating until transitive-follows are empty
+      (if-let [transitive-item (first transitive-follows)]
+        (let [item-set (init-follow-for-item item-set transitive-item)]
+          (recur item-set
+                 (clojure.set/union follow-set
+                                    (get-in item-set [:follow-map transitive-item]))
+                 (clojure.set/union (disj transitive-follows transitive-item)
+                                    (get-in item-set
+                                            [:transitive-follows transitive-item]))))
+        (update-all item-set {:follow-map #(assoc % item follow-set)
+                              :transitive-follows #(dissoc % item)})))))
+
+; Builds the follow map for an item set, adding the set of visited items
+; to the item set.
+(defn build-follow-map [{:keys [items backlink-map follow-map transitive-follows]
+                         :as item-set} items]
+  (dissoc (reduce #(build-follow-for-item % %2 {})
+                  (merge item-set {:transitive-follows {} :visited-set #{}})
+                  items)
+    :transitive-follows))
+
+; TODO can we combine eager-advances w/ add-item?
 ; Given a follow map s -> v, where s are items and v are follow sets,
 ; creates a follow map contaning all eager advances of s
 (defn eager-advance-follow-map [follow-map]
@@ -209,9 +232,16 @@
   (if (seq seeds)
     (let [more-seeds (mapcat #(eager-advances % false) seeds)
           follow-map (zipmap seeds (map (fn [s] #{[:item s]}) seeds))
-          follow-map (eager-advance-follow-map follow-map)]
-      (populate-item-set
-        (->ItemSet seeds more-seeds (vec more-seeds) omm/empty follow-map)))))
+          follow-map (eager-advance-follow-map follow-map)
+          item-set (populate-item-set
+              (->ItemSet seeds more-seeds (vec more-seeds) omm/empty follow-map))]
+      ;(println "<><><><>")
+      ;(println (item-set-str i))
+      ;(println "========")
+      ;(println (item-set-str (build-follow-map (assoc i :follow-map follow-map1)
+      ;                                         (:items i))))
+      ;(println "<><><><>")
+      (build-follow-map item-set (:items item-set)))))
 
 ; For a map any -> [items], turns it into any -> item-set
 ; using a fn [seeds] -> item-set. The items are advanced to seed the set
@@ -273,7 +303,6 @@
         (fill-item-set (holey-item-set seeds) follow-map)))))
 
 ; Deduplication key for a fully built item set
-; TODO not separate fn
 (defnmem item-set-key [{:keys [items follow-map]}] [items follow-map])
 
 ; Used to prevent infinite recursion

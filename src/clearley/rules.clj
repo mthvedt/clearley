@@ -130,17 +130,18 @@
   (and (is-complete? cfg-rule)
        (-> cfg-rule :raw-rule :name (= ::goal))))
 
-; === First sets, follow sets, and null matches
+; === First sets and null matches
 
 (defrecord Match [rule submatches])
 (def match ->Match)
 
 ; TODO: test something of the form a -> x -> b -> y -> a for legal/illegal matches,
 ; where x and y are nullable.
+; TODO kill breadcrumbs somehow?
 (def ^:dynamic *breadcrumbs*)
 ; Basically, this does a top-down match on the empty string for a rule.
 ; If more than one match is possible, returns the first one (silently!)
-; TODO make this not silent
+; TODO make this not silent, or support ambiguity
 (defn null-result* [rule]
   (if (contains? *breadcrumbs* rule)
     (get *breadcrumbs* rule)
@@ -185,6 +186,7 @@
         (set! *breadcrumbs-firsts* (assoc *breadcrumbs-firsts* rule r))
         r))))
 
+; TODO do we need :empty?
 (defn first-set [^CfgRule rule]
   (if-let [r (lookup ::canon-first-set rule)]
     r
@@ -192,6 +194,7 @@
       (save! ::canon-first-set rule (first-set* rule)))))
 
 ; TODO delete
+; TODO advance should not be an ref
 ; For a rule R with follow X that predicts subrule R1, caclulates the follow for R1.
 (defn follow-first [^CfgRule rule parent-follow]
   (let [follow-set @(:follow-first rule)]
