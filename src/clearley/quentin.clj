@@ -72,7 +72,7 @@
 (defn item-id [item]
   (generate ::item item
             (fn [_ id] (print-build (str "Generated item id " id " for item "
-                                         (item-str item)))
+                                         (when item (item-str item))))
               id)))
 
 (defn fail [^ParseStream stream, #_item-set]
@@ -90,22 +90,6 @@
   ; Dissoc tags--let compiler automatch type hints, avoids some hint match bugs
   `(~name ~(vec (map #(vary-meta % dissoc :tag) args)) ~(deref body)))
 
-; TODO
-#_(defn tracefn [title str f code]
-  (if *parse-trace*
-    (fn [& args]
-      (println "Calling" title f)
-      (print str)
-      (println "with code")
-      (clojure.pprint/pprint code)
-      (println "and args")
-      (clojure.pprint/pprint args)
-      (let [r (apply f args)]
-        (println f "returned")
-        (println r)
-        r))
-    f))
-
 (defn trace [name info body]
   (if *parse-trace*
     `(do
@@ -113,8 +97,7 @@
        ~@(if info `((println ~info)))
        (println "with code")
        (clojure.pprint/pprint ~(get-or-bind body identity "code-form" {}))
-       (println "and state")
-       ; TODO state
+       ;(println "and state") TODO
        ~body
        ; TODO why does this error?
        #_(let [r# ~body]
