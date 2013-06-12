@@ -162,7 +162,16 @@
              (inc dot))
       c)))
 
-; Building follow sets.
+; TODO combine with the above?
+; An LR(O) item set: contains no lookahead.
+(defnmem lr0-item-set [seeds]
+  (if (seq seeds)
+    (let [more-seeds (mapcat #(eager-advances % false) seeds)]
+      (populate-item-set
+        (->ItemSet seeds more-seeds (vec more-seeds) omm/empty nil)))))
+
+; === Now things get interesting: item sets with lookahead ===
+
 ; The algorithm: Items X1..XN predict item Y. For any tokens that can follow Y
 ; in X1..XN (first sets), those are the initial follow set of Y.
 ; If no tokens might follow Y within Xn,
@@ -230,18 +239,11 @@
 ; information you can add later.
 (defnmem holey-item-set [seeds]
   (if (seq seeds)
-    (let [more-seeds (mapcat #(eager-advances % false) seeds)
+    (let [{seeds :seeds :as item-set} (lr0-item-set seeds)
           follow-map (zipmap seeds (map (fn [s] #{[:item s]}) seeds))
-          follow-map (eager-advance-follow-map follow-map)
-          item-set (populate-item-set
-              (->ItemSet seeds more-seeds (vec more-seeds) omm/empty follow-map))]
-      ;(println "<><><><>")
-      ;(println (item-set-str i))
-      ;(println "========")
-      ;(println (item-set-str (build-follow-map (assoc i :follow-map follow-map1)
-      ;                                         (:items i))))
-      ;(println "<><><><>")
-      (build-follow-map item-set (:items item-set)))))
+          follow-map (eager-advance-follow-map follow-map)]
+      ; TODO conflicts
+      (build-follow-map (assoc item-set :follow-map follow-map) (:items item-set)))))
 
 ; For a map any -> [items], turns it into any -> item-set
 ; using a fn [seeds] -> item-set. The items are advanced to seed the set
