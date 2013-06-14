@@ -340,6 +340,9 @@
 
 ; Deduplication key for a fully built item set
 (defnmem item-set-key [{:keys [items follow-map]}] [items follow-map])
+(defnmem set-body-key [{:keys [seeds items follow-map]}]
+  (let [items (remove (apply hash-set seeds) items)]
+    [items (select-keys follow-map items)]))
 
 ; TODO fcache
 ; TODO delay is a hack
