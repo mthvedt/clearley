@@ -379,7 +379,11 @@
             (when (and (not (= prev-save-count curr-save-count))
                        (zero? (mod curr-save-count 100)))
               (println (save-count ::dedup-item-set) "item sets built"))
-            (save! ::item-set build-key item-set)))))
+            (save! ::item-set build-key item-set)
+            ; TODO hackety hack
+            ; TODO get rid of printing item set counts?
+            @item-set
+            item-set))))
 
 ; TODO don't need
 ; TODO progress reporting optional

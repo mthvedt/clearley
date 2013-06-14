@@ -7,7 +7,6 @@
   (use clearley.clr uncore.core uncore.memo
        [uncore.ref :only [oderef]]))
 
-; TODO
 (def ^:dynamic *print-code* false)
 (defn print-code [& vals]
   (binding [*print-meta* true]
@@ -83,7 +82,7 @@
 ; parser bodies: {:tag, :name, :args, :body}
 (defn interface-body [{:keys [tag name args]}]
   (if tag
-    `(~name ~(with-meta (vec args) {:tag tag}))
+    `(~name ~(with-meta (vec (rest args)) {:tag tag}))
     `(~name (vec args))))
 
 (defn impl-body [{:keys [name args body]}]
@@ -111,14 +110,20 @@
 ; Stashed into the memo key ::parse-fns. If we've seen the given
 ; keys before, does nothing instad. Returns a method name.
 (defn stash-method [name info tag args body & key]
-  (->>
-    (generate ::parse-fns (apply vector name key)
-              (fn [_ i]
-                (let [name (symbol (str name "_" i))
-                      body (delay (trace (str "." name) info @body))]
-                  (swap! *queue* conj body)
-                  {:body body :idx i :name name :tag tag :args args})))
-    :name (str ".") symbol))
+  (let [body (delay
+               ; TODO describe tags, arg
+               (print-code "Generating" name)
+               (if info (print-code info))
+               (print-code "with code")
+               (print-code (with-out-str (clojure.pprint/pprint @body)))
+               (trace (str "." name) info @body))]
+    (->>
+      (generate ::parse-fns (apply vector name key)
+                (fn [_ i]
+                  (let [name (symbol (str name "_" i))]
+                    (swap! *queue* conj body)
+                    {:body body :idx i :name name :tag tag :args args})))
+      :name (str ".") symbol)))
 
 (defn gen-parser-protocols []
   ; We need a protocol and an implementing deftype. This is the only facility
@@ -130,7 +135,7 @@
   (let [bodies (sort (comparator (fn [x y] (< (:idx x) (:idx y))))
                      (vals (get-mmap ::parse-fns)))]
     `(do
-       (defprotocol ~'ParserInterface
+       (definterface ~'ParserInterface
          ~@(map interface-body bodies))
        (deftype ~'Parser [~(vary-meta (stream-sym) assoc :unsynchronized-mutable true)
                           ~(apply symbol '(^long ^:unsynchronized-mutable goto))]
@@ -427,12 +432,12 @@
     (gen-return a-const-reduce nil argcount)
     (gen-parser item-set nil argcount)))
 
-; TODO reevaluate printing to out instrumentation
 (defn cont-parser-sym [item-set argcount]
   (stash-method "continue"
                 (str "with item set\n" (item-set-str item-set))
                 java.lang.Object
-                (vector 'self (apply symbol '(^objects partial-match)))
+                (vector 'self (with-meta 'partial-match
+                                         {:tag (class (make-array Object 0))}))
                 (delay (gen-slow-cont-parser item-set argcount))
                 (item-set-key item-set) argcount))
 

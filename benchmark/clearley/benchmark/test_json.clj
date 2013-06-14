@@ -7,7 +7,9 @@
   ; With no lookahead, each consecutive space adds O(1) ambiguity
   (print-sep)
   #_(bench-recognizer "Formatted JSON: recognizing"
-                    json/json-parser "small-test-formatted.json")
+                      json/json-parser "small-test-formatted.json")
   (with-progress-reporting
     (bench-from-file "Formatted JSON: parsing"
-                   json/json-parser "small-test-formatted.json")))
+                     (build-parser quentin-parser
+                                   clearley.examples.json/whitespace-object)
+                     "small-test-formatted.json")))

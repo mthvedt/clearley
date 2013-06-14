@@ -109,7 +109,7 @@
 ; And we're done. Let's prove that it works
 (use 'clearley.test.utils 'lazytest.deftest)
 
-#_(defptest json-values value
+(defptest json-values value
   (testing "Literals"
            (is-action true "true")
            (is-action false "false")
@@ -160,7 +160,7 @@
            (is-action [1 true "yo" [2 3]] "  [1,true  ,\"yo\" , [ 2,3]] ")))
 
 ; Only Objects are valid json parses.
-#_(defptest json-test whitespace-object
+(defptest json-test whitespace-object
   (not-parsing "1")
   (not-parsing "true")
   (not-parsing "\"a\"")
