@@ -58,9 +58,9 @@ In particular, note the following:
 * The order of subrules--sum => sum + term--enforces left-to-right evaluation. Clearley can handle ambiguous grammars, so if the order doesn't matter, you could have said sum => sum + sum.
 * Clearley is what you call a "scannerless" parser. Many parsers need a separate step to break input into chunks called "tokens". Clearley does not need this.
 
-More examples live in [test/clearley/test/examples](https://github.com/eightnotrump/clearley/tree/master/test/clearley/examples). For instance, there's a standards-compliant JSON parser. Since JSON uses a different set of tokens (i.e. different whitespace, control characters, escape characters) than does Java, this task requires you to define a bunch of low-level parsing stuff as well as the high-level JSON strucutre. _(N.B.: At least two fairly popular parsing libraries use JSON as an example, only to get it wrong and miss a lot of details. Clearley's design makes it natural to account for things like difference in whitespace, control characters, encodings.)_
+More examples live in [test/clearley/test/examples](https://github.com/mthvedt/clearley/tree/master/test/clearley/examples). For instance, there's a standards-compliant JSON parser. Since JSON uses a different set of tokens (i.e. different whitespace, control characters, escape characters) than does Java, this task requires you to define a bunch of low-level parsing stuff as well as the high-level JSON strucutre. _(N.B.: At least two fairly popular parsing libraries use JSON as an example, only to get it wrong and miss a lot of details. Clearley's design makes it natural to account for things like difference in whitespace, control characters, encodings.)_
 
-Parser related stuff lives in `clearley.core` and the defmatch frontend lives in `clearley.match`. All libraries are documented at http://eightnotrump.github.io/clearley/codox/ .
+Parser related stuff lives in `clearley.core` and the defmatch frontend lives in `clearley.match`. All libraries are documented at http://mthvedt.github.io/clearley/codox/ .
 
 ## Working with rules
 
@@ -92,7 +92,7 @@ For more complicated rules, the bind and defbind macros work like Clojure's let 
 
 Here, the rule op matches either the + or - character. The rule body converts op into the symbol '+ or '-, then calls (+ num1 num2) or (- num1 num2).
 
-In addition to these macros, Clearley has plenty more macros and fns available that create rules. The namespace `clearely.match` contains a core library of macros and fns for defining rules. A whole lot more lives in `clearley.lib`, a collection of common rules and rule fns. It's split this way so you can `(use clearley.match)` without filling your namespace with too much stuff. Check out the codox: [match](http://eightnotrump.github.io/clearley/codox/clearley.match.html) and [lib](http://eightnotrump.github.io/clearley/codox/clearley.lib.html).
+In addition to these macros, Clearley has plenty more macros and fns available that create rules. The namespace `clearely.match` contains a core library of macros and fns for defining rules. A whole lot more lives in `clearley.lib`, a collection of common rules and rule fns. It's split this way so you can `(use clearley.match)` without filling your namespace with too much stuff. Check out the codox: [match](http://mthvedt.github.io/clearley/codox/clearley.match.html) and [lib](http://mthvedt.github.io/clearley/codox/clearley.lib.html).
 
 ### Scanning rules
 
@@ -183,7 +183,7 @@ I hope to introduce better, more readable match pretty-printing in the future.
 
 ## Working with grammars and rule objects
 
-There's a grammar builder in `clearley.grammar`. For details, check out the [docs](http://eightnotrump.github.io/clearley/codox/clearley.grammar.html).
+There's a grammar builder in `clearley.grammar`. For details, check out the [docs](http://mthvedt.github.io/clearley/codox/clearley.grammar.html).
 
 A grammar is a map from symbols to rules. The grammar builder will 'normalize' all rules, converting them to maps, converting symbols to qualified symbols, and looking up any symbol in the current namespace. These grammars are maps and can be manipulated like any other. If a rule is normalized, the original rule will be mapped to :original. It looks like this (truncated for brevity):
 
