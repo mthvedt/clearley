@@ -114,7 +114,7 @@ There's another one: _tagged sequences._ They look like this:
 (def whitespace `(:or \space \tab \newline \return))
 ```
 
-This creates an :or rule that matches any one of thsoe four characters, and returns the matched character. Prefix lists may be any [sequential](http://clojure.github.io/clojure/clojure.core-api.html#clojure.core/sequential?) object--including vectors, lists, and all seqs.
+This creates an :or rule that matches any one of those four characters, and returns the matched character. Prefix lists may be any [sequential](http://clojure.github.io/clojure/clojure.core-api.html#clojure.core/sequential?) object--including vectors, lists, and all seqs.
 
 You can mix-and-match shorthand:
 
@@ -223,4 +223,4 @@ Clearley is beta software and has a few drawbacks:
 
 ## License
 
-Clearley is licesned under the EPL, the same as Clojure.
+Clearley is licensed under the EPL, the same as Clojure.
