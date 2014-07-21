@@ -8,11 +8,16 @@ Parsing for Earthlings.
 
 ## Overview
 
-Clearley is born of a fustration with the current state-of-the-art in parsers, which are alternately of limited power or difficult to use (or both).
+Clearley is a parser generator for Clojure. Its goal is to eliminate the usability and theory headaches that usually come with parsing.
+With Clearley, anyone can write a parser, and the parser Just Works™.
 
-Why yet another parser? The idea is to make parsing like pattern matching. You write a bunch of fns to process data, and Clearley calls each fn when the input matches some rule. Rules may refer to other rules in recursive and arbitrary fashion. Rules are ordinary Clojure data structures, defined with ordinary fns and macros; so you can mix, match, and generate your own, or use the library that comes with Clearley. And rules are for processing input, not just parsing it.
+## Features
 
-The parser underneath is a *general context-free grammar parser* (a hybrid Earley-LR(1) automaton, hence the name). It can match any set of rules in polynomial time (and in practice usually linear time), and always find a correct match if one exists. Finally, It can handle any input, not just text.
+* Full context-free grammar parser. The parser can handle any valid set of rules and always parses correctly when possible. Many other parsers (LR, recursive-descent) will fail for some rulesets or fail to parse valid input.
+* All parsers run in `O(n^3)` time, and most sane rulesets run in `O(n)` time.
+* No need for a separate "tokenizer" step.
+* Pattern-matching style syntax makes writing parsers (almost) as easy as writing `defn`s.
+* Can parse any seq of objects, not just text.
 
 ## Crash course
 
@@ -27,20 +32,24 @@ Parsing is for whenever you have a stream of structured input that you want to t
 => "Hello, world!"
 ```
 
-The rule `h` matches the letter 'h', and returns "Hello, ". The rule `w` matches 'w', and returns "world!" The rule `goal` matches the rules `h` followed by `w`, and returns the string concatenation of the two results.
+The rule `h` matches the letter 'h', and returns "Hello, ". The rule `w` matches 'w', and returns "world!"
+The rule `goal` matches the rules `h` followed by `w`, and concatenates the results.
 
-Of course there is a defmatch macro also. It works kind of like defn. There is also a shortcut where rules can point to other rules directly.
+Clearley will find any possible match, no matter how much backtracking or ambiguity are in the rulesets.
 
-Here is a calculator written in Clearley:
+Of course there's also a `defmatch` macro. Here is a calculator written in Clearley using `defmatch`:
 
 ```clojure
 (use 'clearley.core 'clearley.match 'clearley.lib)
 
 (defmatch sum
+  ; Defn-like syntax. You define the pattern match, and can refer to matched rules in the body.
   ([sum \+ term] (+ sum term))
   ([sum \- term] (- sum term))
+  ; Rules can also point directly to other rules.
   term)
 (defmatch term
+  ; The rule 'natnum' comes from the namespace clearley.lib.
   ([term \* natnum] (* term natnum))
   ([term \/ natnum] (/ term natnum))
   natnum)
@@ -51,16 +60,21 @@ user=> (execute my-calculator "1+1")
 2
 ```
 
-In particular, note the following:
+The above example demonstrates the following:
 
 * Rules are modular and can be combined. The rule `natnum` comes from the namespace `clearley.lib`. It matches any positive number and returns it.
-* Forward-references are handled naturally. As long as a symbol is visible when the grammar is built, you're good.
-* The order of subrules--sum => sum + term--enforces left-to-right evaluation. Clearley can handle ambiguous grammars, so if the order doesn't matter, you could have said sum => sum + sum.
-* Clearley is what you call a "scannerless" parser. Many parsers need a separate step to break input into chunks called "tokens". Clearley does not need this.
+* Forward-references require no special handling. The parser builder resolves all symbols at build time.
+* The order of subrules--sum => sum + term--enforces left-to-right evaluation.
+Clearley can handle ambiguous grammars, so if the order doesn't matter, you could have said sum => sum + sum.
+* Clearley does not need a "tokenization" step, unlike many other parsers.
 
-More examples live in [test/clearley/test/examples](https://github.com/mthvedt/clearley/tree/master/test/clearley/examples). For instance, there's a standards-compliant JSON parser. Since JSON uses a different set of tokens (i.e. different whitespace, control characters, escape characters) than does Java, this task requires you to define a bunch of low-level parsing stuff as well as the high-level JSON strucutre. _(N.B.: At least two fairly popular parsing libraries use JSON as an example, only to get it wrong and miss a lot of details. Clearley's design makes it natural to account for things like difference in whitespace, control characters, encodings.)_
+More examples live in [test/clearley/test/examples](https://github.com/eightnotrump/clearley/tree/master/test/clearley/examples).
+For instance, there's a standards-compliant JSON parser. JSON uses different tokens (viz. different whitespace, control characters, and escape characters) than does Java.
+This is where Clearley offers an advantage, since Clearley's design makes it natural to use alternate definitions for whitespace and so on.
+_(N.B.: At least two fairly popular parsing libraries use JSON as an example, only to get it wrong and miss these details.)_
 
-Parser related stuff lives in `clearley.core` and the defmatch frontend lives in `clearley.match`. All libraries are documented at http://mthvedt.github.io/clearley/codox/ .
+Parser related stuff lives in `clearley.core` and the defmatch frontend lives in `clearley.match`.
+All libraries are documented at http://eightnotrump.github.io/clearley/codox/ .
 
 ## Working with rules
 
@@ -70,19 +84,22 @@ The quickest way to define rules is the defmatch macro. To recap:
 (defmatch sum [sum \+ times] (+ sum times))
 ```
 
-You can also substitute names in defmatch, by supplying a name-rule pair:
+You can use `(symbol, rule)` pairs to supply alternate bindings.
 ```clojure
 (defmatch sum [(foo sum) \+ (bar times)] (+ foo bar))
 ```
 
-In defmatch, symbols will be resolved if they can, and in the current namespace if htey can't. This lets you use symbols as forward-references so you can make recursive grammars. The parser/grammar builder will figure out the symbols at build time. The auto-qualification means you can have rules that point to rules from a different namespace. (This also means that you can extend rules by substituting rules into grammar maps--see below.)
+Defmatch allows you to refer to rules that are not yet defined.
+The parser/grammar builder will look up the symbols at build time.
+Defmatch will also eagerly look up symbols if it can, so you can pull in rules from different namespaces.
+(This also means that you can extend rules by substituting rules into grammar maps--see below.)
 
 The match macro is like defmatch, but doesn't def anything:
 ```clojure
 (def sum (match [sum \+ term] (+ sum term)))
 ```
 
-For more complicated rules, the bind and defbind macros work like Clojure's let macro:
+For more complicated rules, the bind and defbind macros can define rules with syntax like Clojure's `let`:
 ```clojure
 (defbind sum [num1 sum
               op (or-rule [\+ \-])
@@ -90,13 +107,17 @@ For more complicated rules, the bind and defbind macros work like Clojure's let 
   ((symbol (str op)) num1 num2)
 ```
 
-Here, the rule op matches either the + or - character. The rule body converts op into the symbol '+ or '-, then calls (+ num1 num2) or (- num1 num2).
+All of these 'bindings' are matched in sequence.
+Here, the rule `op` matches either the `+` or `-` character. The rule body converts op into the symbol `'+` or `'-`, then calls `(+ num1 num2)` or `(- num1 num2)`.
 
-In addition to these macros, Clearley has plenty more macros and fns available that create rules. The namespace `clearely.match` contains a core library of macros and fns for defining rules. A whole lot more lives in `clearley.lib`, a collection of common rules and rule fns. It's split this way so you can `(use clearley.match)` without filling your namespace with too much stuff. Check out the codox: [match](http://mthvedt.github.io/clearley/codox/clearley.match.html) and [lib](http://mthvedt.github.io/clearley/codox/clearley.lib.html).
+Clearley also offers a full library of parsing macros and fns.
+The namespace `clearely.match` contains a core library of macros and fns for defining rules.
+Many more useful rules and fns for common tasks live in `clearley.lib`,
+Here's the codox: [match](http://eightnotrump.github.io/clearley/codox/clearley.match.html) and [lib](http://eightnotrump.github.io/clearley/codox/clearley.lib.html).
 
 ### Scanning rules
 
-Sometimes you want a fn that tells you if a token matches a rule. The fn ```clearley.core/scanner``` does this. For instance, this rule
+Sometimes you want a fn that tells you if a token matches a rule. The fn `clearley.core/scanner` does this. For instance, this rule
 
 ```clojure
 (scanner #(java.lang.Character/isWhitespace %))
@@ -106,15 +127,17 @@ matches any Java whitespace character and returns it.
 
 ### Shorthand
 
-In addition to using the fns above, you can plug in _shorthand rules_ to other rules. You've already seen two kinds of shorthand: symbols, which point to other rules; and plain old objects.
+In addition to using the fns above, you can plug in _shorthand rules_ to other rules.
+You've already seen two kinds of shorthand: symbols, which point to other rules; and plain old objects.
 
-There's another one: _tagged sequences._ They look like this:
+There's also _tagged sequences._ They look like this:
 
 ```clojure
 (def whitespace `(:or \space \tab \newline \return))
 ```
 
-This creates an :or rule that matches any one of those four characters, and returns the matched character. Prefix lists may be any [sequential](http://clojure.github.io/clojure/clojure.core-api.html#clojure.core/sequential?) object--including vectors, lists, and all seqs.
+This creates an :or rule that matches any one of those four characters, and returns the matched character.
+Tagged sequences may be any [sequential](http://clojure.github.io/clojure/clojure.core-api.html#clojure.core/sequential?) object--including vectors, lists, and all seqs.
 
 You can mix-and-match shorthand:
 
@@ -122,20 +145,24 @@ You can mix-and-match shorthand:
 (def foo `(:or bar baz \x (:seq ~(star-rule 'bitcoin) satoshi)))
 ```
 
-but note that tagged sequences don't work in match/defmatch, because that's how match names subrules.
+Tagged sequences cannot be used directly in `match` or `defmatch` macros, because they clash with existing syntax.
+You can refer to them indirectly by `def`ing one to a symbol.
 
-### Rules in detail
+### Low-level rules
 
-__Now we're getting into fancy stuff.__ I truly believe that software should be open and usable as possible, and have a passionate hate for software that tries to slot you into a specific workflow using magic functions. So the whole intermediate representation of Clearley is exposed to the user. But you don't need to undersand this to use all the goodies in `clearley.match` and `clearley.lib`.
+Clearley exposes its own internal rules API.
+I bear a passionate hate for software libraries that try to hide everything behind magic functions,
+so Clearley exposes everything to the user.
+That's how you make modular, reusable, and extendable software: with fully exposed functional and consistent interfaces.
 
-All rules, in the end, are maps, but Clearley supports simpler data structures when maps aren't needed. There are four kinds in total.
+Rules can be one of four things:
 
-* Maps, described below. The grammar builder turns all rules into maps, in the end.
+* Maps, described below. The grammar builder turns all rules into maps in the end.
 * Symbols. These point to other rules.
 * Token literals. These are anything that aren't maps, sequences, or symbols.
 * Tagged sequences.
 
-The most general, full kind of rule is represented as a map. This is what they look like:
+Maps are the most general kind. They have the following keys:
 
 key 	| required?	| description
 ---|---|---
@@ -144,8 +171,6 @@ key 	| required?	| description
 :value	| required	| a sequence of subrules (vector, list, seq, or any other Sequential)
 :action	| optional	| the parse action. if not supplied, a reasonable default is provided (see below)
 :original	| supplied by the grammar builder	| if this rule was made by a grammar builder, this is the rule it was based on
-
-The :tag is just what kind of rule it is. We've seen a few tags already, in the tagged rule lists. The :value is a sequence of subrules. The :action is the _parse action_--it tells Clearley what to do if it matches a rule. The :original is created by the grammar builder (see below), when it 'normalizes' rules to a uniform format.
 
 Rule behavior is defined with rule tags. These are the rule tags supported by Clearley:
 
@@ -183,7 +208,7 @@ I hope to introduce better, more readable match pretty-printing in the future.
 
 ## Working with grammars and rule objects
 
-There's a grammar builder in `clearley.grammar`. For details, check out the [docs](http://mthvedt.github.io/clearley/codox/clearley.grammar.html).
+There's a grammar builder in `clearley.grammar`. For details, check out the [docs](http://eightnotrump.github.io/clearley/codox/clearley.grammar.html).
 
 A grammar is a map from symbols to rules. The grammar builder will 'normalize' all rules, converting them to maps, converting symbols to qualified symbols, and looking up any symbol in the current namespace. These grammars are maps and can be manipulated like any other. If a rule is normalized, the original rule will be mapped to :original. It looks like this (truncated for brevity):
 
