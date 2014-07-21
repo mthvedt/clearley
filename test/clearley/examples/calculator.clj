@@ -1,4 +1,5 @@
 (ns clearley.examples.calculator
+  (require clearley.core)
   (use clearley.match clearley.lib clojure.math.numeric-tower))
 
 (defmatch sum
