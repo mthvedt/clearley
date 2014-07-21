@@ -1,8 +1,6 @@
 # Clearley
 
-```
-[clearley "0.3.1"]
-```
+[![Clojars Project](http://clojars.org/clearley/latest-version.svg)](http://clojars.org/clearley)
 
 Parsing for Earthlings.
 
