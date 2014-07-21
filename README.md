@@ -1,7 +1,7 @@
 # Clearley
 
 ```
-[clearley "0.3.0"]
+[clearley "0.3.1"]
 ```
 
 Parsing for Earthlings.
@@ -32,7 +32,7 @@ Parsing is for whenever you have a stream of structured input that you want to t
 => "Hello, world!"
 ```
 
-The rule `h` matches the letter 'h', and returns "Hello, ". The rule `w` matches 'w', and returns "world!"
+The rule `h` matches the letter 'h', and returns `"Hello, "`. The rule `w` matches 'w', and returns `"world!"`
 The rule `goal` matches the rules `h` followed by `w`, and concatenates the results.
 
 Clearley will find any possible match, no matter how much backtracking or ambiguity are in the rulesets.
@@ -43,7 +43,8 @@ Of course there's also a `defmatch` macro. Here is a calculator written in Clear
 (use 'clearley.core 'clearley.match 'clearley.lib)
 
 (defmatch sum
-  ; Defn-like syntax. You define the pattern match, and can refer to matched rules in the body.
+  ; Defn-like syntax. You define the pattern match,
+  ; and can refer to matched rules in the body.
   ([sum \+ term] (+ sum term))
   ([sum \- term] (- sum term))
   ; Rules can also point directly to other rules.
@@ -151,7 +152,7 @@ You can refer to them indirectly by `def`ing one to a symbol.
 ### Low-level rules
 
 Clearley exposes its own internal rules API.
-I bear a passionate hate for software libraries that try to hide everything behind magic functions,
+I bear a passionate hate for software libraries that try to hide everything behind opaque magic APIs,
 so Clearley exposes everything to the user.
 That's how you make modular, reusable, and extendable software: with fully exposed functional and consistent interfaces.
 
@@ -210,7 +211,8 @@ I hope to introduce better, more readable match pretty-printing in the future.
 
 There's a grammar builder in `clearley.grammar`. For details, check out the [docs](http://eightnotrump.github.io/clearley/codox/clearley.grammar.html).
 
-A grammar is a map from symbols to rules. The grammar builder will 'normalize' all rules, converting them to maps, converting symbols to qualified symbols, and looking up any symbol in the current namespace. These grammars are maps and can be manipulated like any other. If a rule is normalized, the original rule will be mapped to :original. It looks like this (truncated for brevity):
+A grammar is a map from symbols to rules. The grammar builder will 'normalize' all rules, converting them to maps, converting symbols to qualified symbols, and looking up any symbol in the current namespace. These grammars are maps and can be manipulated like any other.
+If a rule is normalized, the original rule will be mapped to `:original`. It looks like this (truncated for brevity):
 
 ```clojure
 user=> (def g (clearley.grammar/build-grammar sum))
@@ -235,7 +237,7 @@ If you want, you can look at the parser's parse charts directly, but note that t
 
 ## Disadvantages
 
-Clearley is beta software and has a few drawbacks:
+Clearley is still in development has a few drawbacks:
 
 * Disambiguation is not supported. If input can be parsed in multiple ways, Clearley will silently pick one. This undesirable behavior will probably be changed in the future.
 * Clearley is not (yet) highly performant. Different libraries are available if you need very fast code.

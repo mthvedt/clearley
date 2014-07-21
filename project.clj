@@ -1,4 +1,4 @@
-(defproject clearley "0.3.0"
+(defproject clearley "0.3.1"
   :description "Parsing for Earthlings."
   :dependencies [[org.clojure/clojure "1.5.1"]
                  [eightnotrump/uncore "0.2.0"]
@@ -7,6 +7,13 @@
   :java-source-paths ["java"]
   :aliases {"bench" ["with-profile" "dev,benchmark" "run"]
             "bench-verbose" ["with-profile" "dev,benchmark,vminfo" "run"]}
+  :url "https://github.com/mthvedt/clearley"
+  :license {:name "Eclipse Public License - v 1.0"
+            :url "http://www.eclipse.org/legal/epl-v10.html"
+            :distribution :repo
+            :comments "same as Clojure"}
+  :scm {:name "git"
+        :url "https://github.com/mthvedt/clearley"}
   :profiles {:dev {:repositories {"stuartsierra-releases"
                                   "http://stuartsierra.com/maven2",
                                   "stuartsierra-snapshots"
