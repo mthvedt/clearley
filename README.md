@@ -6,16 +6,13 @@ Parsing for Earthlings.
 
 ## Overview
 
-Clearley is a parser generator for Clojure. Its goal is to eliminate the usability and theory headaches that usually come with parsing.
-With Clearley, anyone can write a parser, and the parser Just Works™.
+Writing parsers should be as easy as writing ordinary Clojure code. Or maybe slightly harder.
 
-## Features
-
-* Full context-free grammar parser. The parser can handle any valid set of rules and always parses correctly when possible. Many other parsers (LR, recursive-descent) will fail for some rulesets or fail to parse valid input.
-* All parsers run in `O(n^3)` time, and most sane rulesets run in `O(n)` time.
-* No need for a separate "tokenizer" step.
-* Pattern-matching style syntax makes writing parsers (almost) as easy as writing `defn`s.
-* Can parse any seq of objects, not just text.
+Clearley is a Clojure-flavored parser generator.
+Parse rules are ordinary maps, and behavior can be defined with a defn-like pattern matching syntax.
+Unlike many parsers, Clearley does not require the user to understand parser theory;
+it accepts any valid set of parse rules and parsers all valid input in polynomial time (usually linear time).
+Clearley can also handle any seq of objects, not just text.
 
 ## Crash course
 
@@ -59,7 +56,7 @@ user=> (execute my-calculator "1+1")
 2
 ```
 
-The above example demonstrates the following:
+The above demonstrates the following:
 
 * Rules are modular and can be combined. The rule `natnum` comes from the namespace `clearley.lib`. It matches any positive number and returns it.
 * Forward-references require no special handling. The parser builder resolves all symbols at build time.
@@ -70,7 +67,7 @@ Clearley can handle ambiguous grammars, so if the order doesn't matter, you coul
 More examples live in [test/clearley/test/examples](https://github.com/eightnotrump/clearley/tree/master/test/clearley/examples).
 For instance, there's a standards-compliant JSON parser. JSON uses different tokens (viz. different whitespace, control characters, and escape characters) than does Java.
 This is where Clearley offers an advantage, since Clearley's design makes it natural to use alternate definitions for whitespace and so on.
-_(N.B.: At least two fairly popular parsing libraries use JSON as an example, only to get it wrong and miss these details.)_
+_(N.B.: At least two fairly popular parsing libraries use JSON as an example, but get it wrong and miss these details.)_
 
 Parser related stuff lives in `clearley.core` and the defmatch frontend lives in `clearley.match`.
 All libraries are documented at http://eightnotrump.github.io/clearley/codox/ .
@@ -90,7 +87,7 @@ You can use `(symbol, rule)` pairs to supply alternate bindings.
 
 Defmatch allows you to refer to rules that are not yet defined.
 The parser/grammar builder will look up the symbols at build time.
-Defmatch will also eagerly look up symbols if it can, so you can pull in rules from different namespaces.
+Defmatch will also look up symbols if it can, so you can pull in rules from different namespaces.
 (This also means that you can extend rules by substituting rules into grammar maps--see below.)
 
 The match macro is like defmatch, but doesn't def anything:
@@ -149,10 +146,10 @@ You can refer to them indirectly by `def`ing one to a symbol.
 
 ### Low-level rules
 
-Clearley exposes its own internal rules API.
-I bear a passionate hate for software libraries that try to hide everything behind opaque magic APIs,
-so Clearley exposes everything to the user.
-That's how you make modular, reusable, and extendable software: with fully exposed functional and consistent interfaces.
+Clearley exposes its own internal rules API, because good libraries are functional, consisten and modular.
+Opaque "magic" APIs are for losers.
+
+The `defmatch` API is just a layer on top of the low-level rules. You could, if you wanted, write your own code to make Clearley rules.
 
 Rules can be one of four things:
 

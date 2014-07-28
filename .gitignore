@@ -2,5 +2,6 @@ lib/*
 classes/*
 target/*
 pom.xml
+pom.xml.asc
 .lein*
 doc
